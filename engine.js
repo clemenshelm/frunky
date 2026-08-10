@@ -242,7 +242,8 @@
     engine.partLabel = label;
     engine.brokenPat = BROKENPATS[Math.floor(Math.random() * BROKENPATS.length)];
     engine.gatePat = GATEPATS[Math.floor(Math.random() * GATEPATS.length)];
-    engine.hookLift = Math.random() < 0.35;
+    // an octave up is the most piercing thing the hook can do; keep it rare
+    engine.hookLift = Math.random() < 0.2;
     if (Math.random() < 0.3) engine.ghosts = !engine.ghosts;
     // lingering notes must not carry the old harmony — or, at a piece
     // boundary, the old KEY — into the new part. The pads were released here
@@ -488,26 +489,30 @@
     gateLp.connect(chorus); gateLp.connect(duck);
     gateLp.connect(delaySend); gateLp.connect(revSend);
 
-    // the hook lead: the piece's identity, so it has to READ as the lead.
-    // Thinning its density without raising its presence is what buried it —
-    // and the cure for buried is rarely gain alone. A pick-attack peak around
-    // 2.4 kHz and an opener lowpass put it in front of the pad wash, where
-    // nothing else in this arrangement lives
-    const hookPres = reg(new Tone.Filter({ type: "peaking", frequency: 2400, Q: 1.1, gain: 5 }));
-    const hookLp = reg(new Tone.Filter({ frequency: 2800, type: "lowpass", Q: 1.2 }));
+    // The hook lead has to be AUDIBLE without being a guest. Two rounds went
+    // past the target in opposite directions: first thinned until it vanished,
+    // then given a 5 dB presence peak, an open lowpass and less reverb than
+    // everything else — which is precisely the recipe for a sound that stands
+    // in FRONT of a mix rather than inside it. What makes a lead belong is
+    // shared space and shared brightness, not level: a modest clarity lift
+    // rather than a bite, a top end no brighter than the pad it sits over,
+    // and the same room as the rest of the band
+    const hookPres = reg(new Tone.Filter({ type: "peaking", frequency: 1800, Q: 0.9, gain: 2 }));
+    const hookAir = reg(new Tone.Filter({ type: "highshelf", frequency: 4800, gain: -5 }));
+    const hookLp = reg(new Tone.Filter({ frequency: 2300, type: "lowpass", Q: 0.9 }));
     hookS = reg(new Tone.Synth({
       oscillator: { type: "fatsquare", count: 2, spread: 12 },
       envelope: { attack: 0.004, decay: 0.18, sustain: 0.15, release: 0.08 },
     }));
-    hookS.volume.value = db(0.55);
+    hookS.volume.value = db(0.42);
     hookS.connect(hookPres);
     // the sampled muted guitar shares the hook chain — square is the fallback
-    hookGit.disconnect(); hookGit.volume.value = db(1.0);
+    hookGit.disconnect(); hookGit.volume.value = db(0.72);
     hookGit.connect(hookPres);
-    hookPres.connect(hookLp);
-    // mostly dry: a lead drowned in the same room as the pad stops being in
-    // front of it. The delay carries the phrase, the reverb only wets the edge
-    const hookRev = reg(new Tone.Gain(0.35));
+    hookPres.connect(hookAir); hookAir.connect(hookLp);
+    // the same room as the pads: a dry lead over a wet arrangement reads as
+    // overdubbed onto it. The delay keeps carrying the phrase's rhythm
+    const hookRev = reg(new Tone.Gain(0.8));
     hookLp.connect(duck); hookLp.connect(delaySend);
     hookLp.connect(hookRev); hookRev.connect(revSend);
 
@@ -1077,7 +1082,14 @@
     if (engine.partLabel === "B" && !still && !breather && engine.piece &&
         (bar % 16 < 8 || bar % 16 >= 12) && bar % 16 !== 13) {
       const hb = bar % 16;
-      const line = bar % 2 === 0 ? engine.piece.hook.call : engine.piece.hook.resp;
+      const answering = bar % 2 === 1;
+      const full = answering ? engine.piece.hook.resp : engine.piece.hook.call;
+      // An answer that is as insistent as its call is not an answer, it is the
+      // riff played twice — and twice as much of anything is how a hook turns
+      // into a foreign body. The response keeps only its opening and its
+      // ending, so the shape survives while the density halves
+      const line = answering && full.length > 2
+        ? [full[0], full[full.length - 1]] : full;
       const lift = engine.hookLift && hb >= 12 ? 12 : 0;
       const n = line.find((x) => x.p === pos);
       if (n) {
@@ -1085,16 +1097,21 @@
         let sN = n.s + lift;
         if (isLast && hb === 5) sN += 12; // octave pop, second time around
         const fr = 57 + sN;
-        // coming back from the rest window is the hook's best moment — play
-        // the return like a re-entry, not like a continuation
-        const gain = hb === 12 ? 1.3 : 1;
+        // Dynamics are what let a repeated figure breathe: the answer sits
+        // back, the return from the rest window leans in a little, and the
+        // ornaments are played SOFTER than the plain statement rather than
+        // louder — an ornament earns attention by being different, and one
+        // that also shouts is the thing you end up wanting to turn down
+        const gain = (answering ? 0.82 : 1) * (hb === 12 ? 1.12 : 1);
         if (!flowMode || PENTA.includes(fr % 12)) {
           if (isLast && (hb === 7 || hb === 15)) {
             // tail flourish: the ending splits and falls into the turnaround
-            hookNote(hum(t, pos), F(Math.min(fr + 12, 81)), SPB * 0.9, vel(0.16 * n.a));
-            hookNote(hum(t, pos) + SPB, F(fr), SPB * Math.max(n.d - 1, 1) * 0.9, vel(0.2 * n.a));
+            hookNote(hum(t, pos), F(Math.min(fr + 12, 81)), SPB * 0.9, vel(0.11 * n.a * gain));
+            hookNote(hum(t, pos) + SPB, F(fr), SPB * Math.max(n.d - 1, 1) * 0.9,
+              vel(0.15 * n.a * gain));
           } else {
-            hookNote(hum(t, pos), F(fr), SPB * n.d * 0.9, vel(0.2 * n.a * gain));
+            hookNote(hum(t, pos), F(fr), SPB * n.d * 0.9,
+              vel(0.17 * n.a * gain * (isLast && hb === 5 ? 0.8 : 1)));
           }
         }
       }
