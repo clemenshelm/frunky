@@ -57,13 +57,23 @@ ok("standing still has no lateral force", Geo.lateralG(0, 30) === 0);
   // a browser that withholds speed and heading: both must be derived
   const r = Geo.createReader();
   const t0 = 2_000_000;
-  // ~0.0003° of latitude per second ≈ 33 m/s ≈ 120 km/h
-  r.push({ lat: 48, lon: 11, speed: null, heading: null, t: t0 });
-  r.push({ lat: 48.0003, lon: 11, speed: null, heading: null, t: t0 + 1000 });
-  r.push({ lat: 48.0006, lon: 11.0001, speed: null, heading: null, t: t0 + 2000 });
+  // a track curving east at ~0.0003° of latitude per second ≈ 33 m/s ≈ 120 km/h.
+  // Two headings are needed before a turn rate exists at all, so this needs
+  // more than a couple of fixes — as a real curve does
+  let lat = 48, lon = 11, hdg = 0;
+  const STEP_M = 33.4;                 // per second ≈ 120 km/h
+  for (let i = 0; i <= 6; i++) {
+    r.push({ lat, lon, speed: null, heading: null, accuracy: 8, t: t0 + i * 1000 });
+    const h = (hdg * Math.PI) / 180;
+    lat += (STEP_M * Math.cos(h)) / 111320;
+    lon += (STEP_M * Math.sin(h)) / (111320 * Math.cos((lat * Math.PI) / 180));
+    hdg += 6;                          // a steady 6°/s bend
+  }
+  // stay inside the staleness horizon: past it the reader is SUPPOSED to
+  // stop claiming a speed, which is a different assertion (below)
   let s = { speed: 0, lateralG: 0 };
-  for (let i = 0; i < 200; i++) s = r.sample(t0 + 2000 + i * 16, 0.016);
-  near("speed derived from the track", s.speed, 120, 25);
+  for (let i = 0; i < 120; i++) s = r.sample(t0 + 6000 + i * 16, 0.016);
+  near("speed derived from the track", s.speed, 120, 30);
   ok("cornering derived from the track", Math.abs(s.lateralG) > 0.001);
 }
 {
@@ -86,6 +96,53 @@ ok("standing still has no lateral force", Geo.lateralG(0, 30) === 0);
   ok("fix count starts at zero", r.fixCount() === 0);
 }
 
+// ---- the desktop trap -------------------------------------------------------
+// A computer has no GPS. It locates over wifi, reports no speed at all, and
+// relocates in jumps of hundreds of metres. Read as motion, one such jump is a
+// launch to highway speed — and since no further fix ever arrives, the
+// extrapolated speed then stays there forever. Sitting still must read as
+// sitting still.
+{
+  const r = Geo.createReader();
+  const t0 = 5_000_000;
+  // a wifi fix, then the same spot re-estimated 300 m away, then silence
+  r.push({ lat: 48, lon: 11, speed: null, heading: null, accuracy: 35, t: t0 });
+  r.push({ lat: 48.0027, lon: 11, speed: null, heading: null, accuracy: 35, t: t0 + 1000 });
+  let s = { speed: 0 };
+  for (let i = 0; i < 60; i++) s = r.sample(t0 + 1000 + i * 16, 0.016);
+  ok("a relocation jump is not acceleration", s.speed < 25);
+  // ten seconds of silence: the reader must not still be claiming a speed
+  for (let i = 0; i < 700; i++) s = r.sample(t0 + 1000 + i * 16, 0.016);
+  ok("a speed with no fix behind it decays away", s.speed < 2);
+  ok("a stale stream is reported as stale", r.diagnostics(t0 + 12000).stale === true);
+}
+{
+  // IP-level accuracy: the position is a city, not a car. Deriving a speed
+  // from the difference between two such guesses is noise with a unit
+  const r = Geo.createReader();
+  const t0 = 6_000_000;
+  r.push({ lat: 48, lon: 11, speed: null, heading: null, accuracy: 3000, t: t0 });
+  r.push({ lat: 48.004, lon: 11.004, speed: null, heading: null, accuracy: 3000, t: t0 + 1000 });
+  let s = { speed: 0 };
+  for (let i = 0; i < 60; i++) s = r.sample(t0 + 1000 + i * 16, 0.016);
+  ok("coarse fixes produce no speed", s.speed < 2);
+  ok("coarse fixes are named as such", r.diagnostics(t0 + 1000).speedSource === "grob");
+}
+{
+  // the real car case must keep working: good accuracy, a real reported speed,
+  // fixes arriving about once a second
+  const r = Geo.createReader();
+  const t0 = 7_000_000;
+  for (let i = 0; i <= 5; i++) {
+    r.push({ lat: 48 + i * 0.0003, lon: 11, speed: 25 + i, heading: 0, accuracy: 6,
+      t: t0 + i * 1000 });
+  }
+  let s = { speed: 0 };
+  for (let i = 0; i < 60; i++) s = r.sample(t0 + 5000 + i * 16, 0.016);
+  near("a real drive still tracks", s.speed, 108, 12);
+  ok("a live stream is not stale", r.diagnostics(t0 + 5200).stale === false);
+}
+
 // ---- field-test diagnostics -------------------------------------------------
 // The in-car test's real question is whether this browser reports speed and
 // heading at all; a reader that cannot say so leaves the trip unevaluable
@@ -105,8 +162,8 @@ ok("standing still has no lateral force", Geo.lateralG(0, 30) === 0);
   ok("names the receiver as the heading source", d.headingSource === "coords");
 
   const r2 = Geo.createReader();
-  r2.push({ lat: 48, lon: 11, speed: null, heading: null, t: t0 });
-  r2.push({ lat: 48.001, lon: 11, speed: null, heading: null, t: t0 + 1000 });
+  r2.push({ lat: 48, lon: 11, speed: null, heading: null, accuracy: 8, t: t0 });
+  r2.push({ lat: 48.001, lon: 11, speed: null, heading: null, accuracy: 8, t: t0 + 1000 });
   const d2 = r2.diagnostics(t0 + 1000);
   ok("names the track as the speed source when the browser withholds it",
     d2.speedSource === "track");

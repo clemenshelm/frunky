@@ -211,8 +211,11 @@
     const C = rollBundle("bridge", pC, mood, B); // bridge must contrast the chorus
     engine.piece = {
       num: prev ? prev.num + 1 : 1,
-      form: FORMS[Math.floor(Math.random() * FORMS.length)],
+      // a COPY: a launch rewrites this piece's script, and mutating the shared
+      // pool entry would corrupt the form for every piece that follows
+      form: FORMS[Math.floor(Math.random() * FORMS.length)].slice(),
       idx: 0,
+      pulled: false,
       tp: tpPool[Math.floor(Math.random() * tpPool.length)],
       mood,
       parts: { A, B, C },
@@ -241,8 +244,18 @@
     engine.gatePat = GATEPATS[Math.floor(Math.random() * GATEPATS.length)];
     engine.hookLift = Math.random() < 0.35;
     if (Math.random() < 0.3) engine.ghosts = !engine.ghosts;
-    // lingering pads must not carry old harmony into the new part
-    padS.releaseAll(t); padTri.releaseAll(t);
+    // lingering notes must not carry the old harmony — or, at a piece
+    // boundary, the old KEY — into the new part. The pads were released here
+    // already; the sustained highway root, the gate's long tails and the
+    // Rhodes were not, and a bass drone from the previous key sounding under
+    // the new one is exactly "the instruments don't fit together"
+    hush(t);
+  }
+  // silence everything that can still be ringing from the previous harmony
+  function hush(t) {
+    padS.releaseAll(t); padTri.releaseAll(t); gateS.releaseAll(t);
+    bassSubS.triggerRelease(t);
+    if (rhodes && rhodes.loaded) rhodes.releaseAll(t);
   }
 
   // swing lives in the Tone.js Transport now — hum() only adds micro-jitter
@@ -311,7 +324,7 @@
   let brakeNoise, brakeLp, brakeGain, brakeOsc, brakeOscGain;
   let stretchNoise, stretchBp, stretchGain;
   let padS, padTri, padHp, padLp, arpS, arpLp, stabS, stabLp;
-  let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS, gateS;
+  let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS, gateS, gateAmp;
   // sampled instruments persist across play cycles — buffers load once
   let rhodes = null, hookGit = null;
   function ensureSamplers() {
@@ -452,15 +465,23 @@
     // stutter. The fifth softener is elsewhere: a quiet sustained pad stays
     // underneath (see chordVoice), so the gate modulates a bed instead of
     // being the only thing there
+    // A gate is a tremolo on a HELD chord — not the chord being replayed on
+    // every sixteenth. Retriggering was both the harsh sound (forty fresh note
+    // attacks a bar, each with its own transient) and a real load: around
+    // thirty overlapping voices at all times, on a CPU that also drives the
+    // car's screen. One sustained chord through an automated gain is what the
+    // effect actually is, costs four voices instead of forty, and lets the
+    // gate close to a floor instead of to nothing
     const gateHp = reg(new Tone.Filter({ frequency: 180, type: "highpass" }));
     const gateLp = reg(new Tone.Filter({ frequency: 1050, type: "lowpass", Q: 0.5 }));
+    gateAmp = reg(new Tone.Gain(0));
     gateS = reg(new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: "fattriangle", count: 2, spread: 12 },
-      envelope: { attack: 0.03, decay: 0.14, sustain: 0.4, release: 0.22 },
+      envelope: { attack: 0.35, decay: 0.2, sustain: 1, release: 0.8 },
     }));
-    gateS.volume.value = db(0.17);
-    poly(gateS, 48);
-    gateS.connect(gateHp); gateHp.connect(gateLp);
+    gateS.volume.value = db(0.3);
+    poly(gateS, 12);
+    gateS.connect(gateAmp); gateAmp.connect(gateHp); gateHp.connect(gateLp);
     gateLp.connect(chorus); gateLp.connect(duck);
     gateLp.connect(delaySend); gateLp.connect(revSend);
 
@@ -624,10 +645,16 @@
   function duckAt(t, depth) {
     const g = duck.gain;
     g.cancelScheduledValues(t);
-    // ease into the duck over 5 ms instead of stepping: the sidechain fires on
-    // every kick, so a step here is a click on every beat — the exact shape of
-    // "single beats aren't quite smooth"
-    g.setTargetAtTime(1 - depth, t, 0.0015);
+    // Anchor at 1, dip over 4 ms, recover over 0.28 s — three explicit points,
+    // all of them ramps. Stepping straight down (the original) clicks on every
+    // kick; reaching for setTargetAtTime instead (the first attempt at that
+    // click) is worse, because setTarget has no end time, so the next kick's
+    // cancelScheduledValues can leave the whole melodic bus parked at the
+    // ducked level with nothing scheduled to bring it back — everything
+    // through this gain quietly dies while the drums keep playing.
+    // An anchored ramp cannot get stuck: every kick re-states where it starts
+    g.setValueAtTime(1, t);
+    g.linearRampToValueAtTime(1 - depth, t + 0.004);
     g.linearRampToValueAtTime(1, t + 0.28);
   }
   function heartbeat(t, vol, f0) {
@@ -665,11 +692,16 @@
     if (hookGit && hookGit.loaded) hookGit.triggerAttackRelease(freq, dur, t, vv(vol, 0.16));
     else hookS.triggerAttackRelease(freq, dur, t, vv(vol, 0.2));
   }
-  function gateChord(t, midis, vol) {
-    // notes overlap their neighbours on purpose: the tail of each pulse
-    // carries into the closed step, which is the difference between a wash
-    // that breathes and a chord being cut with scissors
-    gateS.triggerAttackRelease(midis.map(F), SPB * 1.35, t, vv(vol, 0.17));
+  // the gate's amplitude, one automation point per sixteenth. No
+  // cancelScheduledValues: steps are scheduled in increasing time order, so
+  // the ramps chain by themselves — and a cancel is exactly how an automated
+  // gain gets left parked somewhere it can't come back from
+  function gateLevel(t, target, up) {
+    gateAmp.gain.linearRampToValueAtTime(target, t + (up ? 0.014 : 0.032));
+  }
+  function gateHold(t, midis) {
+    // one bar plus a tail; the tail is what sounds through a closed step
+    gateS.triggerAttackRelease(midis.map(F), SPB * 18, t, 0.55);
   }
   function rhodesChord(t, midis, vol) {
     if (!rhodes || !rhodes.loaded) { stabChord(t, midis, vol); return; }
@@ -727,12 +759,20 @@
     // familiarity, small per-occurrence variation keeps attention
     if (pos === 0 && bar % 16 === 0) {
       if (!engine.piece || engine.piece.idx >= engine.piece.form.length) newPiece();
-      // the drive steers the FORM, not only the layers: a launch pulls the
-      // next chorus forward to this boundary instead of waiting its turn
+      // the drive steers the FORM, not only the layers: a launch brings the
+      // next chorus forward. It SWAPS with the part that was due, so nothing
+      // is lost — advancing the index instead deleted every part in between,
+      // and in town, where a launch happens at every light, that collapsed the
+      // song into nothing but choruses and the bridge never played at all.
+      // Once per piece: a form that reorders itself endlessly is not a form
       if (engine.pullChorus) {
-        const j = engine.piece.form.indexOf("B", engine.piece.idx);
-        if (j >= 0) engine.piece.idx = j;
         engine.pullChorus = false;
+        const f = engine.piece.form, i = engine.piece.idx;
+        const j = f.indexOf("B", i + 1);
+        if (!engine.piece.pulled && f[i] !== "B" && j > i) {
+          f[i] = "B"; f[j] = "A"; // the displaced verse takes the chorus's slot
+          engine.piece.pulled = true;
+        }
       }
       loadPart(t);
       engine.piece.idx++;
@@ -755,13 +795,16 @@
         if (pieceEnd) fillSwell(t, SPB * 14);
       }
     }
-    // the GAP: half a beat of near-silence before a chorus, then the impact on
-    // the one — the cheapest wow moment electronic music owns
-    if (pos === 14 && bar % 16 === 15 && !still && nextIsB) {
+    // the GAP: a breath of near-silence, then the impact on the one. It only
+    // earns that after the bridge's breakdown — before EVERY chorus it stops
+    // reading as a drop and starts reading as the music cutting out, which is
+    // indistinguishable from a fault. And it holds back a little rather than
+    // going fully silent, for the same reason
+    if (pos === 14 && bar % 16 === 15 && !still && nextIsB && engine.partLabel === "C") {
       const g = master.gain;
       g.cancelScheduledValues(t);
       g.setValueAtTime(0.9, t);
-      g.linearRampToValueAtTime(0.03, t + SPB * 1.7);
+      g.linearRampToValueAtTime(0.12, t + SPB * 1.6);
       engine.dropAt = s + 2;
     }
     if (s === engine.dropAt) {
@@ -770,7 +813,7 @@
       // ramp back over ~8 ms, never step: a gain jump from 0.03 to 0.9 between
       // two samples is a discontinuity in the waveform, and a discontinuity is
       // a click. Too short to hear as a fade, long enough to not snap
-      master.gain.setValueAtTime(0.03, t);
+      master.gain.setValueAtTime(0.12, t);
       master.gain.linearRampToValueAtTime(0.9, t + 0.008);
       if (!still) impact(t);
     }
@@ -789,12 +832,12 @@
       const was = engine.flowOn;
       if (!engine.flowOn && flowHigh > 0.65) engine.flowOn = true;
       else if (engine.flowOn && flowHigh < 0.5) engine.flowOn = false;
-      if (was !== engine.flowOn) { padS.releaseAll(t); padTri.releaseAll(t); }
+      if (was !== engine.flowOn) hush(t);
     }
     const flowMode = engine.flowOn;
     const liftPhase = flowMode && bar % 24 >= 16;
     if (pos === 0 && flowMode && (bar % 24 === 16 || bar % 24 === 0)) {
-      padS.releaseAll(t); padTri.releaseAll(t); // clean lift entry and exit
+      hush(t); // clean lift entry and exit
     }
     engine.liftActive = liftPhase;
     const progEff = !flowMode ? engine.prog : liftPhase ? LIFTPROG : PEDALPROG;
@@ -972,12 +1015,28 @@
           blip(hum(t, pos), F(m), vel(0.05));
         }
       }
-      if (engine.padStyle === "gate" && engine.gatePat[pos]) {
-        // a gated section must not arrive at full force on its downbeat —
-        // it swells in over three bars, so the ear meets a change rather
-        // than a switch being thrown
+    }
+    // the gate: a held chord, tremolo'd. Its level is scheduled on EVERY step,
+    // gated section or not, so the automation can never be left half-open when
+    // a section changes underneath it
+    if (gateAmp) {
+      const gateOn = engine.padStyle === "gate" && !engine.flowOn && !still && !bridgeDown;
+      if (gateOn) {
+        const ciPad = hrEff === "twobar" ? Math.floor(bar / 2) % 4 : bar % 4;
+        // re-voice only when the harmony actually moves — the gate's whole
+        // point is that the chord is continuous underneath the rhythm
+        const barChanges = hrEff === "twobar" ? bar % 2 === 0 : true;
+        if (pos === 0 && barChanges) gateHold(t, progEff[ciPad]);
+        // a gated section must not arrive at full force on its downbeat: it
+        // swells in over three bars, so the ear meets a change, not a switch.
+        // And it closes to a FLOOR, never to silence — that floor is the
+        // difference between a pulse and a chop
         const ramp = clamp((engine.barInPart + 1) / 3, 0.35, 1);
-        gateChord(hum(t, pos), chordNow, vel((pos % 4 === 0 ? 0.12 : 0.09) * ramp));
+        const on = engine.gatePat[pos];
+        gateLevel(t, (on ? (pos % 4 === 0 ? 1 : 0.84) : 0.3) * ramp, !!on);
+      } else {
+        if (pos === 0) gateS.releaseAll(t);
+        gateLevel(t, 0, false);
       }
     }
     // the hook riff: the piece's identity — chorus only. Same-same-DIFFERENT:
@@ -1179,8 +1238,19 @@
   // whichever dominates. The one number both pages put on a meter
   function force() { return Math.max(engine.thrust, engine.brake); }
 
+  // A test seam, and the only way an automated check can tell "playing" from
+  // "silent": both of these gains are automated by the music itself (the
+  // sidechain, the drop gap), so a bug that parks one of them low is heard as
+  // the music dying and is visible nowhere else
+  function levels() {
+    return {
+      master: master ? master.gain.value : 0,
+      duck: duck ? duck.gain.value : 0,
+    };
+  }
+
   window.Frunky = {
-    start, stop, update, status, describe, force,
+    start, stop, update, status, describe, force, levels,
     isRunning: () => engine.running,
     isBuilding: () => building,
   };

@@ -227,11 +227,14 @@
       const kmh = Math.round(input.speed);
       if (kmh !== shownSpeed) { shownSpeed = kmh; speedEl.textContent = String(kmh); }
       const st = Frunky.status();
-      const text = gotFix ? st.text : "Warte auf GPS";
+      // never show a musical state on top of a signal that stopped arriving:
+      // a frozen number reads as a working readout, which is worse than none
+      const stale = reader.isStale(Date.now());
+      const text = !gotFix ? "Warte auf GPS" : stale ? "Kein GPS-Signal" : st.text;
       if (text !== shownState) {
         shownState = text;
         stateEl.textContent = text;
-        stateEl.className = "state " + (gotFix ? st.kind : "");
+        stateEl.className = "state " + (gotFix && !stale ? st.kind : "");
       }
       const f = Math.round(Frunky.force() * 50) * 2; // 2 % steps
       if (f !== shownForce) { shownForce = f; forceEl.style.width = f + "%"; }
@@ -245,6 +248,7 @@
           " · genau " + (d.accuracy == null ? "—" : Math.round(d.accuracy) + "m") +
           " · speed " + d.speedSource +
           " · kurs " + d.headingSource +
+          " · verworfen " + d.rejected +
           " · g " + input.lateralG.toFixed(2);
       }
     }

@@ -47,48 +47,93 @@
   // crawling GPS receiver reports a wandering course, and that would swing the
   // whole mix left and right at a red light
   const HEADING_FLOOR_KMH = 15;
+  // A computer has no GPS. It locates over wifi or by IP address, reports no
+  // speed at all, and "moves" in jumps of hundreds of metres as the estimate
+  // is revised. Three rules keep that from being heard as a drive:
+  const ACC_TRUST_M = 25;    // derive speed from the track only at real GPS accuracy
+  const MAX_DERIVED_KMH = 200; // a first reading above this is a relocation, not a car
+  const MAX_ACCEL_KMH_S = 54;  // ~1.5 g; a Tesla launch is about half of this
+  const STALE_S = 2.5;       // beyond this we no longer claim to know the speed
+  const MAX_EXTRAP_S = 1.2;  // how far dead reckoning may run past the last fix
 
   function createReader() {
     let last = null;      // { t, speed, heading }
     let lastPos = null;   // { lat, lon }
     let slope = 0;        // km/h per second, for dead reckoning
     let rawG = 0;         // lateral g at the last fix
+    let pendingDerived = null; // last track-derived speed, accepted or not
     let est = 0, estG = 0;
     let fixes = 0;
     // field-test diagnostics: what the receiver actually gave us, as opposed
     // to what we derived. Whether the Tesla browser reports speed and heading
     // at all is the single biggest unknown of the in-car test
     const stats = { fixes: 0, accuracy: null, intervalMs: null, lastFixAt: null,
-      speedSource: "—", headingSource: "—" };
+      speedSource: "—", headingSource: "—", rejected: 0 };
 
     // one fix from the Geolocation API. `speed` is m/s or null, `heading` is
     // degrees or null — both are null often enough that neither can be trusted
     function push(fix) {
       const t = fix.t;
       const pos = { lat: fix.lat, lon: fix.lon };
-      let speed = Number.isFinite(fix.speed) && fix.speed >= 0 ? fix.speed * 3.6 : null;
-      let heading = Number.isFinite(fix.heading) ? fix.heading : null;
+      const reported = Number.isFinite(fix.speed) && fix.speed >= 0 ? fix.speed * 3.6 : null;
+      const repHeading = Number.isFinite(fix.heading) ? fix.heading : null;
       const dt = last ? (t - last.t) / 1000 : 0;
-      stats.speedSource = speed != null ? "coords" : "track";
-      stats.headingSource = heading != null ? "coords" : "track";
       if (last) stats.intervalMs = t - last.t;
       if (Number.isFinite(fix.accuracy)) stats.accuracy = fix.accuracy;
       stats.lastFixAt = t;
 
-      // the browser's own speed is the best source; derive it from the track
-      // only when the device withholds it
-      if (speed == null) {
-        speed = lastPos && dt > 0.05
-          ? (haversineMeters(lastPos, pos) / dt) * 3.6 : (last ? last.speed : 0);
-      }
-      speed = clamp(speed, 0, 300);
-      // same for course: fall back to the bearing between the last two fixes
-      if (heading == null && lastPos && dt > 0.05 && speed > HEADING_FLOOR_KMH) {
-        heading = bearingDeg(lastPos, pos);
+      // what the track itself says, independent of what the device claims
+      let derived = null, bearing = null;
+      if (lastPos && dt > 0.05) {
+        const dist = haversineMeters(lastPos, pos);
+        derived = (dist / dt) * 3.6;
+        if (dist > 1) bearing = bearingDeg(lastPos, pos);
       }
 
+      const prev = last ? last.speed : 0;
+      let speed, accepted = true;
+      if (reported != null) {
+        speed = reported;
+        stats.speedSource = "coords";
+      } else if (!(Number.isFinite(fix.accuracy) && fix.accuracy <= ACC_TRUST_M)) {
+        // the position is a neighbourhood, not a car: the difference between
+        // two such guesses is noise, and noise divided by a second is a speed
+        speed = 0;
+        stats.speedSource = "grob";
+      } else if (derived == null) {
+        speed = prev;
+        stats.speedSource = "track";
+      } else {
+        stats.speedSource = "track";
+        // A relocation and a real launch look identical in one sample, so ask
+        // for CORROBORATION: an isolated spike is refused, but two consecutive
+        // derivations that agree with each other are a moving car — which is
+        // also how a genuine standing start gets through, since its first
+        // sample is implausible against a speed of zero by definition
+        const sane = derived <= MAX_DERIVED_KMH;
+        const plausible = sane && Math.abs(derived - prev) / dt <= MAX_ACCEL_KMH_S;
+        const corroborated = sane && pendingDerived != null &&
+          Math.abs(derived - pendingDerived) / dt <= MAX_ACCEL_KMH_S;
+        if (plausible || corroborated) {
+          speed = derived;
+        } else {
+          speed = prev;
+          accepted = false;
+          stats.rejected++;
+        }
+        pendingDerived = derived;
+      }
+      speed = clamp(speed, 0, 300);
+
+      // course: the device's, or the bearing between the last two fixes
+      let heading = repHeading;
+      stats.headingSource = repHeading != null ? "coords" : "track";
+      if (heading == null && bearing != null && speed > HEADING_FLOOR_KMH) heading = bearing;
+
       if (last && dt > 0.05) {
-        slope = clamp((speed - last.speed) / dt, -60, 60);
+        // a refused sample carries no trend: extrapolating along a slope we
+        // just called implausible is how a single jump becomes a permanent one
+        slope = accepted ? clamp((speed - last.speed) / dt, -60, 60) : 0;
         rawG = last.heading != null && heading != null && speed > HEADING_FLOOR_KMH
           ? lateralG(speed, headingDelta(last.heading, heading) / dt)
           : 0;
@@ -102,12 +147,22 @@
     // called once per animation frame: extrapolate to now, then smooth
     function sample(nowMs, dt) {
       if (!last) return { speed: 0, lateralG: 0 };
-      const age = clamp((nowMs - last.t) / 1000, 0, 3);
-      const base = clamp(last.speed + slope * age, 0, 300);
+      const age = (nowMs - last.t) / 1000;
+      // Dead reckoning has a horizon. Past it we are not estimating any more,
+      // we are asserting — and an assertion with nothing behind it is how a
+      // parked computer ends up frozen at 86 km/h with the highway playing.
+      // No fix, no speed: fall back to standstill and say so
+      const base = age > STALE_S
+        ? 0
+        : clamp(last.speed + slope * Math.min(age, MAX_EXTRAP_S), 0, 300);
+      const target = age > STALE_S ? 0 : rawG;
       est += (base - est) * (1 - Math.exp(-dt / 0.35));
-      estG += (rawG - estG) * (1 - Math.exp(-dt / 0.45));
+      estG += (target - estG) * (1 - Math.exp(-dt / 0.45));
       return { speed: est, lateralG: estG };
     }
+
+    const isStale = (nowMs) =>
+      last == null || (nowMs - last.t) / 1000 > STALE_S;
 
     // a snapshot for the field-test overlay; ageMs is measured, not stored,
     // because "how stale is the fix right now" is the question that matters
@@ -119,10 +174,12 @@
         accuracy: stats.accuracy,
         speedSource: stats.speedSource,
         headingSource: stats.headingSource,
+        rejected: stats.rejected,
+        stale: isStale(nowMs),
       };
     }
 
-    return { push, sample, diagnostics, fixCount: () => fixes };
+    return { push, sample, diagnostics, isStale, fixCount: () => fixes };
   }
 
   window.FrunkyGeo = { haversineMeters, bearingDeg, headingDelta, lateralG, createReader,
