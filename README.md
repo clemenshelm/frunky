@@ -4,7 +4,7 @@
 
 *Frunk + funky: music from the car whose engine bay is a trunk.*
 
-Open the page in your car's browser (built with the Tesla browser in mind), tap play, and the music follows your drive: fat basses that lean into acceleration, a heartbeat while you wait at the red light, urban percussion in the city, hypnotic flow on the highway, and a stereo lean through the curves. Everything is synthesized live in the browser with the Web Audio API — no samples, no backend, no account.
+Open the page in your car's browser (built with the Tesla browser in mind), tap play, and the music follows your drive: fat basses that lean into acceleration, a heartbeat while you wait at the red light, urban percussion in the city, hypnotic flow on the highway, and a stereo lean through the curves. Everything runs live in the browser with the Web Audio API — no backend, no account.
 
 ## Status: early prototype
 
@@ -50,8 +50,12 @@ A car browser delivers GPS at ~1 Hz with ~1 s of lag. The engine is designed so 
 
 Repetition doesn't fatigue; missing change *underneath* the repetition does. The engine follows club-music form rules:
 
-- **Sections every 16 bars** roll new traits from data pools: chord progression (walking a graph of proven progressions, never a blind jump), harmonic rhythm (per bar / held / anticipated ahead of the one — anticipation, never displacement: the bass root only moves on the one), bass groove pattern and melodic bass lines, licks, arp figure and octave, ghost notes, a ghost-note snare, brass stabs, square-wave blips — and **a singer**: a rule-based voice (music-cognition rules after Huron/Meyer — stepwise motion, gap-fill, chord-tone anchors) singing classical phrase forms (sentence, period, sparse calls) on a sampled choir "aah", with breaths between phrases. The live **section readout** in the UI shows what the current section rolled.
-- **DJ turnover**: the last bar of each section high-passes the whole mix, the new downbeat drops the lows back in.
+- **Pieces, not just sections**: a piece is a script of named parts (verse / chorus / bridge). Each part's materials are rolled **once** and return recognizably; the chorus carries a generated **hook riff** (rhythm-first, ≤3 pitches, rests included — earworm research says simple) played on a sampled muted guitar, taught by exact repeats and then varied (octave pop, tail flourish, a dropout bar the listener sings, a rest window in bars 8–11 so the arrangement can answer). The **bridge is a real breakdown** — rhythm section out, harmonic bed up, riser into the final chorus — and a **gap of near-silence** stages the drop into every chorus.
+- **Every piece rolls its own key (±2/±3 semitones) and mood** (deep / neutral / anthem): variation pools can't fix a universe where the tonic never moves, and pieces alternate character like a DJ set alternates hours.
+- **Sections every 16 bars** roll new traits from data pools: chord progression (walking a graph of proven progressions, never a blind jump), harmonic rhythm (per bar / held / anticipated ahead of the one — anticipation, never displacement: the bass root only moves on the one), chord instrumentation (pad wash / rolled Rhodes / broken 8ths / trance gate), bass groove pattern and melodic bass lines, licks, arp figure and octave, ghost notes, a ghost-note snare, brass stabs, square-wave blips. The live **dashboard** in the UI shows the arrangement and what the current section rolled.
+- **Combinations are curated, not free** (auditory scene analysis: at most one rhythmic protagonist, figures must agree on when harmony changes): broken/gate chord figures exclude anticipated harmonic rhythms, the gate silences blips and brass, broken Rhodes pushes the arp up an octave for stream segregation, sibling parts must differ in chord style and bass pattern, and the Rhodes never collides with itself in two roles.
+- **The drive steers the form, not only the layers**: a standing launch pulls the next chorus forward to the next section boundary.
+- **DJ turnover**: the last bar before a chorus or a new piece high-passes the whole mix, the new downbeat drops the lows back in — rationed, so it stays a gesture instead of a tic.
 - **Every 8th bar is a turnaround** (arp runs backwards, a fill from the fill pool, an open hat breathes the phrase out).
 - **Every 48 bars** kick and bass step aside for four bars — only while cruising, never during a driving event.
 - **Humanization**: swing on the off-16ths, micro-timing jitter, velocity spread — on percussion and arps only; kick, bass and growl stay machine-tight.
@@ -63,8 +67,8 @@ Repetition doesn't fatigue; missing change *underneath* the repetition does. The
 Sound first, car second — the plan is to iterate on the music until it carries, then integrate the real vehicle:
 
 1. ~~**Tone.js port**~~ — done: transport/swing/effects now run on Tone.js ([#2](https://github.com/clemenshelm/frunky/issues/2))
-2. ~~**Sampled instruments**~~ — done: choir "aah" voice + Rhodes chords, FluidR3 subsets vendored under `samples/` ([#3](https://github.com/clemenshelm/frunky/issues/3))
-3. **Real GPS** via the browser Geolocation API + in-car field test (update rate, accuracy at speed, audio while driving) ([#1](https://github.com/clemenshelm/frunky/issues/1))
+2. ~~**Sampled instruments**~~ — done: Rhodes chords + muted-guitar hook lead, FluidR3 subsets vendored under `samples/` ([#3](https://github.com/clemenshelm/frunky/issues/3))
+3. **Real GPS** via the browser Geolocation API + in-car field test (update rate, accuracy at speed, audio while driving — including speed-dependent loudness compensation against road-noise masking, and rethinking the whole-mix curve pan for an off-center listener) ([#1](https://github.com/clemenshelm/frunky/issues/1))
 4. **Scene detection from OpenStreetMap** (road class, curviness, tunnels, speed limits) with lookahead ([#4](https://github.com/clemenshelm/frunky/issues/4))
 5. **Context layers**: weather (Open-Meteo), time of day / sun position, location-seeded motifs (your commute gets its own theme) ([#5](https://github.com/clemenshelm/frunky/issues/5))
 6. Speed-limit awareness (OSM `maxspeed`) so excess speed is never musically rewarded ([#6](https://github.com/clemenshelm/frunky/issues/6))

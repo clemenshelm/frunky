@@ -180,6 +180,7 @@ if (!seen.has("Stadt")) failures.push("urban state never reached");
 if (!seen.has("Autobahn-Flow")) failures.push("highway flow state never reached");
 if (estShown === "0 km/h") failures.push("engine estimate never moved");
 if (!chipsShown.includes("Akkorde")) failures.push("dashboard chips never rendered");
+if (!chipsShown.includes("Key")) failures.push("per-piece key chip never rendered");
 if (!formShown.includes("Stück")) failures.push("arrangement view never rendered");
 
 if (failures.length) {

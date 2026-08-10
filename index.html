@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Frunky — Trance-Fahrsimulator</title>
+<title>Frunky — Fahrsimulator</title>
 <style>
   :root {
     --bg: #0b0d12;
@@ -135,7 +135,7 @@
 
 <div class="wrap">
   <p class="eyebrow">Frunky · Klang-Prototyp</p>
-  <h1>Trance-Fahrsimulator mit echter GPS-Latenz</h1>
+  <h1>Fahrsimulator mit echter GPS-Latenz</h1>
   <p class="intro">
     Der Slider ist dein Gaspedal. Die Musik-Engine sieht aber nicht den Slider,
     sondern das, was ein Tesla-Browser sehen würde: ein GPS-Sample pro Sekunde,
@@ -205,7 +205,8 @@
   </p>
 
   <p class="foot">
-    Trance, 132 BPM, A-Moll. Alles live synthetisiert, mit Langzeit-Dramaturgie:
+    Funky House, 132 BPM — jedes Stück würfelt seine eigene Tonart und Stimmung.
+    Alles live im Browser erzeugt, mit Langzeit-Dramaturgie:
     Alle 16 Takte wechseln Akkordfolge und Arpeggio-Figur, jede achte Phrase endet
     mit einem Turnaround, alle ~90 Sekunden treten Kick und Bass für vier Takte
     beiseite (nur beim Cruisen), und Percussion wie Arpeggio sind humanisiert
@@ -223,7 +224,10 @@
 <script>
 (() => {
   "use strict";
-  const F = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  // per-piece transposition, applied ONLY at the Hz conversion: all pattern
+  // arithmetic (pentatonic guards, chord math) stays in untransposed A-space
+  let tp = 0;
+  const F = (m) => 440 * Math.pow(2, (m + tp - 69) / 12);
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
   const db = (g) => 20 * Math.log10(Math.max(g, 0.0001));
 
@@ -344,7 +348,6 @@
     [1, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0],
   ]; // 16th on/off masks
   const FILLS = ["toms", "sweep", "swell"];
-  const MOTIF = [69, 72, 76, 71, 69]; // the app's own 5-note ident — rare on purpose
   // call-and-response answers for the square-wave blip voice (pentatonic, high)
   const BLIPS = [[76, 74, 72], [72, 76, 79], [74, 72, 69]];
   // bass licks as [pos, semitones-from-root]: pickups into the next ONE.
@@ -361,88 +364,9 @@
     [0, 3, 5, 7],
   ];
 
-  // ---- vocal engine: rule-based melody after Huron/Meyer ------------------
-  // A aeolian, a singer's range (A3–E5); melodies move mostly stepwise,
-  // leaps get filled (gap-fill), strong beats snap to chord tones,
-  // phrases breathe and resolve onto the next bar's harmony.
-  const VSCALE = [57, 59, 60, 62, 64, 65, 67, 69, 71, 72, 74, 76];
-  const VCELLS = [
-    [[0, 2], [2, 2], [4, 2], [8, 5]],
-    [[0, 3], [3, 3], [6, 2], [10, 4]],
-    [[0, 2], [4, 2], [6, 2], [8, 5]],
-  ];
-  function snapToChord(deg, chord) {
-    for (let r = 0; r < 4; r++) {
-      for (const s of r === 0 ? [0] : [r, -r]) {
-        const d = clamp(deg + s, 0, VSCALE.length - 1);
-        if (chord.some((m) => ((m - VSCALE[d]) % 12 + 12) % 12 === 0)) return d;
-      }
-    }
-    return deg;
-  }
-  function genVoice(prog) {
-    const cell = VCELLS[Math.floor(Math.random() * VCELLS.length)];
-    let deg = 6 + Math.floor(Math.random() * 3); // starts around D4–F4
-    let last = 0;
-    const motif = cell.map(([p, d], i) => {
-      if (i > 0) {
-        let step;
-        if (Math.abs(last) >= 2) step = -Math.sign(last); // gap-fill after a leap
-        else if (Math.random() < 0.7) step = Math.random() < 0.5 ? -1 : 1;
-        else step = (Math.random() < 0.5 ? -1 : 1) * 2;
-        deg = clamp(deg + step, 2, VSCALE.length - 3);
-        last = step;
-      }
-      return { p, d, deg };
-    });
-    // phrase FORMS instead of one shape: the classical sentence (2+2+4, motif,
-    // sequence, then a long development climbing to a planned climax), the
-    // period (open question, closing answer), and the old sparse calls
-    const ev = {};
-    const chordAt = (b) => prog[b % 4];
-    const put = (b, p, dg, d, v, extra = {}) => {
-      const bb = b + Math.floor(p / 16), pp = p % 16;
-      let dd = clamp(dg, 1, VSCALE.length - 1);
-      if (pp % 4 === 0) dd = snapToChord(dd, chordAt(bb));
-      ev[bb + ":" + pp] = { m: VSCALE[dd], d, v, ...extra };
-    };
-    const putMotif = (b, shift) => {
-      motif.forEach((n, i) => put(b, n.p, n.deg + shift, n.d, 0.5 + 0.1 * i,
-        i === 0 ? { start: true } : {}));
-    };
-    const lastDeg = motif[motif.length - 1].deg;
-    const form = ["sentence", "period", "sparse"][Math.floor(Math.random() * 3)];
-    if (form === "sentence") {
-      putMotif(2, 0); put(3, 0, lastDeg, 8, 0.55);
-      putMotif(4, -1); put(5, 0, lastDeg - 1, 8, 0.55);
-      // development: the opening fragment climbs, peaks, and lies down
-      const frag = motif.slice(0, 2);
-      const peak = Math.max(...motif.map((n) => n.deg)) + 2;
-      [[6, 0, 1], [6, 8, 2], [7, 0, 3]].forEach(([b, off, up], k) => {
-        frag.forEach((n, i) => put(b, off + n.p, n.deg + up, n.d, 0.55 + 0.08 * k,
-          i === 0 && off === 0 && b === 6 ? { start: true } : {}));
-      });
-      put(7, 8, peak, 6, 0.85); // the climax, ~70% through the arc
-      put(8, 0, peak - 1, 4, 0.7);
-      put(8, 6, peak - 2, 4, 0.62);
-      put(8, 12, peak - 3, 3, 0.55);
-      put(9, 0, peak - 4, 12, 0.5, { tail: true }); // long resolution
-    } else if (form === "period") {
-      putMotif(2, 0);
-      put(3, 0, lastDeg + 1, 6, 0.6);
-      put(3, 8, lastDeg + 2, 6, 0.65); // the question ends open
-      putMotif(6, 0);
-      put(7, 0, lastDeg - 1, 4, 0.6);
-      put(7, 6, lastDeg - 2, 4, 0.55);
-      put(8, 0, 7, 12, 0.5, { tail: true }); // the answer comes home to A
-    } else {
-      for (const [b, shift] of [[2, 0], [6, -1], [10, 1]]) {
-        putMotif(b, shift);
-        put(b + 1, 0, lastDeg + shift, 10, 0.55, { tail: true });
-      }
-    }
-    return { ev, form };
-  }
+  // (the sung-voice engine lived here — parked and removed; git remembers.
+  // Lead melody is the hardest problem in generative music and the GM samples
+  // capped it. The hook riff carries the chorus identity instead.)
   // the bass sits in the pocket: consistently a touch behind the beat
   function bassT(t) { return t + 0.008 + (Math.random() - 0.5) * 0.006; }
 
@@ -466,32 +390,52 @@
   const FORMS = [
     ["A", "A", "B", "A", "B", "C", "B"],
     ["A", "B", "A", "B", "C", "B", "B"],
-    ["A", "A", "B", "C", "A", "B", "B"],
-  ];
+    ["A", "A", "B", "A", "C", "B", "B"],
+  ]; // the bridge always resolves into a chorus — its breakdown must earn a payoff
   const PART_NAMES = { A: "Strophe", B: "Refrain", C: "Bridge" };
-  function rollBundle(role, progIdx) {
+  // every piece rolls its own key and mood: variation pools can't fix a
+  // universe where the tonic never moves. Small moves only (±2/±3 semitones)
+  const TRANSPOSES = [-3, -2, 0, 0, 2, 3];
+  const KEYNAMES = { "-3": "F♯m", "-2": "Gm", "0": "Am", "2": "Hm", "3": "Cm" };
+  // macro arc: pieces alternate character like a DJ set alternates hours —
+  // deep pulls the payoff elements back, anthem leans into them
+  const MOODS = ["deep", "neutral", "anthem"];
+  function rollBundle(role, progIdx, mood, notLike) {
+    // a sibling part must be tellable apart: never the same chord style or
+    // bass pattern as the bundle it plays against (contrast is the form)
+    const pick = (pool, avoid) => {
+      const p = avoid != null && pool.length > 1 ? pool.filter((x) => x !== avoid) : pool;
+      return p[Math.floor(Math.random() * p.length)];
+    };
     const b = {
       progIdx,
       hr: HRS[Math.floor(Math.random() * HRS.length)],
-      bassPat: BASSPATS[Math.floor(Math.random() * BASSPATS.length)],
+      bassPat: pick(BASSPATS, notLike && notLike.bassPat),
       bassMel: Math.random() < (role === "chorus" ? 0.5 : 0.3)
         ? BASSMELS[Math.floor(Math.random() * BASSMELS.length)] : null,
       arpSeq: ARPS[Math.floor(Math.random() * ARPS.length)],
       arpOct: role === "bridge" ? 12 : Math.random() < 0.2 ? 12 : 0,
       ghosts: Math.random() < 0.5,
       bassFill: Math.random() < 0.5,
-      blips: Math.random() < (role === "verse" ? 0.4 : 0.2),
-      brassy: role === "chorus" && Math.random() < 0.5,
-      snare: role === "chorus" || Math.random() < 0.4,
-      padStyle: role === "chorus"
-        ? ["wash", "keys", "gate"][Math.floor(Math.random() * 3)]
-        : PADSTYLES[Math.floor(Math.random() * PADSTYLES.length)],
-      // the sung voice is parked: lead melody is the hardest problem in
-      // generative music and the GM samples cap it — the hook riff carries
-      // the chorus identity instead (genVoice stays for a future attempt)
-      voice: false,
-      voiceEv: {}, voiceForm: "",
+      blips: Math.random() < (role === "verse" ? 0.4 : 0.2) * (mood === "deep" ? 0.5 : 1),
+      brassy: role === "chorus" &&
+        Math.random() < (mood === "anthem" ? 0.7 : mood === "deep" ? 0.15 : 0.5),
+      snare: role === "chorus" ? mood !== "deep"
+        : Math.random() < (mood === "anthem" ? 0.6 : 0.35),
+      padStyle: pick(role === "chorus" ? ["wash", "keys", "gate"] : PADSTYLES,
+        notLike && notLike.padStyle),
     };
+    // curation (auditory scene analysis: at most one rhythmic protagonist,
+    // and figures must agree on WHEN harmony changes):
+    // – broken/gate figures change chords on barlines only, so anticipating
+    //   harmonic rhythms would announce a chord the figure keeps contradicting
+    if (b.padStyle === "broken" || b.padStyle === "gate")
+      b.hr = Math.random() < 0.5 ? "bar" : "twobar";
+    // – the gate IS the foreground rhythm: blips and brass would fight it
+    if (b.padStyle === "gate") { b.blips = false; b.brassy = false; }
+    // – broken Rhodes 8ths share the arp's register: stream segregation by
+    //   octave distance (Bregman) instead of two interleaved mid-range lines
+    if (b.padStyle === "broken") b.arpOct = 12;
     return b;
   }
   // hook riff: the piece's identity. Earworm research says simple — small
@@ -516,24 +460,38 @@
       if (i === cell.length - 1) pi = Math.random() < 0.6 ? 0 : 4; // land home or b7
       return { p, d, a, s: RIFFSET[pi] };
     });
-    // response: identical rhythm, the ending answers
-    const resp = call.map((n, i) => i === call.length - 1
-      ? { ...n, s: RIFFSET[Math.random() < 0.5 ? 3 : 1] } : { ...n });
+    // response: identical rhythm, but a real answer — the middle of the line
+    // sits a pentatonic 4th higher (contour change you can HEAR), then falls
+    // to the answering tone. Changing only the last note reads as "same".
+    const resp = call.map((n, i) => {
+      if (i === 0) return { ...n };
+      if (i === call.length - 1) return { ...n, s: RIFFSET[Math.random() < 0.5 ? 3 : 1] };
+      return { ...n, s: RIFFSET[Math.min(RIFFSET.indexOf(n.s) + 2, RIFFSET.length - 1)] };
+    });
     return { call, resp };
   }
   function newPiece() {
     // harmonic anchors walk the progression graph: verse where we are,
     // chorus and bridge on neighbours
+    const prev = engine.piece;
     const pA = engine.progIdx;
     const nA = PROG_NEXT[pA];
     const pB = nA[Math.floor(Math.random() * nA.length)];
     const nB = PROG_NEXT[pB];
     const pC = nB[Math.floor(Math.random() * nB.length)];
+    const tpPool = TRANSPOSES.filter((x) => !prev || x !== prev.tp);
+    const moodPool = MOODS.filter((x) => !prev || x !== prev.mood);
+    const mood = moodPool[Math.floor(Math.random() * moodPool.length)];
+    const A = rollBundle("verse", pA, mood);
+    const B = rollBundle("chorus", pB, mood, A); // chorus must contrast the verse
+    const C = rollBundle("bridge", pC, mood, B); // bridge must contrast the chorus
     engine.piece = {
-      num: engine.piece ? engine.piece.num + 1 : 1,
+      num: prev ? prev.num + 1 : 1,
       form: FORMS[Math.floor(Math.random() * FORMS.length)],
       idx: 0,
-      parts: { A: rollBundle("verse", pA), B: rollBundle("chorus", pB), C: rollBundle("bridge", pC) },
+      tp: tpPool[Math.floor(Math.random() * tpPool.length)],
+      mood,
+      parts: { A, B, C },
       hook: genHook(),
     };
   }
@@ -546,13 +504,14 @@
       hr: b.hr, bassPat: b.bassPat, bassMel: b.bassMel,
       arpSeq: b.arpSeq, arpOct: b.arpOct, ghosts: b.ghosts, bassFill: b.bassFill,
       blips: b.blips, brassy: b.brassy, snare: b.snare, padStyle: b.padStyle,
-      voice: b.voice, voiceEv: b.voiceEv, voiceForm: b.voiceForm,
     });
+    // the piece's key: F() reads tp, the thrust drone must follow the tonic
+    tp = engine.piece.tp;
+    if (thrustSub) thrustSub.frequency.value = F(33);
     // per-occurrence freshness: ornaments re-roll, one trait may flip
     engine.lick = Math.random() < 0.4 ? LICKS[Math.floor(Math.random() * LICKS.length)] : null;
     engine.blipSeq = BLIPS[Math.floor(Math.random() * BLIPS.length)];
     engine.syncPos = SYNCPOS[Math.floor(Math.random() * SYNCPOS.length)];
-    engine.motif = Math.random() < 0.15;
     engine.partLabel = label;
     engine.brokenPat = BROKENPATS[Math.floor(Math.random() * BROKENPATS.length)];
     engine.gatePat = GATEPATS[Math.floor(Math.random() * GATEPATS.length)];
@@ -584,7 +543,6 @@
     hr: "bar",
     fill: "toms",
     ghosts: false,
-    motif: false,
     bassFill: false,  // Daði: octave pops + approach notes into the next chord
     blips: false,     // Daði: square-wave answers to the arp
     blipSeq: null,
@@ -599,9 +557,8 @@
     gatePat: null,
     barInPart: 0,
     hookLift: false,
-    voice: false,     // the singer: rule-based phrases with breaths
-    voiceEv: {},
-    voiceForm: "",
+    pullChorus: false, // a launch pulls the chorus forward at the next boundary
+    dropAt: -1,        // step index of a scheduled drop-gap release
     liftActive: false,
     flowOn: false,    // latched highway-harmony switch (hysteresis, barline only)
     progIdx: 0,       // position in the progression graph
@@ -625,9 +582,8 @@
   let stretchNoise, stretchBp, stretchGain;
   let padS, padTri, padHp, padLp, arpS, arpLp, stabS, stabLp;
   let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS, gateS;
-  // sampled instruments persist across play cycles — buffers load once.
-  // The voice is 'oohs' (soft, close) — samples/choir stays for future voice types
-  let rhodes = null, vox = null, hookGit = null;
+  // sampled instruments persist across play cycles — buffers load once
+  let rhodes = null, hookGit = null;
   function ensureSamplers() {
     if (rhodes) return;
     hookGit = new Tone.Sampler({
@@ -638,11 +594,6 @@
       urls: { A2: "A2.mp3", C3: "C3.mp3", Eb3: "Eb3.mp3", Gb3: "Gb3.mp3", A3: "A3.mp3",
         C4: "C4.mp3", Eb4: "Eb4.mp3", Gb4: "Gb4.mp3", A4: "A4.mp3", C5: "C5.mp3" },
       baseUrl: "samples/rhodes/",
-    });
-    vox = new Tone.Sampler({
-      urls: { A3: "A3.mp3", C4: "C4.mp3", Eb4: "Eb4.mp3", Gb4: "Gb4.mp3",
-        A4: "A4.mp3", C5: "C5.mp3", E5: "E5.mp3" },
-      baseUrl: "samples/oohs/",
     });
   }
   let transport = null, repeatId = null;
@@ -710,9 +661,13 @@
     percS = reg(new Tone.NoiseSynth({ envelope: { attack: 0.001, decay: 0.03, sustain: 0 } }));
     percS.volume.value = db(0.25); percS.connect(percBp);
 
-    // snare: noise crack + a short 185 Hz body; ghosts use the noise alone
+    // snare: noise crack + a short 185 Hz body; ghosts use the noise alone.
+    // A whisper of the shared room glues it in — a bone-dry snare next to
+    // wet pads reads as a preset, not a band
     const snareBp = reg(new Tone.Filter({ frequency: 1800, type: "bandpass", Q: 0.9 }));
     snareBp.connect(dry);
+    const snareSend = reg(new Tone.Gain(0.12));
+    snareBp.connect(snareSend); snareSend.connect(revSend);
     snareS = reg(new Tone.NoiseSynth({ envelope: { attack: 0.001, decay: 0.13, sustain: 0 } }));
     snareS.volume.value = db(0.3); snareS.connect(snareBp);
     snareBody = reg(new Tone.MembraneSynth({
@@ -745,15 +700,8 @@
     blipS.volume.value = db(0.09); blipS.connect(blipLp);
     blipLp.connect(duck); blipLp.connect(delaySend); blipLp.connect(revSend);
 
-    // sampled color: an intimate 'ooh' voice and Rhodes chords.
-    // Intimacy = proximity: low-mid warmth up, cathedral air down, mostly DRY
+    // sampled color: Rhodes chords, mostly dry with a touch of the shared room
     ensureSamplers();
-    const voxWarm = reg(new Tone.Filter({ type: "peaking", frequency: 350, Q: 0.8, gain: 2.5 }));
-    const voxAir = reg(new Tone.Filter({ type: "highshelf", frequency: 5500, gain: -4 }));
-    const voxSend = reg(new Tone.Gain(0.35)); // just a whisper of room, not a church
-    vox.disconnect(); vox.volume.value = db(1.15);
-    vox.connect(voxWarm); voxWarm.connect(voxAir);
-    voxAir.connect(duck); voxAir.connect(voxSend); voxSend.connect(revSend);
     rhodes.disconnect(); rhodes.volume.value = db(0.5);
     rhodes.connect(duck); rhodes.connect(revSend);
 
@@ -952,35 +900,6 @@
   function gateChord(t, midis, vol) {
     gateS.triggerAttackRelease(midis.map(F), SPB * 0.85, t, vv(vol, 0.14));
   }
-  function breath(t) {
-    const n = noiseSrc(t, 0.15);
-    const hp = raw.createBiquadFilter();
-    hp.type = "highpass"; hp.frequency.value = 2500;
-    const g = raw.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(0.05, t + 0.08);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
-    n.connect(hp).connect(g);
-    Tone.connect(g, dry);
-  }
-  function voiceNote(t, ev) {
-    if (!vox || !vox.loaded) return;
-    // a jazz singer sits behind the beat and carries breath in the tone
-    const tt = t + 0.012 + (Math.random() - 0.5) * 0.008;
-    if (ev.start) breath(Math.max(tt - 0.1, 0));
-    const dur = SPB * ev.d * 0.95;
-    vox.triggerAttackRelease(F(ev.m), dur, tt, vv(ev.v, 0.7));
-    // breathiness layer: soft filtered noise riding the note
-    const n = noiseSrc(tt, dur);
-    const bp = raw.createBiquadFilter();
-    bp.type = "bandpass"; bp.frequency.value = 3800; bp.Q.value = 1;
-    const g = raw.createGain();
-    g.gain.setValueAtTime(0.0001, tt);
-    g.gain.linearRampToValueAtTime(0.018 * ev.v, tt + 0.12);
-    g.gain.linearRampToValueAtTime(0.0001, tt + dur);
-    n.connect(bp).connect(g);
-    Tone.connect(g, dry);
-  }
   function rhodesChord(t, midis, vol) {
     if (!rhodes || !rhodes.loaded) { stabChord(t, midis, vol); return; }
     rhodes.triggerAttackRelease(midis.map(F), SPB * 6, t, vv(vol, 0.25));
@@ -1033,29 +952,57 @@
     // familiarity, small per-occurrence variation keeps attention
     if (pos === 0 && bar % 16 === 0) {
       if (!engine.piece || engine.piece.idx >= engine.piece.form.length) newPiece();
+      // the drive steers the FORM, not only the layers: a launch pulls the
+      // next chorus forward to this boundary instead of waiting its turn
+      if (engine.pullChorus) {
+        const j = engine.piece.form.indexOf("B", engine.piece.idx);
+        if (j >= 0) engine.piece.idx = j;
+        engine.pullChorus = false;
+      }
       loadPart(t);
       engine.piece.idx++;
     }
     if (pos === 0) engine.barInPart = bar % 16;
     if (pos === 0 && bar % 8 === 7) engine.fill = FILLS[Math.floor(Math.random() * FILLS.length)];
-    // DJ turnover: the last bar of a section pulls the lows out of the whole
-    // mix, and the new downbeat drops them back in
+    // what comes after this section? (idx already points at the next part)
+    const pieceEnd = engine.piece && engine.piece.idx >= engine.piece.form.length;
+    const nextIsB = engine.piece && !pieceEnd && engine.piece.form[engine.piece.idx] === "B";
+    // DJ turnover: pulls the lows out of the whole mix so the new downbeat can
+    // drop them back in. Only where it EARNS something — into a chorus or a
+    // new piece. Every 16 bars it stops being a gesture and becomes a tic
     if (pos === 0) {
       masterHp.frequency.cancelScheduledValues(t);
       masterHp.frequency.setValueAtTime(25, t);
-      if (bar % 16 === 15 && !still) {
+      if (bar % 16 === 15 && !still && (nextIsB || pieceEnd)) {
         masterHp.frequency.setValueAtTime(30, t);
         masterHp.frequency.exponentialRampToValueAtTime(240, t + SPB * 15);
         // a piece ends here: a long swell carries into the next piece's one
-        if (engine.piece && engine.piece.idx >= engine.piece.form.length) {
-          fillSwell(t, SPB * 14);
-        }
+        if (pieceEnd) fillSwell(t, SPB * 14);
       }
+    }
+    // the GAP: half a beat of near-silence before a chorus, then the impact on
+    // the one — the cheapest wow moment electronic music owns
+    if (pos === 14 && bar % 16 === 15 && !still && nextIsB) {
+      const g = master.gain;
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(0.9, t);
+      g.linearRampToValueAtTime(0.03, t + SPB * 1.7);
+      engine.dropAt = s + 2;
+    }
+    if (s === engine.dropAt) {
+      engine.dropAt = -1;
+      master.gain.cancelScheduledValues(t);
+      master.gain.setValueAtTime(0.9, t);
+      if (!still) impact(t);
     }
     // breather: every 48 bars the kick and bass step aside for 4 bars —
     // only while cruising, so it never fights a driving event
     const breather = bar % 48 >= 44 && push < 0.15 && engine.brake < 0.2;
     const turnaround = bar % 8 === 7; // phrase ends earn a variation
+    // the bridge is a real BREAKDOWN: rhythm section out for its first half,
+    // the harmonic bed carries, then the rebuild rises into the final chorus.
+    // A launch overrides it — the drive always outranks the form
+    const bridgeDown = engine.partLabel === "C" && bar % 16 < 8 && engine.launchBoost < 0.3;
     // on the highway the harmony carries instead of changing.
     // The switch latches with hysteresis and only flips on a barline —
     // a threshold hovering mid-bar must never flap the harmony source
@@ -1082,7 +1029,7 @@
       if (pos % 8 === 2) heartbeat(t, hb * 0.6, 132);
     } else {
       // pump stays gentle at cruise, deepens only under force
-      if (pos % 4 === 0 && !breather) {
+      if (pos % 4 === 0 && !breather && !bridgeDown) {
         kick(t, (0.85 + 0.1 * e) * (1 - 0.18 * flowHigh), 0.05 + 0.3 * push);
         duckAt(t, 0.3 * (1 - 0.3 * flowHigh) + 0.28 * push);
       }
@@ -1095,8 +1042,8 @@
       const ciNext = hrEff === "twobar" ? Math.floor((bar + 1) / 2) % 4 : (bar + 1) % 4;
       const rootF = F(rootsEff[ci]);
       // once per 8-bar phrase a lick takes over the bar's second half
-      const lickBar = engine.lick && bar % 8 === 3 && !breather;
-      if (!breather && engine.bassPat.includes(pos) && !(lickBar && pos >= 10)) {
+      const lickBar = engine.lick && bar % 8 === 3 && !breather && !bridgeDown;
+      if (!breather && !bridgeDown && engine.bassPat.includes(pos) && !(lickBar && pos >= 10)) {
         // melodic sections walk root/fifth/octave/seventh instead of pedaling
         const mi = engine.bassMel && !flowMode
           ? engine.bassMel[engine.bassPat.indexOf(pos) % engine.bassMel.length] : 0;
@@ -1116,25 +1063,26 @@
         }
       }
       // funk vocabulary: quiet ghost notes between the hits — felt, not heard
-      if (engine.ghosts && pos % 8 === 5 && !breather) {
+      if (engine.ghosts && pos % 8 === 5 && !breather && !bridgeDown) {
         bassNote(hum(t, pos), rootF, 420, vel(0.05 * drain), SPB * 0.5);
       }
       // approach note: walk into the next chord instead of just switching
       if (engine.bassFill && pos === 15 && bar % 2 === 1 && bar % 16 !== 15 && !breather && !lickBar &&
-          rootsEff[ciNext] !== rootsEff[ci]) {
+          !bridgeDown && rootsEff[ciNext] !== rootsEff[ci]) {
         bassNote(bassT(t), F(rootsEff[ciNext] - 2), 380,
           vel(0.09 * drain), SPB * 0.8);
       }
       // sustained highway root lives on its own synth — the mono bass would
       // otherwise retrigger and choke it on every offbeat hit
-      if (pos === 0 && flowHigh > 0.3 && !breather) bassSubNote(t, rootF, 0.26 * flowHigh * drain, SPB * 15);
+      if (pos === 0 && flowHigh > 0.3 && !breather && !bridgeDown) bassSubNote(t, rootF, 0.26 * flowHigh * drain, SPB * 15);
       // thrust: growl-bass eases in and out with force — no hard gate
       if (push > 0.04 && pos % 4 === 2) growlNote(t, 0.62 * Math.pow(push, 1.3), SPB * 1.6);
       if (push > 0.55 && (pos % 4 === 1 || pos % 4 === 3)) growlNote(t, 0.3 * push, SPB * 0.8);
-      if (push > 0.06 && pos % 4 === 2) stabChord(t, [57, 60, 64], 0.12 * Math.pow(push, 1.3));
+      // the stab rides the CURRENT chord — a hard-wired Am rubbed against Gadd9
+      if (push > 0.06 && pos % 4 === 2) stabChord(t, progEff[ci], 0.12 * Math.pow(push, 1.3));
       if (pos % 4 === 2) hat(hum(t, pos), false, vel((0.03 + 0.05 * u) * (1 - 0.55 * flowHigh)));
       // snare sections: soft backbeat on 2 and 4, funk ghost chatter between
-      if (engine.snare && !breather) {
+      if (engine.snare && !breather && !bridgeDown) {
         if (pos === 4 || pos === 12) snare(hum(t, pos), vel(0.12 + 0.05 * e));
         if (pos === 7 || pos === 10 || pos === 15) snare(hum(t, pos), vel(0.035 + 0.025 * u), true);
       }
@@ -1150,18 +1098,24 @@
       if (engine.brassy && pos === 14 && bar % 4 === 1 && !breather && !flowMode) {
         brassHit(t, progEff[ciNext], vel(0.09 + 0.07 * e));
       }
+      // bridge rebuild: after the breakdown the drums return, and a long riser
+      // carries the last bars into the chorus drop
+      if (engine.partLabel === "C" && bar % 16 === 13 && pos === 0) fillSwell(t, SPB * 40);
       // lift drama: a riser announces it, open hats carry the hymn, Rhodes doubles
       if (flowMode && bar % 24 === 15 && pos === 8) fillSwell(t, SPB * 8);
       if (liftPhase && pos % 8 === 4) hat(t, true, 0.11);
       if (liftPhase && pos === 0 && bar % 2 === 0) {
         rhodesChord(t, progEff[Math.floor(bar / 2) % 4], 0.11);
       }
-      // Rhodes comping: a soft chord dab answers on the and-of-two in town
-      if (u > 0.15 && pos === 6 && bar % 2 === 0 && !breather) {
+      // Rhodes comping: a soft chord dab answers on the and-of-two in town —
+      // but not when the Rhodes already IS the chord voice (keys/broken):
+      // one instrument must not collide with itself in two roles
+      if (u > 0.15 && pos === 6 && bar % 2 === 0 && !breather &&
+          engine.padStyle !== "keys" && engine.padStyle !== "broken") {
         rhodesChord(hum(t, pos), progEff[ci], vel(0.05 + 0.08 * u));
       }
       // urban detail: a real syncopated groove, gone on the open road
-      if (u > 0.05) {
+      if (u > 0.05 && !bridgeDown) {
         if (pos === 3) perc(hum(t, pos), vel(0.16 * u));
         if (pos === 6) perc(hum(t, pos), vel(0.1 * u));
         if (pos === 10) perc(hum(t, pos), vel(0.13 * u));
@@ -1197,7 +1151,10 @@
     }
     // harmonic rhythm: per bar, held two bars, or pushed in ahead of the one.
     // During the lift the pad grows brighter and half again as large
-    const padVol = (0.16 + 0.2 * flowHigh) * (breather ? 1.5 : 1) * (liftPhase ? 1.5 : 1);
+    const moodF = engine.piece
+      ? (engine.piece.mood === "deep" ? 0.88 : engine.piece.mood === "anthem" ? 1.12 : 1) : 1;
+    const padVol = (0.16 + 0.2 * flowHigh) * (breather ? 1.5 : 1) * (liftPhase ? 1.5 : 1)
+      * moodF * (bridgeDown ? 1.35 : 1);
     const padCut = 950 + 350 * Math.sin(bar * 0.37) + (liftPhase ? 350 : 0);
     if (hrEff === "twobar") {
       if (pos === 0 && bar % 2 === 0) chordVoice(t, progEff[Math.floor(bar / 2) % 4], SPB * 32, padVol, padCut);
@@ -1206,15 +1163,16 @@
       // never anticipate across a section boundary — the next section owns its one
       if (pos === 14 && bar % 16 !== 15) {
         chordVoice(t, progEff[(bar + 1) % 4], SPB * 16, padVol, padCut);
-        // the pad's slow attack smears the anticipation — Rhodes announces it
-        rhodesChord(t, progEff[(bar + 1) % 4], 0.08 + 0.05 * e);
+        // the pad's slow attack smears the anticipation — Rhodes announces it.
+        // Only for the wash: the keys style already rolls its own Rhodes
+        if (engine.padStyle === "wash") rhodesChord(t, progEff[(bar + 1) % 4], 0.08 + 0.05 * e);
       }
     } else if (hrEff === "sync") {
       // the next bar's chord arrives at an odd spot — anticipation, not displacement
       if (pos === 0 && bar % 16 === 0) chordVoice(t, progEff[bar % 4], SPB * engine.syncPos, padVol, padCut);
       if (pos === engine.syncPos && bar % 16 !== 15) {
         chordVoice(t, progEff[(bar + 1) % 4], SPB * (16 + 16 - engine.syncPos), padVol, padCut);
-        rhodesChord(t, progEff[(bar + 1) % 4], 0.08 + 0.05 * e);
+        if (engine.padStyle === "wash") rhodesChord(t, progEff[(bar + 1) % 4], 0.08 + 0.05 * e);
       }
     } else {
       if (pos === 0) chordVoice(t, progEff[bar % 4], SPB * 16, padVol, padCut);
@@ -1237,18 +1195,17 @@
         gateChord(hum(t, pos), chordNow, vel(pos % 4 === 0 ? 0.12 : 0.09));
       }
     }
-    // the ident: five high notes in the reverb, at most once per section
-    if (engine.motif && bar % 16 === 0 && pos % 2 === 0 && pos < 10) {
-      arpNote(t, F(MOTIF[pos / 2]), 2600, 0.05, SPB * 3);
-    }
     // the hook riff: the piece's identity — chorus only. Same-same-DIFFERENT:
     // exact repeats teach it first, then it earns play — an octave pop the
     // second time around, a tail flourish into turnarounds, one dropout bar
-    // (the listener sings it), and sometimes an octave lift for the back half
-    if (engine.partLabel === "B" && !still && !breather && engine.piece && bar % 16 !== 13) {
+    // (the listener sings it), and sometimes an octave lift for the return.
+    // Bars 8–11 REST: a hook that never leaves has nothing to return to,
+    // and the arrangement (brass, fills) gets a window to answer in
+    if (engine.partLabel === "B" && !still && !breather && engine.piece &&
+        (bar % 16 < 8 || bar % 16 >= 12) && bar % 16 !== 13) {
       const hb = bar % 16;
       const line = bar % 2 === 0 ? engine.piece.hook.call : engine.piece.hook.resp;
-      const lift = engine.hookLift && hb >= 8 ? 12 : 0;
+      const lift = engine.hookLift && hb >= 12 ? 12 : 0;
       const n = line.find((x) => x.p === pos);
       if (n) {
         const isLast = n === line[line.length - 1];
@@ -1265,12 +1222,6 @@
           }
         }
       }
-    }
-    // the voice sings only in calm moments — never against thrust or braking.
-    // Over the lift cadence only pentatonic-safe notes pass (F/G chords underneath)
-    if (engine.voice && !still && push < 0.5 && engine.brake < 0.4) {
-      const vEv = engine.voiceEv[(bar % 16) + ":" + pos];
-      if (vEv && (!flowMode || PENTA.includes(vEv.m % 12))) voiceNote(t, vEv);
     }
     if (s === pendingLaunchAt) {
       impact(t);
@@ -1316,6 +1267,7 @@
       if (engine.armed && sim.est > 6 && engine.prevEst <= 6) {
         engine.armed = false;
         engine.launchBoost = 1;
+        engine.pullChorus = true; // the sprint deserves the payoff part
         // fire on next 8th note; a tom fill introduces the beat
         const stepsAhead = 2 - (stepIdx % 2);
         pendingLaunchAt = stepIdx + stepsAhead;
@@ -1369,6 +1321,8 @@
           + " · Takt " + (engine.barInPart + 1) + "/16</span>";
         if (ui.dashForm.innerHTML !== formHtml) ui.dashForm.innerHTML = formHtml;
         const chips = [
+          ["Key", KEYNAMES[String(p.tp)] || "Am"],
+          p.mood !== "neutral" ? ["Mood", p.mood === "deep" ? "Deep" : "Anthem"] : null,
           ["Akkorde", engine.hr === "sync" ? "sync·" + (engine.syncPos === 12 ? "4" : "3+") : engine.hr],
           ["Chords", engine.padStyle],
           ["Bass", "P" + (BASSPATS.indexOf(engine.bassPat) + 1)
@@ -1383,6 +1337,7 @@
         ].filter(Boolean);
         if (Date.now() < engine.lickFlashUntil) chips.push(["hot", "▶ LICK"]);
         if (engine.liftActive) chips.push(["hot", "▲ LIFT"]);
+        if (engine.partLabel === "C" && engine.barInPart < 8) chips.push(["hot", "▼ BREAK"]);
         const chipsHtml = chips.map(([k, v]) => k === "hot"
           ? '<span class="chip hot"><b>' + v + "</b></span>"
           : '<span class="chip"><b>' + k + "</b> " + v + "</span>").join("");
@@ -1433,8 +1388,8 @@
     try {
       await Tone.start();
       await buildGraph();
-      // sample buffers (Rhodes, choir) — a failed load must never block play,
-      // the synth fallbacks cover it
+      // sample buffers (Rhodes, muted guitar) — a failed load must never
+      // block play, the synth fallbacks cover it
       try { await Tone.loaded(); } catch (err) { console.warn("samples missing:", err); }
     } finally {
       building = false;
@@ -1446,13 +1401,13 @@
     engine.brake = 0; engine.urban = 0; engine.fillAt = -1;
     engine.prog = PROGS[0]; engine.roots = ROOTS[0]; engine.bassPat = BASSPATS[0];
     engine.arpSeq = ARPS[0]; engine.arpOct = 0;
-    engine.hr = "bar"; engine.fill = "toms"; engine.ghosts = false; engine.motif = false;
+    engine.hr = "bar"; engine.fill = "toms"; engine.ghosts = false;
     engine.bassFill = false; engine.blips = false; engine.blipSeq = BLIPS[0]; engine.brassy = false;
     engine.lick = null; engine.bassMel = null;
     engine.syncPos = 12; engine.snare = false; engine.padStyle = "wash";
-    engine.voice = false; engine.voiceEv = {}; engine.liftActive = false;
+    engine.liftActive = false; engine.pullChorus = false; engine.dropAt = -1;
     engine.flowOn = false; engine.progIdx = 0; engine.piece = null; engine.partLabel = "";
-    stepIdx = 0; pendingLaunchAt = -1;
+    stepIdx = 0; pendingLaunchAt = -1; tp = 0;
     transport = Tone.getTransport();
     transport.bpm.value = BPM;
     transport.swing = 0.22; // light 16th shuffle — the trance pulse stays straight
