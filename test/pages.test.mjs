@@ -9,6 +9,7 @@ const read = (f) => readFileSync(new URL("../" + f, import.meta.url), "utf8");
 const engine = read("engine.js");
 const geo = read("geo.js");
 const drive = read("index.html");
+const diagnose = read("diagnose.js");
 const bench = read("bench.html");
 
 const failures = [];
@@ -25,6 +26,8 @@ const published = (src, global) => {
 };
 const engineApi = published(engine, "Frunky");
 const geoApi = published(geo, "FrunkyGeo");
+const diagApi = published(diagnose, "FrunkyDiag");
+ok("diagnose.js publishes a window.FrunkyDiag object", diagApi && diagApi.size > 0);
 ok("engine.js publishes a window.Frunky object literal", engineApi && engineApi.size > 0);
 ok("geo.js publishes a window.FrunkyGeo object literal", geoApi && geoApi.size > 0);
 
@@ -39,6 +42,9 @@ for (const [name, src] of [["index.html", drive], ["bench.html", bench]]) {
   for (const fn of calls(src, "FrunkyGeo")) {
     if (geoApi && !geoApi.has(fn)) failures.push(`${name} calls FrunkyGeo.${fn}, which geo.js does not export`);
   }
+  for (const fn of calls(src, "FrunkyDiag")) {
+    if (diagApi && !diagApi.has(fn)) failures.push(`${name} calls FrunkyDiag.${fn}, which diagnose.js does not export`);
+  }
 }
 
 // a page that forgets a <script> fails with a bare ReferenceError in the car
@@ -46,6 +52,14 @@ ok("driver page loads Tone", drive.includes('src="vendor/Tone.js"'));
 // the version query is how a car browser with no hard reload gets fresh code
 ok("driver page loads the engine", /src="engine\.js(\?v=\d+)?"/.test(drive));
 ok("driver page loads the GPS reader", /src="geo\.js(\?v=\d+)?"/.test(drive));
+ok("driver page loads the freeze diagnosis", /src="diagnose\.js(\?v=\d+)?"/.test(drive));
+
+// the four measurements that separate the causes of a frozen page — without
+// them a freeze is a number with no explanation, which is where we were
+ok("it watches for long tasks", drive.includes("longtask"));
+ok("it watches the page lifecycle", drive.includes("visibilitychange"));
+ok("it samples the heap", drive.includes("usedJSHeapSize"));
+ok("and it reports a verdict", drive.includes("classifyFreeze"));
 ok("bench loads Tone", bench.includes('src="vendor/Tone.js"'));
 ok("bench loads the engine", /src="engine\.js(\?v=\d+)?"/.test(bench));
 

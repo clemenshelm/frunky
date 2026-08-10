@@ -156,17 +156,28 @@
       // we are asserting — and an assertion with nothing behind it is how a
       // parked computer ends up frozen at 86 km/h with the highway playing.
       // No fix, no speed: fall back to standstill and say so
-      const base = age > STALE_S
+      const lost = !isParked() && age > STALE_S;
+      const base = lost
         ? 0
         : clamp(last.speed + slope * Math.min(age, MAX_EXTRAP_S), 0, 300);
-      const target = age > STALE_S ? 0 : rawG;
+      const target = lost ? 0 : rawG;
       est += (base - est) * (1 - Math.exp(-dt / 0.35));
       estG += (target - estG) * (1 - Math.exp(-dt / 0.45));
       return { speed: est, lateralG: estG };
     }
 
+    // A parked car produces no new fixes, because nothing moved — the receiver
+    // is fine and the position is still true. Calling that a lost signal was
+    // wrong twice over, and it dropped the music to a standstill at every red
+    // light. Only a stream that goes quiet while we were MOVING is lost.
+    // ...and "parked" has to be KNOWN, not merely a zero we invented. A wifi
+    // fix too coarse to yield a speed also reads as zero, and that one really
+    // is blind — the difference is whether the reading came from the receiver
+    const PARKED_KMH = 2;
+    const isParked = () =>
+      last != null && last.speed <= PARKED_KMH && stats.speedSource !== "grob";
     const isStale = (nowMs) =>
-      last == null || (nowMs - last.t) / 1000 > STALE_S;
+      last == null || (!isParked() && (nowMs - last.t) / 1000 > STALE_S);
 
     // a snapshot for the field-test overlay; ageMs is measured, not stored,
     // because "how stale is the fix right now" is the question that matters
@@ -180,6 +191,7 @@
         headingSource: stats.headingSource,
         rejected: stats.rejected,
         stale: isStale(nowMs),
+        parked: isParked(),
       };
     }
 

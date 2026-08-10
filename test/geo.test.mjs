@@ -194,6 +194,39 @@ ok("standing still has no lateral force", Geo.lateralG(0, 30) === 0);
   ok("a 7 s gap is stale", r.diagnostics(t0 + 10000).stale === true);
 }
 
+// ---- parked is not the same as blind ----------------------------------------
+// A stationary car produces no new fixes, because nothing moved. Reading that
+// as "signal lost" and dropping the music to a standstill is wrong twice over:
+// the receiver is fine, and the car is genuinely where it says it is. Only a
+// stream that went quiet while we were MOVING is a lost signal.
+{
+  const r = Geo.createReader();
+  const t0 = 9_000_000;
+  r.push({ lat: 48, lon: 11, speed: 0, heading: null, accuracy: 3, t: t0 });
+  ok("a minute parked is not a lost signal", r.isStale(t0 + 60000) === false);
+  ok("and it is reported as parked", r.diagnostics(t0 + 60000).parked === true);
+  let s = { speed: 0 };
+  for (let i = 0; i < 200; i++) s = r.sample(t0 + 20000 + i * 16, 0.016);
+  ok("and it still reads as standing still", s.speed < 1);
+}
+{
+  // moving, then the stream stops: that IS a lost signal
+  const r = Geo.createReader();
+  const t0 = 9_500_000;
+  r.push({ lat: 48, lon: 11, speed: 14, heading: 0, accuracy: 4, t: t0 });
+  r.push({ lat: 48.0004, lon: 11, speed: 14, heading: 0, accuracy: 4, t: t0 + 1000 });
+  ok("a moving stream that stops is stale", r.isStale(t0 + 8000) === true);
+  ok("and it is not called parked", r.diagnostics(t0 + 8000).parked === false);
+}
+{
+  // crawling counts as moving — a car at walking pace still updates
+  const r = Geo.createReader();
+  const t0 = 9_800_000;
+  r.push({ lat: 48, lon: 11, speed: 3, heading: 0, accuracy: 4, t: t0 });
+  ok("crawling is not parked", r.diagnostics(t0 + 20000).parked === false);
+  ok("and going quiet while crawling is stale", r.isStale(t0 + 20000) === true);
+}
+
 if (failures.length) {
   console.error("FAILURES:");
   for (const f of failures) console.error("  -", f);

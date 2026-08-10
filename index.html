@@ -177,8 +177,9 @@
 </footer>
 
 <script src="vendor/Tone.js"></script>
-<script src="engine.js?v=14"></script>
-<script src="geo.js?v=14"></script>
+<script src="engine.js?v=16"></script>
+<script src="geo.js?v=16"></script>
+<script src="diagnose.js?v=16"></script>
 <script>
 (() => {
   "use strict";
@@ -186,7 +187,7 @@
   // to know whether a trip tested the code we shipped is to read it back —
   // three reports in a row turned out to be the same stale build.
   // (Loading the page as ?v=<something-new> is what forces a fresh copy.)
-  const BUILD = "14";
+  const BUILD = "16";
   const el = (id) => document.getElementById(id);
   const startBtn = el("start"), stopBtn = el("stop");
   const speedEl = el("speed"), stateEl = el("state"), forceEl = el("forceBar");
@@ -419,6 +420,10 @@
         Math.round(Frunky.health().worstLate * 1000) + " ms"],
       ["Transport-Stillstände", String(Frunky.health().stalls)],
       ["Seite eingefroren", freezes + "× , max " + Math.round(worstFreeze) + " ms"],
+      ["Ursache", freezes ? (probe.verdict || "—") : "—"],
+      ["Deutung", freezes && probe.detail ? probe.detail : "—"],
+      ["Speicher", probe.heap == null ? "nicht messbar" : Math.round(probe.heap / 1e6) + " MB"],
+      ["Lange Aufgaben", probe.supported ? Math.round(probe.longtaskMs) + " ms gesamt" : "nicht messbar"],
       ["Fixes verworfen (zu dicht)", String(trip.skipped)],
       ["Höchsttempo", Math.round(trip.maxSpeed) + " km/h"],
       ["Stärkste Kraft", Math.round(trip.maxForce * 100) + " %"],
@@ -455,7 +460,7 @@
       rejected: 0, intervals: [], accuracies: [], maxSpeed: 0, maxForce: 0,
       maxLat: 0, staleMs: 0, lastSampleAt: 0, clockFallback: 0, errors: 0,
       lastError: "", skipped: 0 });
-    freezes = 0; worstFreeze = 0; wasStale = false;
+    freezes = 0; worstFreeze = 0; wasStale = false; shownParked = false;
     start();
   }
   startBtn.addEventListener("click", beginTrip);
@@ -466,9 +471,46 @@
   // speed digits are rendered at a quarter of the screen height. On a car
   // browser that competes with the audio thread for the same modest CPU, so
   // each element is only touched when its value actually changed
-  let shownSpeed = -1, shownState = "", shownForce = -1;
+  let shownSpeed = -1, shownState = "", shownForce = -1, ltAtLastFrame = 0;
   let lastFrame = performance.now();
-  let lastDiagAt = 0, wasStale = false, freezes = 0, worstFreeze = 0;
+  let lastDiagAt = 0, wasStale = false, freezes = 0, worstFreeze = 0, shownParked = false;
+
+  // ---- why does the page stop? ----------------------------------------------
+  // Four measurements, because they are what separates the possible causes.
+  // 1) long tasks: if the browser reports them across the gap, the thread was
+  //    busy with OUR code; none at all means the page was not running.
+  // 2) visibility and lifecycle: a backgrounded page may legally be stopped.
+  // 3) heap: a large drop across the gap points at collection under pressure.
+  // 4) a rolling one-second timeline, so the seconds BEFORE the gap are known.
+  const probe = { longtaskMs: 0, hiddenSince: 0, hiddenDuringGap: false,
+    heap: null, heapBefore: null, verdict: "", detail: "", supported: false };
+  try {
+    if (typeof PerformanceObserver === "function") {
+      const po = new PerformanceObserver((list) => {
+        for (const e of list.getEntries()) probe.longtaskMs += e.duration;
+      });
+      po.observe({ type: "longtask", buffered: true });
+      probe.supported = true;
+    }
+  } catch (err) { void err; }
+  for (const ev of ["visibilitychange", "freeze", "resume", "pagehide", "pageshow"]) {
+    document.addEventListener(ev, () => {
+      const state = ev === "visibilitychange" ? document.visibilityState : "";
+      if (document.visibilityState === "hidden") probe.hiddenSince = Date.now();
+      Frunky.log("page", ev + (state ? " -> " + state : ""));
+    });
+  }
+  window.addEventListener("blur", () => Frunky.log("page", "blur"));
+  window.addEventListener("focus", () => Frunky.log("page", "focus"));
+  const heapNow = () => {
+    try {
+      return performance.memory ? performance.memory.usedJSHeapSize : null;
+    } catch (err) { void err; return null; }
+  };
+  setInterval(() => {
+    probe.heapBefore = probe.heap;
+    probe.heap = heapNow();
+  }, 1000);
   function frame(now) {
     const gap = now - lastFrame;
     // The decisive measurement. If the main thread stops, the music stops with
@@ -479,8 +521,20 @@
     if (gap > 400 && lastFrame) {
       freezes++;
       worstFreeze = Math.max(worstFreeze, gap);
-      Frunky.log("freeze", Math.round(gap) + "ms with no frame at all");
+      // how much of the gap did the browser spend RUNNING something?
+      const ltDuring = probe.supported ? probe.longtaskMs - ltAtLastFrame : null;
+      const heapDelta = probe.heap != null && probe.heapBefore != null
+        ? probe.heap - probe.heapBefore : null;
+      const wasHidden = document.visibilityState === "hidden" ||
+        (probe.hiddenSince > 0 && Date.now() - probe.hiddenSince < gap + 1000);
+      const r = FrunkyDiag.classifyFreeze({ ms: gap, longtaskMs: ltDuring, wasHidden, heapDelta });
+      probe.verdict = r.verdict;
+      probe.detail = r.detail;
+      Frunky.log("freeze", Math.round(gap) + "ms · " + r.verdict +
+        " · langeAufgaben " + (ltDuring == null ? "—" : Math.round(ltDuring) + "ms") +
+        " · heap " + (heapDelta == null ? "—" : Math.round(heapDelta / 1e6) + "MB"));
     }
+    ltAtLastFrame = probe.supported ? probe.longtaskMs : 0;
     const dt = Math.min(0.1, gap / 1000);
     lastFrame = now;
     if (Frunky.isRunning()) {
@@ -500,8 +554,13 @@
         Frunky.log("gps", (stale ? "signal lost" : "signal back") +
           " after " + trip.fixes + " fixes");
       }
+      if (reader.diagnostics(Date.now()).parked && !shownParked) {
+        shownParked = true;
+        Frunky.log("gps", "parked — no new fixes expected while standing");
+      }
       if (stale && gotFix) document.body.classList.add("diag");
       const text = !gotFix ? "Warte auf GPS" : stale ? "Kein GPS-Signal" : st.text;
+      // (a parked car produces no new fixes and is not stale — see geo.js)
       if (text !== shownState) {
         shownState = text;
         stateEl.textContent = text;
