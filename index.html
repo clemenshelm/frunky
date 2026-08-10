@@ -229,6 +229,7 @@
       "steps      " + h.step,
       "fehler     " + h.errors + " · resumes " + h.resumes + " · stalls " + h.stalls,
       "verspätet  " + h.lateSteps + " steps · max " + Math.round(h.worstLate * 1000) + " ms",
+      "eingefroren " + freezes + "× · max " + Math.round(worstFreeze) + " ms",
       "last       " + Math.round(h.load * 100) + "% · spitze " + Math.round(h.peakLoad * 100) + "%",
       "vereinfacht " + (h.strain > 0.5 ? "JETZT" : "nein") + " · " + Math.round(h.strainPct) + "% der zeit",
       "sparmodus  " + (Frunky.options().lite ? "an" : "aus"),
@@ -405,6 +406,7 @@
       ["Scheduler verspätet", Frunky.health().lateSteps + " Schritte, max " +
         Math.round(Frunky.health().worstLate * 1000) + " ms"],
       ["Transport-Stillstände", String(Frunky.health().stalls)],
+      ["Seite eingefroren", freezes + "× , max " + Math.round(worstFreeze) + " ms"],
       ["Fixes verworfen (zu dicht)", String(trip.skipped)],
       ["Höchsttempo", Math.round(trip.maxSpeed) + " km/h"],
       ["Stärkste Kraft", Math.round(trip.maxForce * 100) + " %"],
@@ -433,6 +435,7 @@
       rejected: 0, intervals: [], accuracies: [], maxSpeed: 0, maxForce: 0,
       maxLat: 0, staleMs: 0, lastSampleAt: 0, clockFallback: 0, errors: 0,
       lastError: "", skipped: 0 });
+    freezes = 0; worstFreeze = 0; wasStale = false;
     start();
   }
   startBtn.addEventListener("click", beginTrip);
@@ -445,8 +448,20 @@
   // each element is only touched when its value actually changed
   let shownSpeed = -1, shownState = "", shownForce = -1;
   let lastFrame = performance.now();
+  let lastDiagAt = 0, wasStale = false, freezes = 0, worstFreeze = 0;
   function frame(now) {
-    const dt = Math.min(0.1, (now - lastFrame) / 1000);
+    const gap = now - lastFrame;
+    // The decisive measurement. If the main thread stops, the music stops with
+    // it, GPS callbacks stop, AND the stall watchdog stops — because it needs
+    // this same thread to count. A run that loses both sound and position while
+    // reporting zero stalls is a frozen page, and this is the only thing that
+    // can say so
+    if (gap > 400 && lastFrame) {
+      freezes++;
+      worstFreeze = Math.max(worstFreeze, gap);
+      Frunky.log("freeze", Math.round(gap) + "ms with no frame at all");
+    }
+    const dt = Math.min(0.1, gap / 1000);
     lastFrame = now;
     if (Frunky.isRunning()) {
       const input = reader.sample(Date.now(), dt);
@@ -460,6 +475,11 @@
       const stale = reader.isStale(Date.now());
       // "no signal" with nothing behind it is unactionable in a moving car, so
       // the diagnostics open themselves the moment it happens
+      if (stale !== wasStale && gotFix) {
+        wasStale = stale;
+        Frunky.log("gps", (stale ? "signal lost" : "signal back") +
+          " after " + trip.fixes + " fixes");
+      }
       if (stale && gotFix) document.body.classList.add("diag");
       const text = !gotFix ? "Warte auf GPS" : stale ? "Kein GPS-Signal" : st.text;
       if (text !== shownState) {
@@ -477,7 +497,10 @@
       if (stale && trip.lastSampleAt) trip.staleMs += nowMs - trip.lastSampleAt;
       trip.lastSampleAt = nowMs;
 
-      if (document.body.classList.contains("diag")) {
+      // four times a second is plenty to read, and this rebuilds a long string,
+      // copies the event ring and touches the DOM every single time
+      if (document.body.classList.contains("diag") && now - lastDiagAt > 250) {
+        lastDiagAt = now;
         const d = reader.diagnostics(Date.now());
         diagEl.textContent =
           "fixes " + d.fixes +

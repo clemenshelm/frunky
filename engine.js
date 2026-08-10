@@ -1510,8 +1510,16 @@
       // IMMEDIATELY, so a backlog arrives as one burst. That burst is what a
       // listener calls a crack, and it is the single most likely explanation
       // for "a crack, then silence" on a device at its limit
+      let lateBy = 0;
       try {
-        const lateBy = Tone.now() - time;
+        // Measure against the RAW context clock. Tone.now() already includes
+        // the 250 ms look-ahead, so measuring against it counts a step with
+        // "only" 130 ms of lead as late — which it is not: its events are still
+        // comfortably in the future. That mistake reported 95 late steps at 2 %
+        // load and thinned the arrangement out for nothing
+        const c = Tone.getContext();
+        const audioNow = c.rawContext ? c.rawContext.currentTime : c.currentTime;
+        lateBy = audioNow - time;
         if (lateBy > 0.005) {
           lateSteps++;
           worstLate = Math.max(worstLate, lateBy);
@@ -1537,8 +1545,9 @@
       // them as the peak would make every device look overloaded
       if (stepIdx > 32) peakCost = Math.max(peakCost, cost);
       const was = strain > 0.5;
-      // being late is not a warning, it is the failure itself
-      if (lateSteps && stepIdx > 32) strain = 1;
+      // genuinely late — the events are in the PAST, so they fire as a
+      // burst. That is the failure itself, not a warning
+      if (lateBy > 0.005 && stepIdx > 32) strain = 1;
       else if (cost > 0.45) strain = Math.min(1, strain + 0.15);
       else if (cost < 0.3) strain = Math.max(0, strain - 0.02);
       totalSteps++;
