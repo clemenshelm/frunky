@@ -554,10 +554,12 @@
     blipS.volume.value = db(0.09); blipS.connect(blipLp);
     blipLp.connect(duck); blipLp.connect(delaySend); blipLp.connect(revSend);
 
-    // sampled color: choir 'aah' is the voice, Rhodes dabs the chords
+    // sampled color: choir 'aah' is the voice, Rhodes dabs the chords.
+    // A presence peak lifts the choir out of the pad's register without volume
     ensureSamplers();
-    choir.disconnect(); choir.volume.value = db(0.22);
-    choir.connect(duck); choir.connect(revSend);
+    const choirEq = reg(new Tone.Filter({ type: "peaking", frequency: 2000, Q: 1, gain: 4 }));
+    choir.disconnect(); choir.volume.value = db(0.55);
+    choir.connect(choirEq); choirEq.connect(duck); choirEq.connect(revSend);
     rhodes.disconnect(); rhodes.volume.value = db(0.5);
     rhodes.connect(duck); rhodes.connect(revSend);
 
@@ -739,7 +741,7 @@
   function voiceNote(t, ev) {
     if (!choir || !choir.loaded) return;
     if (ev.start) breath(Math.max(t - 0.1, 0));
-    choir.triggerAttackRelease(F(ev.m), SPB * ev.d * 0.95, t, vv(ev.v, 1.1));
+    choir.triggerAttackRelease(F(ev.m), SPB * ev.d * 0.95, t, vv(ev.v, 0.85));
   }
   function rhodesChord(t, midis, vol) {
     if (!rhodes || !rhodes.loaded) { stabChord(t, midis, vol); return; }
@@ -1111,7 +1113,9 @@
     try {
       await Tone.start();
       await buildGraph();
-      await Tone.loaded(); // sample buffers (Rhodes, choir)
+      // sample buffers (Rhodes, choir) — a failed load must never block play,
+      // the synth fallbacks cover it
+      try { await Tone.loaded(); } catch (err) { console.warn("samples missing:", err); }
     } finally {
       building = false;
       playBtn.disabled = false;
