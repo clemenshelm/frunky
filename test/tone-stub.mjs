@@ -52,6 +52,9 @@ const fakeCtx = new FakeAudioContext();
 // Generic chainable nodes; a working Transport that actually drives the
 // 16th-note callback so the sequencer and phase machine really run.
 let nodeSeq = 0;
+// how many notes the arrangement actually fires — a proxy for density that a
+// mix-consistency check can read
+const meter = { notes: 0 };
 function toneNode() {
   const id = ++nodeSeq;
   let lastStart = null;
@@ -66,6 +69,7 @@ function toneNode() {
     // Every call site here passes velocity last, so the time is args[len-2].
     triggerAttackRelease(...args) {
       for (const a of args) if (typeof a === "number" && !Number.isFinite(a)) throw new Error("non-finite trigger arg");
+      meter.notes++;
       const t = args.length >= 3 ? args[args.length - 2] : null;
       if (typeof t === "number") {
         if (lastStart !== null && t <= lastStart) {
@@ -115,4 +119,4 @@ const Tone = new Proxy({}, {
 });
 globalThis.Tone = Tone;
 
-export { Tone, transport, fakeCtx };
+export { Tone, transport, fakeCtx, meter };

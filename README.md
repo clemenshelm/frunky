@@ -45,6 +45,20 @@ The core design decision: **musical energy follows force — acceleration, braki
 | Highway (>90 km/h) | The harmony retires to an Am pedal with a walking inner voice — and every 24 bars the anthem lift (♭VI–♭VII–i) opens the sky for 8 bars |
 | Curves | The whole mix leans into the turn (stereo pan) and an abstract "stretch" tone bends up with lateral g |
 
+### Mixing a piece that never has the same voice count twice
+
+Vertical layering means the arrangement's density is decided at runtime, so **a static per-voice balance cannot be right for all of it** — every combination of layers still has to land on the same loudness. That is a bus problem, not a per-voice one:
+
+- **Four families** — drums, bass, harmony, lead — each keeping its own internal balance, plus a texture bus for the force effects. The drum bus is the only one that isn't sidechained, because the kick *is* the sidechain.
+- **The low end belongs to two instruments.** Pads, Rhodes, gate, arp, stabs and brass all carry low-mid energy they don't need; six of them summing under the bass is what reads as "not well mixed". The harmony bus is high-passed at 120 Hz and the lead at 190 Hz, so below that the bass and kick have the mix to themselves.
+- **Density levelling.** Uncorrelated sources sum in power, so N similar layers are about √N louder than one. The harmony family tracks √(reference/N) as the arrangement thickens — about ±1 dB, levelling rather than an effect — with a slow shallow compressor behind it for what's left.
+- **Scene levelling.** The highway arrangement thins deliberately (bass −40 %, kick −18 %, hats over half), which without compensation just makes the music quieter the faster you go. A makeup stage tracks the flow. The city is the opposite case: its percussion groove is a whole extra layer, so the drum family steps back a touch to make room.
+- **Glue, then a limiter.** The master compressor is a 2.5:1 glue, not the 4:1 that was doing balance work the buses now do; the limiter behind it is the safety net, because which layers coincide is a runtime question.
+
+`test/sequencer.test.mjs` reads the family levels back across the fuzz and fails if any of them stops moving (the levelling has been disconnected), leaves its band, or if one layer combination fires far more notes per bar than the rest.
+
+Still open, and deliberately not guessed at from a desk: **road-noise compensation**. At 130 km/h the loudest thing in the car is broadband noise centred where the bass lives, and no amount of studio balance survives that. It needs the field test ([#1](https://github.com/clemenshelm/frunky/issues/1)).
+
 ### Latency doctrine
 
 A car browser delivers GPS at ~1 Hz with ~1 s of lag. The engine is designed so that never matters:

@@ -245,6 +245,7 @@
     // an octave up is the most piercing thing the hook can do; keep it rare
     engine.hookLift = Math.random() < 0.2;
     if (Math.random() < 0.3) engine.ghosts = !engine.ghosts;
+    rebalance();
     // lingering notes must not carry the old harmony — or, at a piece
     // boundary, the old KEY — into the new part. The pads were released here
     // already; the sustained highway root, the gate's long tails and the
@@ -252,6 +253,23 @@
     // the new one is exactly "the instruments don't fit together"
     hush(t);
   }
+  // Every combination of layers has to land on the same loudness — that is the
+  // whole discipline of vertical layering, and it cannot be done by tuning
+  // each voice, because the voices are chosen at runtime. Uncorrelated sources
+  // sum in POWER, so N similar layers are about sqrt(N) louder than one; the
+  // family level therefore tracks sqrt(reference / N). The moves are small on
+  // purpose (about ±1 dB): this is levelling, not an effect
+  function rebalance() {
+    if (!busHarm) return;
+    let n = 1;                                     // the arp is always there
+    if (engine.padStyle === "gate") n += 2;        // the pad bed AND the gate
+    else if (engine.padStyle === "broken") n += 1; // a Rhodes figure, no bed
+    else n += 1;                                   // wash or keys: the bed
+    if (engine.blips) n += 0.6;
+    if (engine.brassy) n += 0.6;
+    busHarm.gain.rampTo(clamp(Math.sqrt(2.8 / n), 0.75, 1.15), 0.5);
+  }
+
   // silence everything that can still be ringing from the previous harmony
   function hush(t) {
     padS.releaseAll(t); padTri.releaseAll(t); gateS.releaseAll(t);
@@ -321,7 +339,8 @@
   // the constructor's options object silently does nothing
   const poly = (p, n) => { try { p.maxPolyphony = n; } catch (err) { void err; } return p; };
 
-  let master, comp, tensionLp, masterHp, panner, duck, dry;
+  let master, comp, limiter, makeup, tensionLp, masterHp, panner, duck, dry;
+  let busDrums, busBass, busHarm, busLead, busFx;
   let revSend, delaySend, delayRet, chorus;
   let kickS, heartS, tomS, hatC, hatO, shakerS, percS;
   let bassS, bassLp, growlS, growlLp, thrustSub, thrustSubGain;
@@ -363,15 +382,50 @@
     }
 
     master = reg(new Tone.Gain(0.0001));
-    comp = reg(new Tone.Compressor(-16, 4));
+    // Glue, not squash: the old -16 dB at 4:1 was doing mix-balance work that
+    // belongs to the bus structure below. A limiter behind it is the safety
+    // net — a generative arrangement has no fixed voice count, so peaks are a
+    // matter of which layers happen to coincide
+    comp = reg(new Tone.Compressor({ threshold: -14, ratio: 2.5, attack: 0.02, release: 0.25 }));
+    limiter = reg(new Tone.Limiter(-1));
+    // separate from master.gain, which the drop gap automates: two gestures
+    // fighting over one parameter is how one of them gets cancelled
+    makeup = reg(new Tone.Gain(1));
     tensionLp = reg(new Tone.Filter(18000, "lowpass"));
     masterHp = reg(new Tone.Filter(25, "highpass"));
     panner = reg(new Tone.Panner(0));
     duck = reg(new Tone.Gain(1));
     dry = reg(new Tone.Gain(1));
     dry.connect(panner); duck.connect(panner);
-    panner.chain(tensionLp, masterHp, comp, master, Tone.getDestination());
+    panner.chain(tensionLp, masterHp, makeup, comp, master, limiter, Tone.getDestination());
     master.gain.rampTo(0.9, 0.1);
+
+    // ---- submix buses ------------------------------------------------------
+    // Vertical layering means the number of simultaneous voices is never the
+    // same twice, and a static per-voice balance cannot be right for all of
+    // them. Buses are how that stays predictable: each family keeps its own
+    // internal balance, and the family level is what gets adjusted when the
+    // arrangement thickens or the scene changes.
+    // The high-passes are the other half. Pads, Rhodes, gate, arp, stabs and
+    // brass all carry low-mid energy they do not need; six of them summing
+    // under the bass is the muddiness that reads as "not well mixed". Below
+    // ~120 Hz the bass and the kick own the mix alone
+    busDrums = reg(new Tone.Gain(1));         // never ducked: the kick IS the duck
+    busBass = reg(new Tone.Gain(1));
+    busHarm = reg(new Tone.Gain(1));
+    busLead = reg(new Tone.Gain(1));
+    busFx = reg(new Tone.Gain(1));
+    const harmHp = reg(new Tone.Filter(120, "highpass"));
+    const leadHp = reg(new Tone.Filter(190, "highpass"));
+    // a slow, shallow compressor on the harmony family smooths the difference
+    // between a bare pad and a pad plus gate plus brass plus blips
+    const harmComp = reg(new Tone.Compressor({ threshold: -22, ratio: 2,
+      attack: 0.05, release: 0.35 }));
+    busDrums.connect(dry);
+    busFx.connect(dry);
+    busBass.connect(duck);
+    busHarm.chain(harmHp, harmComp, duck);
+    busLead.chain(leadHp, duck);
 
     // space: real convolution reverb, returned through the duck so it pumps
     const reverb = reg(new Tone.Reverb({ decay: 2.6, preDelay: 0.02, wet: 1 }));
@@ -391,27 +445,27 @@
       pitchDecay: 0.08, octaves: 1.9,
       envelope: { attack: 0.001, decay: 0.26, sustain: 0, release: 0.02 },
     }));
-    kickS.volume.value = db(0.95); kickS.connect(dry);
+    kickS.volume.value = db(0.95); kickS.connect(busDrums);
     heartS = reg(new Tone.MembraneSynth({
       pitchDecay: 0.2, octaves: 1.4,
       envelope: { attack: 0.002, decay: 0.3, sustain: 0, release: 0.05 },
     }));
-    heartS.volume.value = db(0.6); heartS.connect(dry);
+    heartS.volume.value = db(0.6); heartS.connect(busDrums);
     tomS = reg(new Tone.MembraneSynth({
       pitchDecay: 0.1, octaves: 1.2,
       envelope: { attack: 0.001, decay: 0.18, sustain: 0, release: 0.03 },
     }));
-    tomS.volume.value = db(0.35); tomS.connect(dry);
+    tomS.volume.value = db(0.35); tomS.connect(busDrums);
 
-    const hatHp = reg(new Tone.Filter(8500, "highpass")); hatHp.connect(dry);
+    const hatHp = reg(new Tone.Filter(8500, "highpass")); hatHp.connect(busDrums);
     hatC = reg(new Tone.NoiseSynth({ envelope: { attack: 0.001, decay: 0.04, sustain: 0 } }));
     hatC.volume.value = db(0.2); hatC.connect(hatHp);
     hatO = reg(new Tone.NoiseSynth({ envelope: { attack: 0.001, decay: 0.26, sustain: 0 } }));
     hatO.volume.value = db(0.2); hatO.connect(hatHp);
-    const shakerHp = reg(new Tone.Filter(6200, "highpass")); shakerHp.connect(dry);
+    const shakerHp = reg(new Tone.Filter(6200, "highpass")); shakerHp.connect(busDrums);
     shakerS = reg(new Tone.NoiseSynth({ envelope: { attack: 0.015, decay: 0.055, sustain: 0 } }));
     shakerS.volume.value = db(0.16); shakerS.connect(shakerHp);
-    const percBp = reg(new Tone.Filter({ frequency: 2600, type: "bandpass", Q: 5 })); percBp.connect(dry);
+    const percBp = reg(new Tone.Filter({ frequency: 2600, type: "bandpass", Q: 5 })); percBp.connect(busDrums);
     percS = reg(new Tone.NoiseSynth({ envelope: { attack: 0.001, decay: 0.03, sustain: 0 } }));
     percS.volume.value = db(0.25); percS.connect(percBp);
 
@@ -419,7 +473,7 @@
     // A whisper of the shared room glues it in — a bone-dry snare next to
     // wet pads reads as a preset, not a band
     const snareBp = reg(new Tone.Filter({ frequency: 1800, type: "bandpass", Q: 0.9 }));
-    snareBp.connect(dry);
+    snareBp.connect(busDrums);
     const snareSend = reg(new Tone.Gain(0.12));
     snareBp.connect(snareSend); snareSend.connect(revSend);
     snareS = reg(new Tone.NoiseSynth({ envelope: { attack: 0.001, decay: 0.13, sustain: 0 } }));
@@ -428,7 +482,7 @@
       pitchDecay: 0.03, octaves: 0.5,
       envelope: { attack: 0.001, decay: 0.09, sustain: 0, release: 0.02 },
     }));
-    snareBody.volume.value = db(0.25); snareBody.connect(dry);
+    snareBody.volume.value = db(0.25); snareBody.connect(busDrums);
 
     // warm bass: triangle core (round, never rasping) — but triangles carry
     // ~6 dB less energy than saws, so the level and filter make up for it
@@ -437,13 +491,13 @@
       oscillator: { type: "fattriangle", count: 2, spread: 8 },
       envelope: { attack: 0.008, decay: 0.06, sustain: 0.85, release: 0.12 },
     }));
-    bassS.volume.value = db(1.2); bassS.connect(bassLp); bassLp.connect(duck);
+    bassS.volume.value = db(1.2); bassS.connect(bassLp); bassLp.connect(busBass);
     const bassSubLp = reg(new Tone.Filter({ frequency: 320, type: "lowpass", Q: 0.7 }));
     bassSubS = reg(new Tone.Synth({
       oscillator: { type: "sawtooth" },
       envelope: { attack: 0.3, decay: 0.2, sustain: 0.9, release: 0.5 },
     }));
-    bassSubS.volume.value = db(0.3); bassSubS.connect(bassSubLp); bassSubLp.connect(duck);
+    bassSubS.volume.value = db(0.3); bassSubS.connect(bassSubLp); bassSubLp.connect(busBass);
 
     // Daði charm: a cheeky square-wave blip voice answering the arp
     const blipLp = reg(new Tone.Filter({ frequency: 2200, type: "lowpass", Q: 1 }));
@@ -452,12 +506,12 @@
       envelope: { attack: 0.005, decay: 0.12, sustain: 0, release: 0.06 },
     }));
     blipS.volume.value = db(0.09); blipS.connect(blipLp);
-    blipLp.connect(duck); blipLp.connect(delaySend); blipLp.connect(revSend);
+    blipLp.connect(busHarm); blipLp.connect(delaySend); blipLp.connect(revSend);
 
     // sampled color: Rhodes chords, mostly dry with a touch of the shared room
     ensureSamplers();
     rhodes.disconnect(); rhodes.volume.value = db(0.5);
-    rhodes.connect(duck); rhodes.connect(revSend);
+    rhodes.connect(busHarm); rhodes.connect(revSend);
 
     // the gate voice: a chord pulsed by a rhythm mask. The hard trance gate —
     // saw, instant attack, instant release — is a chop, and a chop next to
@@ -486,7 +540,7 @@
     gateS.volume.value = db(0.3);
     poly(gateS, 12);
     gateS.connect(gateAmp); gateAmp.connect(gateHp); gateHp.connect(gateLp);
-    gateLp.connect(chorus); gateLp.connect(duck);
+    gateLp.connect(chorus); gateLp.connect(busHarm);
     gateLp.connect(delaySend); gateLp.connect(revSend);
 
     // The hook lead has to be AUDIBLE without being a guest. Two rounds went
@@ -513,7 +567,7 @@
     // the same room as the pads: a dry lead over a wet arrangement reads as
     // overdubbed onto it. The delay keeps carrying the phrase's rhythm
     const hookRev = reg(new Tone.Gain(0.8));
-    hookLp.connect(duck); hookLp.connect(delaySend);
+    hookLp.connect(busLead); hookLp.connect(delaySend);
     hookLp.connect(hookRev); hookRev.connect(revSend);
 
     // Parov seasoning: brass-like stab — filter snaps open and shuts
@@ -524,7 +578,7 @@
     }));
     brassS.volume.value = db(0.16);
     poly(brassS, 24);
-    brassS.connect(brassLp); brassLp.connect(duck); brassLp.connect(revSend);
+    brassS.connect(brassLp); brassLp.connect(busHarm); brassLp.connect(revSend);
 
     growlLp = reg(new Tone.Filter({ frequency: 160, type: "lowpass", Q: 1 }));
     const growlDist = reg(new Tone.Distortion(0.7));
@@ -532,25 +586,25 @@
       oscillator: { type: "fatsawtooth", count: 3, spread: 24 },
       envelope: { attack: 0.01, decay: 0.05, sustain: 0.8, release: 0.08 },
     }));
-    growlS.volume.value = db(0.6); growlS.chain(growlDist, growlLp, duck);
+    growlS.volume.value = db(0.6); growlS.chain(growlDist, growlLp, busBass);
 
     thrustSubGain = reg(new Tone.Gain(0));
     thrustSub = reg(new Tone.Oscillator(55, "sine").start());
-    thrustSub.connect(thrustSubGain); thrustSubGain.connect(duck);
+    thrustSub.connect(thrustSubGain); thrustSubGain.connect(busBass);
 
     // brake: brown noise is a naturally dark rumble — pressure, not vacuum
     brakeLp = reg(new Tone.Filter({ frequency: 300, type: "lowpass", Q: 2 }));
     brakeGain = reg(new Tone.Gain(0));
     brakeNoise = reg(new Tone.Noise("brown").start());
-    brakeNoise.chain(brakeLp, brakeGain, duck);
+    brakeNoise.chain(brakeLp, brakeGain, busFx);
     brakeOscGain = reg(new Tone.Gain(0));
     brakeOsc = reg(new Tone.Oscillator(88, "sine").start());
-    brakeOsc.connect(brakeOscGain); brakeOscGain.connect(duck);
+    brakeOsc.connect(brakeOscGain); brakeOscGain.connect(busFx);
 
     stretchBp = reg(new Tone.Filter({ frequency: 2100, type: "bandpass", Q: 14 }));
     stretchGain = reg(new Tone.Gain(0));
     stretchNoise = reg(new Tone.Noise("white").start());
-    stretchNoise.chain(stretchBp, stretchGain, dry);
+    stretchNoise.chain(stretchBp, stretchGain, busFx);
 
     // pad: fat saws + triangle octave, breathing filter, chorus, reverb
     padHp = reg(new Tone.Filter(160, "highpass"));
@@ -568,7 +622,7 @@
     padTri.volume.value = db(0.09);
     poly(padTri, 64);
     padS.connect(padHp); padTri.connect(padHp);
-    padHp.connect(padLp); padLp.connect(chorus); chorus.connect(duck);
+    padHp.connect(padLp); padLp.connect(chorus); chorus.connect(busHarm);
     padLp.connect(revSend);
 
     arpLp = reg(new Tone.Filter({ frequency: 800, type: "lowpass", Q: 4 }));
@@ -577,7 +631,7 @@
       envelope: { attack: 0.004, decay: 0.16, sustain: 0, release: 0.08 },
     }));
     arpS.volume.value = db(0.14); arpS.connect(arpLp);
-    arpLp.connect(duck); arpLp.connect(delaySend); arpLp.connect(revSend);
+    arpLp.connect(busHarm); arpLp.connect(delaySend); arpLp.connect(revSend);
 
     stabLp = reg(new Tone.Filter({ frequency: 1400, type: "lowpass", Q: 1 }));
     stabS = reg(new Tone.PolySynth(Tone.Synth, {
@@ -586,7 +640,7 @@
     }));
     stabS.volume.value = db(0.14);
     poly(stabS, 24);
-    stabS.connect(stabLp); stabLp.connect(duck); stabLp.connect(delaySend); stabLp.connect(revSend);
+    stabS.connect(stabLp); stabLp.connect(busHarm); stabLp.connect(delaySend); stabLp.connect(revSend);
   }
 
   // native one-shots on the shared context (clicks, impacts, swells)
@@ -604,7 +658,7 @@
     g.gain.setValueAtTime(amount, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.018);
     n.connect(hp).connect(g);
-    Tone.connect(g, dry);
+    Tone.connect(g, busDrums);
   }
   function impact(t) {
     const o = raw.createOscillator();
@@ -615,7 +669,7 @@
     g.gain.setValueAtTime(0.85, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
     o.connect(g);
-    Tone.connect(g, dry);
+    Tone.connect(g, busDrums);
     o.start(t); o.stop(t + 0.6);
     const n = noiseSrc(t, 0.25);
     const lp = raw.createBiquadFilter();
@@ -624,7 +678,7 @@
     ng.gain.setValueAtTime(0.45, t);
     ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
     n.connect(lp).connect(ng);
-    Tone.connect(ng, dry);
+    Tone.connect(ng, busDrums);
   }
   function fillSwell(t, dur) {
     const n = noiseSrc(t, dur);
@@ -637,7 +691,7 @@
     g.gain.linearRampToValueAtTime(0.11, t + dur);
     g.gain.setValueAtTime(0.0001, t + dur + 0.01);
     n.connect(bp).connect(g);
-    Tone.connect(g, dry);
+    Tone.connect(g, busFx);
   }
 
   // ---- voices --------------------------------------------------------------
@@ -1188,6 +1242,17 @@
     stretchBp.frequency.value = 2100 + 1900 * gAbs;
     // urban weight: city speed band, fades out toward the highway
     engine.urban = clamp((speed - 12) / 12, 0, 1) * (1 - clamp((speed - 65) / 30, 0, 1));
+
+    // Scene loudness. The highway arrangement thins ON PURPOSE — the bass pulls
+    // back 40 %, the kick 18 %, the hats more than half — and without
+    // compensation the music simply gets quieter the faster you go, which is
+    // heard as a mix that stops working rather than as a scene that opens up.
+    // The city is the opposite case: its percussion groove adds a whole layer,
+    // so the drum family steps back a touch to make room for it
+    const eNow = clamp(engine.energy + engine.launchBoost * 0.3, 0, 1);
+    const flowHigh = clamp((eNow - 0.5) / 0.35, 0, 1);
+    makeup.gain.value = 1 + 0.16 * flowHigh;
+    busDrums.gain.value = 1 - 0.08 * engine.urban;
   }
 
   // what the drive is doing, in one word — the only readout the driver page shows
@@ -1293,6 +1358,9 @@
     return {
       master: master ? master.gain.value : 0,
       duck: duck ? duck.gain.value : 0,
+      harm: busHarm ? busHarm.gain.value : 0,
+      drums: busDrums ? busDrums.gain.value : 0,
+      makeup: makeup ? makeup.gain.value : 0,
     };
   }
 

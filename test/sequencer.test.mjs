@@ -9,7 +9,7 @@
 // many random seeds and a gas pedal being thrashed, and asserts two things a
 // listener would call "it broke": nothing throws, and nothing goes silent.
 import { readFileSync } from "node:fs";
-import { transport } from "./tone-stub.mjs";
+import { transport, meter } from "./tone-stub.mjs";
 
 const script = readFileSync(new URL("../engine.js", import.meta.url), "utf8");
 const SPB = 60 / 132 / 4;
@@ -21,6 +21,9 @@ const BARS = 160; // ~10 pieces' worth of sections per seed
 
 const styles = new Set(), rhythms = new Set(), parts = new Set(), moods = new Set();
 let steps = 0;
+// mix consistency: the family levels that hold every layer combination to the
+// same loudness, and how many notes each bar actually fires
+const seenHarm = [], seenDrums = [], seenMakeup = [], barNotes = [];
 
 for (const seed of SEEDS) {
   let rc = 0;
@@ -91,6 +94,8 @@ for (const seed of SEEDS) {
         break;
       }
     } else lowDuck = 0;
+    seenHarm.push(lv.harm); seenDrums.push(lv.drums); seenMakeup.push(lv.makeup);
+    if (s % 16 === 15) { barNotes.push(meter.notes); meter.notes = 0; }
 
     const d = Frunky.describe();
     if (d) {
@@ -112,6 +117,34 @@ console.log("chord styles seen:", [...styles].sort().join(", "));
 console.log("harmonic rhythms seen:", [...rhythms].sort().join(", "));
 console.log("parts seen:", [...parts].sort().join(", "));
 console.log("moods seen:", [...moods].sort().join(", "));
+
+// ---- mix consistency --------------------------------------------------------
+// A generative arrangement never has the same voice count twice, so a static
+// balance cannot be right for all of them. These are the levellers that keep
+// every combination landing in the same place; if they stop moving, the
+// levelling has been disconnected and nothing else would say so.
+const span = (a) => [Math.min(...a), Math.max(...a)];
+const [hMin, hMax] = span(seenHarm);
+const [dMin, dMax] = span(seenDrums);
+const [mMin, mMax] = span(seenMakeup);
+const notesSorted = barNotes.slice().sort((a, b) => a - b);
+const median = notesSorted[Math.floor(notesSorted.length / 2)] || 0;
+const busiest = notesSorted[notesSorted.length - 1] || 0;
+console.log(`harmony bus ${hMin.toFixed(2)}–${hMax.toFixed(2)} · ` +
+  `drum bus ${dMin.toFixed(2)}–${dMax.toFixed(2)} · ` +
+  `scene makeup ${mMin.toFixed(2)}–${mMax.toFixed(2)}`);
+console.log(`notes per bar: median ${median}, busiest ${busiest}`);
+
+if (!(hMax - hMin > 0.02)) failures.push("harmony bus never re-levels — density compensation is not wired");
+if (!(mMax - mMin > 0.02)) failures.push("scene makeup never moves — speed compensation is not wired");
+if (hMin < 0.7 || hMax > 1.25) failures.push(`harmony bus left its band: ${hMin}–${hMax}`);
+if (dMin < 0.85 || dMax > 1.05) failures.push(`drum bus left its band: ${dMin}–${dMax}`);
+if (mMin < 0.95 || mMax > 1.25) failures.push(`scene makeup left its band: ${mMin}–${mMax}`);
+// levelling cannot rescue an arrangement that piles everything on at once
+if (median > 0 && busiest > median * 2.5) {
+  failures.push(`busiest bar fires ${busiest} notes against a median of ${median} — ` +
+    "some layer combination is far denser than the rest");
+}
 
 // a fuzz that never reached the interesting branches proves nothing
 for (const s of ["wash", "keys", "broken", "gate"]) {
