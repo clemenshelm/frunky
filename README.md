@@ -34,8 +34,8 @@ The core design decision: **musical energy follows force — acceleration, braki
 | Launch | A tom fill introduces the beat, an impact hits on the next 8th, the mix pumps deeper |
 | Acceleration | A distorted growl bass rolls in on the offbeats; background percussion swells |
 | Braking | A master lowpass closes over the whole mix — energy is audibly drained |
-| City (~15–65 km/h) | Syncopated percussion groove, urban detail |
-| Highway (>90 km/h) | Details recede, a sustained root carries, long hypnotic arp notes: flow, not hammering |
+| City (~15–65 km/h) | Syncopated percussion groove, Rhodes comping dabs, urban detail |
+| Highway (>90 km/h) | The harmony retires to an Am pedal with a walking inner voice — and every 24 bars the anthem lift (♭VI–♭VII–i) opens the sky for 8 bars |
 | Curves | The whole mix leans into the turn (stereo pan) and an abstract "stretch" tone bends up with lateral g |
 
 ### Latency doctrine

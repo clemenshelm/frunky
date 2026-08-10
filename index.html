@@ -358,21 +358,53 @@
       }
       return { p, d, deg };
     });
-    // three phrases per 16-bar section: call, sequenced response, varied call.
-    // The bars between stay silent — a voice that never breathes is a synth.
+    // phrase FORMS instead of one shape: the classical sentence (2+2+4, motif,
+    // sequence, then a long development climbing to a planned climax), the
+    // period (open question, closing answer), and the old sparse calls
     const ev = {};
-    for (const [b, shift] of [[2, 0], [6, -1], [10, 1]]) {
-      const chord = prog[b % 4];
-      motif.forEach((n, i) => {
-        let d = clamp(n.deg + shift, 1, VSCALE.length - 2);
-        if (n.p % 4 === 0) d = snapToChord(d, chord);
-        ev[b + ":" + n.p] = { m: VSCALE[d], d: n.d, v: 0.5 + 0.12 * i, start: i === 0 };
+    const chordAt = (b) => prog[b % 4];
+    const put = (b, p, dg, d, v, extra = {}) => {
+      const bb = b + Math.floor(p / 16), pp = p % 16;
+      let dd = clamp(dg, 1, VSCALE.length - 1);
+      if (pp % 4 === 0) dd = snapToChord(dd, chordAt(bb));
+      ev[bb + ":" + pp] = { m: VSCALE[dd], d, v, ...extra };
+    };
+    const putMotif = (b, shift) => {
+      motif.forEach((n, i) => put(b, n.p, n.deg + shift, n.d, 0.5 + 0.1 * i,
+        i === 0 ? { start: true } : {}));
+    };
+    const lastDeg = motif[motif.length - 1].deg;
+    const form = ["sentence", "period", "sparse"][Math.floor(Math.random() * 3)];
+    if (form === "sentence") {
+      putMotif(2, 0); put(3, 0, lastDeg, 8, 0.55);
+      putMotif(4, -1); put(5, 0, lastDeg - 1, 8, 0.55);
+      // development: the opening fragment climbs, peaks, and lies down
+      const frag = motif.slice(0, 2);
+      const peak = Math.max(...motif.map((n) => n.deg)) + 2;
+      [[6, 0, 1], [6, 8, 2], [7, 0, 3]].forEach(([b, off, up], k) => {
+        frag.forEach((n, i) => put(b, off + n.p, n.deg + up, n.d, 0.55 + 0.08 * k,
+          i === 0 && off === 0 && b === 6 ? { start: true } : {}));
       });
-      const rc = prog[(b + 1) % 4];
-      const rd = snapToChord(clamp(motif[motif.length - 1].deg + shift, 1, VSCALE.length - 2), rc);
-      ev[(b + 1) + ":0"] = { m: VSCALE[rd], d: 10, v: 0.55, tail: true };
+      put(7, 8, peak, 6, 0.85); // the climax, ~70% through the arc
+      put(8, 0, peak - 1, 4, 0.7);
+      put(8, 6, peak - 2, 4, 0.62);
+      put(8, 12, peak - 3, 3, 0.55);
+      put(9, 0, peak - 4, 12, 0.5, { tail: true }); // long resolution
+    } else if (form === "period") {
+      putMotif(2, 0);
+      put(3, 0, lastDeg + 1, 6, 0.6);
+      put(3, 8, lastDeg + 2, 6, 0.65); // the question ends open
+      putMotif(6, 0);
+      put(7, 0, lastDeg - 1, 4, 0.6);
+      put(7, 6, lastDeg - 2, 4, 0.55);
+      put(8, 0, 7, 12, 0.5, { tail: true }); // the answer comes home to A
+    } else {
+      for (const [b, shift] of [[2, 0], [6, -1], [10, 1]]) {
+        putMotif(b, shift);
+        put(b + 1, 0, lastDeg + shift, 10, 0.55, { tail: true });
+      }
     }
-    return ev;
+    return { ev, form };
   }
   // the bass sits in the pocket: consistently a touch behind the beat
   function bassT(t) { return t + 0.008 + (Math.random() - 0.5) * 0.006; }
@@ -425,6 +457,7 @@
     snare: false,     // backbeat + ghost-note chatter
     voice: false,     // the singer: rule-based phrases with breaths
     voiceEv: {},
+    voiceForm: "",
     liftActive: false,
     flowOn: false,    // latched highway-harmony switch (hysteresis, barline only)
     progIdx: 0,       // position in the progression graph
@@ -813,11 +846,17 @@
       engine.syncPos = SYNCPOS[Math.floor(Math.random() * SYNCPOS.length)];
       engine.snare = Math.random() < 0.5;
       engine.voice = Math.random() < 0.45;
-      engine.voiceEv = engine.voice ? genVoice(engine.prog) : {};
+      if (engine.voice) {
+        const g = genVoice(engine.prog);
+        engine.voiceEv = g.ev;
+        engine.voiceForm = g.form;
+      } else {
+        engine.voiceEv = {};
+      }
       engine.traitsText = [
         "Akkorde: " + (engine.hr === "sync" ? "sync·" + (engine.syncPos === 12 ? "Vier" : "3und") : engine.hr),
         engine.snare && "Snare",
-        engine.voice && "Voice",
+        engine.voice && "Voice·" + engine.voiceForm,
         "Bass-Pattern " + (BASSPATS.indexOf(engine.bassPat) + 1),
         engine.bassMel && "Bass-Melodie",
         engine.bassFill && "Pops",
