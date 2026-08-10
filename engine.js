@@ -1399,10 +1399,18 @@
     // so the drum family steps back a touch to make room for it
     // depth: positive = receding under thrust, negative = coming forward
     const depth = opts.inertiaDepth ? clamp(thrust - brake, -1, 1) : 0;
-    ctl(revSend.gain, "revSend", 0.4 + (depth > 0 ? 0.35 * depth : 0.12 * depth), 0.008);
-    ctl(depthLp.frequency, "depthLp", 18000 - 13000 * Math.max(depth, 0), 120);
+    // Hearing is not linear, and a car spends its life in the lower half of
+    // this range: an ordinary pull-away reads about 0.3, and the old linear
+    // mapping answered that with a 14 kHz lowpass — a band with barely any
+    // music in it — and three tenths of a decibel. A fractional-power curve
+    // gives the common case something to say, and the filter moves in octaves
+    // rather than in hertz, which is how the ear measures it
+    const dEff = Math.sign(depth) * Math.pow(Math.abs(depth), 0.55);
+    ctl(revSend.gain, "revSend", 0.4 + (dEff > 0 ? 0.42 * dEff : 0.15 * dEff), 0.008);
+    ctl(depthLp.frequency, "depthLp",
+      18000 * Math.pow(0.22, Math.max(dEff, 0)), 100);
     ctl(depthGain.gain, "depthGain",
-      1 - 0.12 * Math.max(depth, 0) + 0.06 * Math.max(-depth, 0), 0.006);
+      1 - 0.2 * Math.max(dEff, 0) + 0.08 * Math.max(-dEff, 0), 0.006);
 
     const eNow = clamp(engine.energy + engine.launchBoost * 0.3, 0, 1);
     const flowHigh = clamp((eNow - 0.5) / 0.35, 0, 1);
@@ -1428,13 +1436,20 @@
       }
     } catch (err) { void err; }
 
-    // the transport callback has stopped firing
+    // The transport callback has stopped firing. A field report showed the whole
+    // main thread frozen for fourteen seconds; the page came back and the music
+    // did not. The freeze is the browser's business — coming back from it is
+    // ours. Nudge once, then rebuild the entire graph, then stop pretending
     if (stepIdx === lastStepSeen && clock - lastStepAt > 1500) {
       stalls++;
-      note("stall", "no step for " + Math.round(clock - lastStepAt) +
-        "ms at step " + stepIdx + " — restarting transport");
       lastStepAt = clock;
-      try { transport.start(); } catch (err) { note("stall", "restart failed: " + err); }
+      if (stalls === 1) {
+        note("stall", "no step for 1500ms at step " + stepIdx + " — restarting transport");
+        try { transport.start(); } catch (err) { note("stall", "restart failed: " + err); }
+      } else if (stalls === 2) {
+        note("stall", "still no step at " + stepIdx + " — rebuild from scratch");
+        rebuild();
+      }
     } else if (stepIdx !== lastStepSeen) {
       lastStepSeen = stepIdx;
       lastStepAt = clock;
@@ -1449,6 +1464,21 @@
       note("mute", "duck at " + duck.gain.value.toFixed(3) + " — restoring");
       try { duck.gain.rampTo(1, 0.05); } catch (err) { void err; }
     }
+  }
+
+  // The last resort: tear the graph down and build it again. Everything musical
+  // restarts — a new piece, from the top — which is a real cost, and still far
+  // better than a drive that has gone quiet for good
+  let rebuilding = false;
+  function rebuild() {
+    if (rebuilding) return;
+    rebuilding = true;
+    Promise.resolve()
+      .then(() => { stop(); })
+      .then(() => start())
+      .then((okStart) => { note("stall", okStart ? "rebuilt" : "rebuild refused"); })
+      .catch((err) => note("stall", "rebuild failed: " + ((err && err.message) || err)))
+      .finally(() => { rebuilding = false; });
   }
 
   // what the drive is doing, in one word — the only readout the driver page shows

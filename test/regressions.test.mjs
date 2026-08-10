@@ -180,6 +180,63 @@ await Frunky.start();
 Frunky.stop();
 transport.clear();
 
+// ---- 7. the page comes back, the music must come back with it --------------
+// A field report showed a single 14-second freeze of the whole main thread —
+// no frames, no GPS, no scheduler — after which the page ran on and the music
+// did not. The freeze itself is the browser's business; recovering from it is
+// ours. One restart attempt, then a full rebuild, then it is merely reported.
+await Frunky.start();
+{
+  let t = 0;
+  const runNormally = (n) => {
+    for (let i = 0; i < n; i++) {
+      Frunky.update(1 / 60, { speed: 45, lateralG: 0 });
+      if (i % 7 === 0) { transport.cb(t); t += SPB; }
+    }
+  };
+  runNormally(200);
+  const healthy = Frunky.health();
+  ok("steps are advancing to begin with", healthy.step > 20);
+
+  // the transport dies: frames continue, steps do not
+  const deadAt = Frunky.health().step;
+  for (let i = 0; i < 1200; i++) Frunky.update(1 / 60, { speed: 45, lateralG: 0 });
+  const after = Frunky.health();
+  ok("a dead transport is noticed: " + after.stalls, after.stalls > 0);
+  ok("and it escalates rather than retrying forever",
+    after.events.some((e) => e.kind === "stall" && /rebuild/.test(e.text)));
+  ok("the engine is still alive to be heard", after.running === true);
+  void deadAt;
+}
+Frunky.stop();
+transport.clear();
+
+// ---- 8. inertia has to be perceptible at ordinary forces -------------------
+// A real drive reported a peak force of 29 % and the depth effect went
+// unnoticed — correctly, because at that point the lowpass sat at 14 kHz
+// (where there is barely any music) and the level moved 0.3 dB. A mapping that
+// only speaks at the extremes says nothing on an ordinary road.
+await Frunky.start();
+{
+  const hold = (speedFrom, speedTo, frames) => {
+    for (let i = 0; i < frames; i++) {
+      const v = speedFrom + (speedTo - speedFrom) * (i / frames);
+      Frunky.update(1 / 60, { speed: v, lateralG: 0 });
+    }
+  };
+  hold(40, 40, 300);
+  const rest = Frunky.levels();
+  // an ordinary pull: about 8 km/h per second, which is a 30 % force reading
+  hold(40, 62, 160);
+  const moving = Frunky.levels();
+  ok("an ordinary acceleration is audible in the room: " +
+    rest.room.toFixed(2) + " -> " + moving.room.toFixed(2), moving.room > rest.room + 0.08);
+  ok("and takes real air off the top: " + Math.round(moving.air) + " Hz",
+    moving.air < 12000);
+}
+Frunky.stop();
+transport.clear();
+
 if (failures.length) {
   console.error("FAILURES:");
   for (const f of failures) console.error("  -", f);

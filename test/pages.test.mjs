@@ -67,6 +67,10 @@ ok("driver page stamps its build", drive.includes("lastModified"));
 // the build number must reach the report, or a stale run is indistinguishable
 // from a fresh one — which cost three field tests
 ok("the driver page reports its build number", /const BUILD = "\d+"/.test(drive));
+// It has to be readable BEFORE driving. A stale copy that only reveals itself
+// in the trip summary costs a whole test drive to discover — it cost four.
+ok("the start screen shows the build", /id="buildNote"/.test(drive));
+ok("and it is filled from BUILD", /buildNote[\s\S]{0,400}BUILD/.test(drive));
 ok("and the script query matches it",
   (drive.match(/const BUILD = "(\d+)"/) || [])[1] === (drive.match(/engine\.js\?v=(\d+)/) || [])[1]);
 ok("bench stamps its build", bench.includes("lastModified"));
