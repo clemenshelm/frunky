@@ -1300,9 +1300,14 @@
       (1 - Math.exp(-dt / (rising ? 3.2 : 1.2)));
     // the rhythm section fades in rather than appearing: "standstill" was a
     // hard switch, and a hard switch is exactly what an abrupt swell is
-    const awake = engine.energy > 0.055 || engine.launchBoost > 0.2 ? 1 : 0;
-    engine.wake += (awake - engine.wake) *
-      (1 - Math.exp(-dt / (awake > engine.wake ? 2.2 : 0.9)));
+    // A gentle pull-away blooms over seconds. A traffic-light sprint must NOT:
+    // it is the one moment the whole design exists for, and making it wait for
+    // the same fade turns the launch into a slow swell — the exact fault the
+    // fade was added to remove, moved to the other end
+    const launching = engine.launchBoost > 0.2;
+    const awake = engine.energy > 0.055 || launching ? 1 : 0;
+    const wakeTau = awake > engine.wake ? (launching ? 0.12 : 2.2) : 0.9;
+    engine.wake += (awake - engine.wake) * (1 - Math.exp(-dt / wakeTau));
     engine.launchBoost = Math.max(0, engine.launchBoost - dt / (SPB * 64));
 
     // launch detection: standstill -> first movement the engine can see.
@@ -1314,7 +1319,13 @@
     } else {
       engine.standstillSince = null;
     }
-    if (engine.armed && speed > 6 && engine.prevEst <= 6) {
+    // A launch is a SPRINT, not merely leaving a standstill. Rolling away
+    // gently crosses the same threshold, and treating that as a launch is what
+    // made every departure arrive in one lump. The threshold is read at the
+    // MOMENT of crossing, where the half-second smoother has only seen a third
+    // of the acceleration — so 7 here separates a real sprint (about 10 by
+    // then) from an ordinary pull-away (about 5), not 28 from 6
+    if (engine.armed && speed > 6 && engine.prevEst <= 6 && engine.accelEst > 7) {
       engine.armed = false;
       engine.launchBoost = 1;
       engine.pullChorus = true; // the sprint deserves the payoff part
@@ -1464,6 +1475,11 @@
   async function start() {
     if (building || engine.running) return false;
     building = true;
+    // clear the record FIRST: anything that happens during start-up (a sample
+    // load that times out, a context that refuses to resume) is exactly what a
+    // slow start needs explained, and clearing afterwards erased it
+    events.length = 0; errCount = 0; resumes = 0; lastResumeAt = 0;
+    stalls = 0; lateSteps = 0; worstLate = 0;
     try {
       await Tone.start();
       await buildGraph();
@@ -1495,10 +1511,8 @@
     engine.flowOn = false; engine.progIdx = 0; engine.piece = null; engine.partLabel = "";
     stepIdx = 0; pendingLaunchAt = -1; tp = 0; clock = 0;
     sched.clear(); ctlLast.clear(); stepCost = 0; peakCost = 0;
-    events.length = 0; errCount = 0; resumes = 0; lastResumeAt = 0;
     strain = 0; strainSteps = 0; totalSteps = 0;
-    lastStepSeen = -1; lastStepAt = 0; stalls = 0;
-    lateSteps = 0; worstLate = 0;
+    lastStepSeen = -1; lastStepAt = 0;
     transport = Tone.getTransport();
     transport.bpm.value = BPM;
     transport.swing = 0.22; // light 16th shuffle — the pulse stays straight
@@ -1595,6 +1609,7 @@
       errors: errCount, resumes, stalls, lateSteps, worstLate,
       load: stepCost, peakLoad: peakCost,
       strain, strainPct: totalSteps ? (strainSteps / totalSteps) * 100 : 0,
+      wake: engine.wake,
       events: events.slice(),
     };
   }
