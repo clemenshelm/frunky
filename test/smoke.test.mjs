@@ -1,7 +1,8 @@
+// Drives the real engine module through its public API with a synthetic
+// drive — the same script the bench page's buttons produce, minus the DOM.
 import { readFileSync } from "node:fs";
 
-const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
-const script = html.match(/<script>([\s\S]*)<\/script>/)[1];
+const script = readFileSync(new URL("../engine.js", import.meta.url), "utf8");
 
 // ---- native Web Audio stubs (used for one-shot clicks/impacts/swells) ------
 const t0 = Date.now();
@@ -91,86 +92,77 @@ const Tone = new Proxy({}, {
   },
 });
 globalThis.Tone = Tone;
-
-// ---- DOM stubs -------------------------------------------------------------
-const elements = new Map();
-const listeners = new Map(); // id -> {type: fn}
-function el(id) {
-  if (elements.has(id)) return elements.get(id);
-  const e = {
-    id, value: "0", textContent: "", className: "", disabled: false,
-    style: {},
-    classList: { add() {}, remove() {}, toggle() {} },
-    addEventListener(type, fn) {
-      if (!listeners.has(id)) listeners.set(id, {});
-      listeners.get(id)[type] = fn;
-    },
-  };
-  elements.set(id, e);
-  return e;
-}
+// ---- host stubs --------------------------------------------------------------
+// engine.js touches no DOM at all — it only needs somewhere to publish itself
 globalThis.window = { Tone };
-globalThis.document = { getElementById: (id) => el(id), activeElement: null };
-globalThis.requestAnimationFrame = (fn) => setTimeout(() => fn(performance.now()), 16);
 
 process.on("uncaughtException", (err) => { console.error("UNCAUGHT:", err); process.exit(1); });
 process.on("unhandledRejection", (err) => { console.error("UNHANDLED:", err); process.exit(1); });
 
 // cycling pseudo-random: successive rolls sweep [0,1) so every pool branch
-// (progressions, harmonic rhythms, fills, ghosts, motif) gets exercised
+// (progressions, harmonic rhythms, fills, ghosts, chord styles) gets exercised
 let rc = 0;
 Math.random = () => (rc = (rc + 0.377) % 1);
 
 eval(script);
 
-const fire = (id, type = "click") => {
-  const fn = listeners.get(id)?.[type];
-  if (!fn) throw new Error(`no ${type} listener on #${id}`);
-  return fn();
-};
+const Frunky = globalThis.window.Frunky;
+if (!Frunky) { console.error("engine.js published no window.Frunky"); process.exit(1); }
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// ---- the synthetic drive -----------------------------------------------------
+// A 60 Hz loop integrates toward a target speed and feeds the engine, exactly
+// as the driver page's frame loop does with real GPS.
+let speed = 0, target = 0, accel = 20, lat = 0;
 const seen = new Set();
-const poll = setInterval(() => {
-  const s = elements.get("status")?.textContent;
-  if (s) seen.add(s);
-  // dashboard renders survive the stop-handler clear
-  const fr = elements.get("dashForm")?.innerHTML;
-  if (fr) elements.get("dashForm").last = fr;
-  const ch = elements.get("dashChips")?.innerHTML;
-  if (ch) elements.get("dashChips").last = ch;
-}, 40);
+let lastDesc = null, maxSpeedSeen = 0;
+let prev = Date.now();
+const loop = setInterval(() => {
+  const now = Date.now();
+  const dt = Math.min(0.1, (now - prev) / 1000);
+  prev = now;
+  const d = target - speed, stepSize = accel * dt;
+  speed = Math.abs(d) <= stepSize ? target : speed + Math.sign(d) * stepSize;
+  Frunky.update(dt, { speed, lateralG: lat });
+  if (Frunky.isRunning()) {
+    seen.add(Frunky.status().text);
+    const desc = Frunky.describe();
+    if (desc) lastDesc = desc;
+    maxSpeedSeen = Math.max(maxSpeedSeen, speed);
+  }
+}, 16);
 
-await fire("play");                                   // async: Tone.start + buildGraph
-await sleep(300);
-fire("city");                                         // urban cruise first
-await sleep(8000);                                    // thrust ebbs slowly; give Stadt a window
-el("speed").value = "120"; fire("speed", "input");   // accelerate hard
-await sleep(2500);
-fire("curveR");                                       // lean into a curve
-await sleep(1500);
-fire("modeDirect");                                   // switch measurement mode
-await sleep(500);
-fire("modeGps");
-fire("brake");                                        // down to standstill
-await sleep(8000);                                    // brake ~3.6s + GPS lag + 1.5s arming
-el("speed").value = "80"; fire("speed", "input");     // sprint away
+const driveTo = (v, a) => { target = v; accel = a; };
+
+await Frunky.start();
+await sleep(3000);                    // standstill: 1.5 s of stillness arms the launch
+driveTo(45, 26);                      // the sprint away from the light
 await sleep(3000);
-fire("autobahn");
-await sleep(11000); // long enough to cross a 16-bar section boundary (~29s)
-await fire("play");                                   // stop
-clearInterval(poll);
+driveTo(45, 26);
+await sleep(8000);                    // hold city speed: urban groove
+driveTo(130, 16);                     // out onto the highway
+await sleep(6000);
+lat = 0.7;                            // lean into a long curve
+await sleep(2000);
+lat = 0;
+await sleep(11000);                   // long enough to cross a 16-bar boundary
+driveTo(0, 28);                       // brake all the way down
+await sleep(6000);
+Frunky.stop();
+clearInterval(loop);
 await sleep(300);
 
 console.log("statuses seen:", [...seen].join(" | "));
-const estShown = elements.get("estVal").textContent;
-console.log("last engine estimate:", estShown);
-const formShown = elements.get("dashForm")?.last ?? "";
-const chipsShown = elements.get("dashChips")?.last ?? "";
-console.log("last arrangement:", formShown.replace(/<[^>]+>/g, " ").trim());
-console.log("last chips:", chipsShown.replace(/<[^>]+>/g, " ").trim());
+console.log("peak speed fed:", Math.round(maxSpeedSeen), "km/h");
+if (lastDesc) {
+  console.log("last arrangement:", lastDesc.form.join(" "),
+    "· Stück", lastDesc.num, "·", lastDesc.partName, "· Takt", lastDesc.bar + "/16");
+  console.log("last chips:", lastDesc.chips.map(([k, v]) => k + " " + v).join(" | "));
+}
 
 const failures = [];
+const chipKeys = lastDesc ? lastDesc.chips.map(([k]) => k) : [];
 if (![...seen].some((s) => s.startsWith("Stand"))) failures.push("never reached standstill state");
 if (![...seen].some((s) => s.includes("geladen"))) failures.push("never armed at standstill");
 if (!seen.has("LAUNCH")) failures.push("launch event never fired");
@@ -178,10 +170,10 @@ if (!seen.has("Schub")) failures.push("thrust state never reached");
 if (!seen.has("Bremsen")) failures.push("braking state never reached");
 if (!seen.has("Stadt")) failures.push("urban state never reached");
 if (!seen.has("Autobahn-Flow")) failures.push("highway flow state never reached");
-if (estShown === "0 km/h") failures.push("engine estimate never moved");
-if (!chipsShown.includes("Akkorde")) failures.push("dashboard chips never rendered");
-if (!chipsShown.includes("Key")) failures.push("per-piece key chip never rendered");
-if (!formShown.includes("Stück")) failures.push("arrangement view never rendered");
+if (!lastDesc) failures.push("engine never described a piece");
+if (!chipKeys.includes("Akkorde")) failures.push("arrangement chips never rendered");
+if (!chipKeys.includes("Key")) failures.push("per-piece key chip never rendered");
+if (Frunky.isRunning()) failures.push("engine still running after stop()");
 
 if (failures.length) {
   console.error("FAILURES:", failures);

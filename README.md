@@ -6,21 +6,28 @@
 
 Open the page in your car's browser (built with the Tesla browser in mind), tap play, and the music follows your drive: fat basses that lean into acceleration, a heartbeat while you wait at the red light, urban percussion in the city, hypnotic flow on the highway, and a stereo lean through the curves. Everything runs live in the browser with the Web Audio API — no backend, no account.
 
-## Status: early prototype
+## Two pages, one engine
 
-What exists today is a **driving simulator**: [`index.html`](index.html) contains the full music engine plus a gas-pedal slider and scenario buttons (launch, city, highway, braking, curves), so the musical behaviour can be designed and tested without a car. Crucially, the simulator feeds the engine the same degraded signal a real car browser would provide — **one GPS sample per second, arriving ~0.8 s late** — and lets you A/B that against an ideal measurement to prove the latency doesn't hurt.
+| | what it is | who it is for |
+| --- | --- | --- |
+| [`index.html`](index.html) | **the driver page** — real GPS, one giant start button, then a speed, a state word and nothing to read | the car |
+| [`bench.html`](bench.html) | **the test bench** — gas-pedal slider, scenario buttons, the arrangement dashboard, and a switch between simulated GPS reality and ideal measurement | designing the music |
 
-It does not read real GPS yet. That's the next milestone.
+Both load the same [`engine.js`](engine.js), which owns everything musical and nothing else: it takes `update(dt, { speed, lateralG })` once per frame and does not care whether those numbers came from a satellite or a slider. [`geo.js`](geo.js) is the driver page's GPS reader — it turns browser fixes into that same pair, dead-reckoning and smoothing them exactly the way the bench simulates, so the bench is a real rehearsal for the car rather than a different instrument.
+
+The driver page gets the short URL on purpose: it is the one you type on a touchscreen while parked.
 
 ## Try it
 
-Serve the repo root with any static server (or open the GitHub Pages deployment) and press **Play**. Best with decent speakers or headphones.
+Serve the repo root with any static server (or open the GitHub Pages deployment). The driver page needs location permission and HTTPS — GitHub Pages provides both; over plain `http://` outside `localhost` the browser will refuse to give a position.
 
 ```bash
 npx serve .
 ```
 
-`prototypes/genre-lab.html` is the earlier genre exploration (melodic techno / synthwave / Berlin school / hybrid) that led to the current trance direction — kept for reference.
+`npm test` runs three checks: a wiring guard across the two pages and the engine's public API, the GPS reader's maths (heading wrap-around, derived speed, standstill noise), and a headless smoke test that drives a full synthetic trip through the real engine.
+
+`prototypes/genre-lab.html` is the earlier genre exploration (melodic techno / synthwave / Berlin school / hybrid) that led here — kept for reference.
 
 ## How it works
 
@@ -82,7 +89,11 @@ Sound first, car second — the plan is to iterate on the music until it carries
 
 ## Development
 
-No build step. The audio engine runs on [Tone.js](https://tonejs.github.io/) v15 (MIT), vendored as `vendor/Tone.js` so the app stays a self-contained static site — Transport with built-in swing, fat-oscillator supersaws, chorus, convolution reverb, and compressor routing replace the earlier hand-rolled Web Audio graph. The engine lives in `index.html`; `npm test` runs a headless smoke test that drives the full scenario (standstill → armed → launch → thrust → city → cruise → highway flow → braking) against stubbed Web Audio and DOM, with a cycling pseudo-random so every variation pool is exercised.
+No build step. The audio runs on [Tone.js](https://tonejs.github.io/) v15 (MIT), vendored as `vendor/Tone.js` so the app stays a self-contained static site — Transport with built-in swing, fat-oscillator supersaws, chorus, convolution reverb, and compressor routing.
+
+`engine.js` deliberately touches no DOM, which is what lets the smoke test drive the real thing rather than a copy: it feeds a synthetic trip (standstill → armed → launch → thrust → city → highway flow → curve → braking) through the public API against stubbed Web Audio, with a cycling pseudo-random so every variation pool is exercised. The wiring guard then checks that every `Frunky.*` call in either page actually exists, because a static site has no build step to notice a renamed method.
+
+A car browser is not a laptop — it shares a modest CPU with a large screen. Two things follow, and both are load-bearing rather than tuning: Tone's look-ahead is raised to 0.25 s (a late scheduler callback is heard as a dropped beat, and latency costs nothing when the input is already a second old), and the driver page writes a DOM node only when its value changed.
 
 UI copy is currently German (the prototype's first test driver is German-speaking); i18n is fair game once the engine stabilizes.
 

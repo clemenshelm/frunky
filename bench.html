@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Frunky — Testbank</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --surface: #12161f;
+    --line: #232a38;
+    --text: #e9ecf2;
+    --muted: #8b94a6;
+    --cyan: #46d4e0;
+    --amber: #f2a65a;
+    --hot: #f2f2f2;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: var(--bg); }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    line-height: 1.55;
+    padding: 3rem 1.25rem 4rem;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--cyan);
+    margin-bottom: 0.75rem;
+  }
+  h1 {
+    font-family: Futura, "Century Gothic", "Trebuchet MS", sans-serif;
+    font-weight: 500;
+    font-size: clamp(1.6rem, 4vw, 2.2rem);
+    text-wrap: balance;
+    margin-bottom: 0.9rem;
+  }
+  .intro { color: var(--muted); max-width: 62ch; margin-bottom: 2rem; }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1.4rem 1.5rem;
+    margin-bottom: 1.25rem;
+  }
+  .row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+  button {
+    font-family: inherit;
+    font-size: 0.92rem;
+    font-weight: 600;
+    border-radius: 7px;
+    padding: 0.55rem 1.1rem;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: filter 0.15s, opacity 0.15s;
+    background: var(--line);
+    color: var(--text);
+  }
+  button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+  button:hover:not(:disabled) { filter: brightness(1.2); }
+  button:disabled { opacity: 0.35; cursor: default; }
+  .btn-play { background: var(--cyan); color: #06282c; }
+  .btn-play.on { background: transparent; color: var(--cyan); border-color: var(--cyan); }
+  .btn-launch { background: var(--amber); color: #2b1a05; }
+  .status {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-left: auto;
+  }
+  .status.launch { color: var(--amber); }
+  .status.high { color: var(--hot); }
+  .status.cruise { color: var(--cyan); }
+  .meters { display: flex; flex-direction: column; gap: 0.9rem; margin: 1.25rem 0 0.5rem; }
+  .meter label {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 0.8rem; color: var(--muted); margin-bottom: 0.3rem;
+  }
+  .meter .val {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+  }
+  .bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0%; border-radius: 4px; background: var(--cyan); }
+  .bar.engine i { background: var(--amber); }
+  .bar.energy i { background: linear-gradient(90deg, var(--cyan), var(--hot)); }
+  input[type="range"] {
+    width: 100%; margin: 1rem 0 0.25rem;
+    accent-color: var(--cyan);
+    height: 2.2rem;
+  }
+  .slider-caption { font-size: 0.8rem; color: var(--muted); margin-bottom: 1rem; }
+  .scenarios { margin-top: 0.5rem; }
+  .mode { display: flex; gap: 0; margin-top: 1.25rem; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; width: fit-content; }
+  .mode button { border-radius: 0; background: transparent; color: var(--muted); font-weight: 500; }
+  .mode button.on { background: var(--line); color: var(--text); font-weight: 600; }
+  .mode-caption { font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; max-width: 60ch; }
+  .dash { margin-top: 0.9rem; display: flex; flex-direction: column; gap: 0.5rem; }
+  .dash-form {
+    display: flex; gap: 4px; align-items: center; flex-wrap: wrap;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.72rem; color: var(--muted);
+  }
+  .dash-form .blk { padding: 0.12rem 0.5rem; border: 1px solid var(--line); border-radius: 4px; }
+  .dash-form .blk.on { background: var(--cyan); color: #06282c; border-color: var(--cyan); font-weight: 700; }
+  .dash-form .plabel { margin-left: 0.4rem; color: var(--text); }
+  .dash-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .chip {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.68rem; letter-spacing: 0.04em;
+    border: 1px solid var(--line); border-radius: 4px;
+    padding: 0.12rem 0.45rem; color: var(--muted);
+  }
+  .chip b { color: var(--text); font-weight: 600; }
+  .chip.hot { border-color: var(--amber); color: var(--amber); }
+  .chip.hot b { color: var(--amber); }
+  .hint {
+    color: var(--muted); font-size: 0.85rem;
+    border-left: 2px solid var(--amber);
+    padding-left: 0.75rem; margin: 1.75rem 0; max-width: 62ch;
+  }
+  .hint strong { color: var(--text); }
+  .foot { color: var(--muted); font-size: 0.82rem; margin-top: 2rem; max-width: 62ch; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <p class="eyebrow">Frunky · Testbank</p>
+  <h1>Fahrsimulator mit echter GPS-Latenz</h1>
+  <p class="intro">
+    Diese Seite ist die Werkbank, nicht das Produkt — die Fahrer-Seite läuft
+    <a href="./" style="color: var(--cyan)">hier</a> und teilt sich mit ihr
+    dieselbe Engine (<code>engine.js</code>).
+    Der Slider ist dein Gaspedal. Die Musik-Engine sieht aber nicht den Slider,
+    sondern das, was ein Tesla-Browser sehen würde: ein GPS-Sample pro Sekunde,
+    knapp eine Sekunde verspätet. Der Schalter unten schaltet auf ideale Messung
+    um — so hörst du direkt, ob die Latenz stört.
+  </p>
+
+  <div class="panel">
+    <div class="row">
+      <button class="btn-play" id="play">Play</button>
+      <button class="btn-launch" id="launch" disabled>Ampelsprint</button>
+      <span class="status" id="status">—</span>
+    </div>
+
+    <div class="meters">
+      <div class="meter">
+        <label><span>Echte Geschwindigkeit</span><span class="val" id="trueVal">0 km/h</span></label>
+        <div class="bar"><i id="trueBar"></i></div>
+      </div>
+      <div class="meter">
+        <label><span>Was die Engine sieht (GPS)</span><span class="val" id="estVal">0 km/h</span></label>
+        <div class="bar engine"><i id="estBar"></i></div>
+      </div>
+      <div class="meter">
+        <label><span>Kraft (Schub / Bremse)</span><span class="val" id="energyVal">0 %</span></label>
+        <div class="bar energy"><i id="energyBar"></i></div>
+      </div>
+    </div>
+    <div class="dash" id="dash" hidden>
+      <div class="dash-form" id="dashForm" aria-label="Song-Struktur"></div>
+      <div class="dash-chips" id="dashChips"></div>
+    </div>
+
+    <input type="range" id="speed" min="0" max="150" value="0" step="1" aria-label="Geschwindigkeit in km/h" />
+    <p class="slider-caption">Gaspedal — ziehen oder Szenarien nutzen</p>
+
+    <div class="row scenarios">
+      <button id="city" disabled>Stadt (45)</button>
+      <button id="autobahn" disabled>Autobahn (130)</button>
+      <button id="brake" disabled>Bremsen (0)</button>
+      <button id="curveL" disabled>Kurve links</button>
+      <button id="curveR" disabled>Kurve rechts</button>
+    </div>
+
+    <div class="mode" role="group" aria-label="Messmodus">
+      <button id="modeGps" class="on">GPS-Realität (1 Hz + Latenz)</button>
+      <button id="modeDirect">Ideale Messung</button>
+    </div>
+    <p class="mode-caption" id="modeCaption">
+      Engine-Input: 1 Sample/Sekunde, ~0,8 s alt, mit Extrapolation geglättet.
+    </p>
+  </div>
+
+  <p class="hint">
+    <strong>Probier diese vier Dinge:</strong> ① Auf 0 bremsen — beim Bremsen schließt
+    sich ein Filter über der ganzen Mischung und eine dunkle Druck-Textur lehnt sich
+    rein: Die Energie wird hörbar abgedreht. Im Stand übernimmt der Herzschlag.
+    Dann <strong>Ampelsprint</strong>: Ein Tom-Fill führt den Beat ein, ein verzerrter
+    Growl-Bass rollt auf den Offbeats und die Mischung pumpt tiefer — die Kraft
+    sitzt im Bass. Die Hintergrund-Percussion schwillt mit der Beschleunigung an
+    und tritt beim Cruisen zurück. ② Stadt (45) — synkopierter Percussion-Groove,
+    urbanes Flirren. ③ Autobahn (130) — Details verschwinden, ein liegender Bass
+    trägt, die Fläche öffnet sich: Flow statt Hämmern. ④ Bei Tempo eine
+    <strong>Kurve</strong> — die Musik legt sich rein, ein Dehnungston biegt sich
+    mit der G-Kraft hoch. Und dann: alles nochmal mit „Ideale Messung" — hörst du
+    einen Unterschied?
+  </p>
+
+  <p class="foot">
+    Funky House, 132 BPM — jedes Stück würfelt seine eigene Tonart und Stimmung.
+    Alles live im Browser erzeugt, mit Langzeit-Dramaturgie:
+    Alle 16 Takte wechseln Akkordfolge und Arpeggio-Figur, jede achte Phrase endet
+    mit einem Turnaround, alle ~90 Sekunden treten Kick und Bass für vier Takte
+    beiseite (nur beim Cruisen), und Percussion wie Arpeggio sind humanisiert
+    (Swing, Timing- und Velocity-Streuung) und hängen in einem generierten Raumhall. Kraft — Schub, Bremse,
+    Quer-G — treibt die Intensität; die Geschwindigkeit wählt nur die Szene
+    (Stadt-Percussion vs. Autobahn-Flow). Alle Kraft-Texturen arbeiten mit
+    Verzerrung, Körnung und Reibung statt Tonhöhe und sind kontinuierlich, also
+    latenzimmun. Der Ampelsprint ist das eine diskrete Event, abgesichert über
+    den Stillstand-als-Zustand-Trick (Herzschlag = geladener Puls).
+  </p>
+  <p class="foot" id="buildInfo"></p>
+</div>
+<script src="vendor/Tone.js"></script>
+<script src="engine.js"></script>
+<script>
+(() => {
+  "use strict";
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+  // ---- driving simulation --------------------------------------------------
+
+  const sim = {
+    trueSpeed: 0,          // km/h, ground truth
+    targetSpeed: 0,
+    accel: 20,             // km/h per second toward target
+    trueG: 0,              // lateral, -1..1
+    curve: null,           // {dir, t0}
+    history: [],           // [tMs, speed, g]
+    // what the engine sees:
+    gpsMode: true,
+    lastSample: { t: 0, speed: 0, g: 0, slope: 0 },
+    est: 0,                // smoothed engine-side estimate km/h
+    estG: 0,
+  };
+
+  const GPS_INTERVAL = 1000;  // ms between samples
+  const GPS_AGE = 800;        // ms: how old each sample's value is
+  let lastSampleAt = 0;
+
+  function historyAt(ageMs) {
+    const t = performance.now() - ageMs;
+    const h = sim.history;
+    for (let i = h.length - 1; i >= 0; i--) {
+      if (h[i][0] <= t) return { speed: h[i][1], g: h[i][2] };
+    }
+    return { speed: 0, g: 0 };
+  }
+
+  function advanceSim(dt, now) {
+    // speed toward target
+    const d = sim.targetSpeed - sim.trueSpeed;
+    const step = sim.accel * dt;
+    sim.trueSpeed = Math.abs(d) <= step ? sim.targetSpeed : sim.trueSpeed + Math.sign(d) * step;
+    // curve profile: ramp 1s, hold 2.5s, release 1s
+    if (sim.curve) {
+      const e = (now - sim.curve.t0) / 1000;
+      const mag = e < 1 ? e : e < 3.5 ? 1 : e < 4.5 ? 1 - (e - 3.5) : 0;
+      sim.trueG = sim.curve.dir * 0.8 * mag * clamp(sim.trueSpeed / 60, 0, 1);
+      if (e >= 4.5) { sim.curve = null; sim.trueG = 0; }
+    }
+    sim.history.push([now, sim.trueSpeed, sim.trueG]);
+    if (sim.history.length > 600) sim.history.splice(0, 200);
+
+    // engine-side input
+    let base, baseG;
+    if (sim.gpsMode) {
+      if (now - lastSampleAt >= GPS_INTERVAL) {
+        lastSampleAt = now;
+        const h = historyAt(GPS_AGE);
+        const prev = sim.lastSample;
+        const slope = (h.speed - prev.speed) / ((now - prev.t) / 1000 || 1);
+        sim.lastSample = { t: now, speed: h.speed, g: h.g, slope };
+      }
+      const s = sim.lastSample;
+      const dtSample = (now - s.t) / 1000;
+      base = clamp(s.speed + s.slope * dtSample, 0, 200); // dead reckoning
+      baseG = s.g;
+    } else {
+      base = sim.trueSpeed;
+      baseG = sim.trueG;
+    }
+    // one-pole smoothing (feels like a needle, not a step)
+    const k = 1 - Math.exp(-dt / 0.35);
+    sim.est += (base - sim.est) * k;
+    sim.estG += (baseG - sim.estG) * (1 - Math.exp(-dt / 0.45));
+  }
+
+  // ---- UI ------------------------------------------------------------------
+
+  const ui = {
+    trueBar: document.getElementById("trueBar"),
+    estBar: document.getElementById("estBar"),
+    energyBar: document.getElementById("energyBar"),
+    trueVal: document.getElementById("trueVal"),
+    estVal: document.getElementById("estVal"),
+    energyVal: document.getElementById("energyVal"),
+    status: document.getElementById("status"),
+    dash: document.getElementById("dash"),
+    dashForm: document.getElementById("dashForm"),
+    dashChips: document.getElementById("dashChips"),
+    slider: document.getElementById("speed"),
+  };
+
+  let lastFrame = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.1, (now - lastFrame) / 1000);
+    lastFrame = now;
+    advanceSim(dt, now);
+
+    if (Frunky.isRunning()) {
+      // the bench feeds the engine its DEGRADED estimate, never the truth —
+      // that is the whole point of this page
+      Frunky.update(dt, { speed: sim.est, lateralG: sim.estG });
+      const st = Frunky.status();
+      ui.status.textContent = st.text;
+      ui.status.className = "status " + st.kind;
+      // dashboard: arrangement view on top, channel chips below
+      const d = Frunky.describe();
+      if (d) {
+        const formHtml = d.form.map((L, i) =>
+          '<span class="blk' + (i === d.idx - 1 ? " on" : "") + '">' + L + "</span>").join("")
+          + '<span class="plabel">Stück ' + d.num + " · " + d.partName
+          + " · Takt " + d.bar + "/16</span>";
+        if (ui.dashForm.innerHTML !== formHtml) ui.dashForm.innerHTML = formHtml;
+        const chipsHtml = d.chips.map(([k, v]) => k === "hot"
+          ? '<span class="chip hot"><b>' + v + "</b></span>"
+          : '<span class="chip"><b>' + k + "</b> " + v + "</span>").join("");
+        if (ui.dashChips.innerHTML !== chipsHtml) ui.dashChips.innerHTML = chipsHtml;
+        ui.dash.hidden = false;
+      }
+    }
+
+    const force = Frunky.force();
+    ui.trueBar.style.width = (sim.trueSpeed / 150) * 100 + "%";
+    ui.estBar.style.width = (clamp(sim.est, 0, 150) / 150) * 100 + "%";
+    ui.energyBar.style.width = force * 100 + "%";
+    ui.trueVal.textContent = Math.round(sim.trueSpeed) + " km/h";
+    ui.estVal.textContent = Math.round(sim.est) + " km/h";
+    ui.energyVal.textContent = Math.round(force * 100) + " %";
+    if (document.activeElement !== ui.slider) ui.slider.value = Math.round(sim.trueSpeed);
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ---- controls ------------------------------------------------------------
+
+  const btns = ["launch", "city", "autobahn", "brake", "curveL", "curveR"]
+    .map((id) => document.getElementById(id));
+  const playBtn = document.getElementById("play");
+
+  playBtn.addEventListener("click", async () => {
+    if (Frunky.isBuilding()) return;
+    if (Frunky.isRunning()) {
+      Frunky.stop();
+      playBtn.textContent = "Play";
+      playBtn.classList.remove("on");
+      btns.forEach((b) => (b.disabled = true));
+      ui.status.textContent = "—";
+      ui.status.className = "status";
+      ui.dash.hidden = true;
+      return;
+    }
+    playBtn.disabled = true;
+    try {
+      await Frunky.start();
+    } finally {
+      playBtn.disabled = false;
+    }
+    playBtn.textContent = "Stop";
+    playBtn.classList.add("on");
+    btns.forEach((b) => (b.disabled = false));
+  });
+
+  ui.slider.addEventListener("input", () => {
+    sim.targetSpeed = Number(ui.slider.value);
+    sim.accel = 40; // manual drag: follow quickly
+  });
+  document.getElementById("launch").addEventListener("click", () => {
+    // brake to standstill, wait, then Tesla-style sprint to 80
+    sim.targetSpeed = 0; sim.accel = 35;
+    const wait = setInterval(() => {
+      if (sim.trueSpeed < 0.5) {
+        clearInterval(wait);
+        setTimeout(() => { sim.targetSpeed = 80; sim.accel = 26; }, 2200);
+      }
+    }, 100);
+  });
+  document.getElementById("city").addEventListener("click", () => { sim.targetSpeed = 45; sim.accel = 14; });
+  document.getElementById("autobahn").addEventListener("click", () => { sim.targetSpeed = 130; sim.accel = 15; });
+  document.getElementById("brake").addEventListener("click", () => { sim.targetSpeed = 0; sim.accel = 28; });
+  document.getElementById("curveL").addEventListener("click", () => { sim.curve = { dir: -1, t0: performance.now() }; });
+  document.getElementById("curveR").addEventListener("click", () => { sim.curve = { dir: 1, t0: performance.now() }; });
+
+  const modeGps = document.getElementById("modeGps");
+  const modeDirect = document.getElementById("modeDirect");
+  const modeCaption = document.getElementById("modeCaption");
+  function setMode(gps) {
+    sim.gpsMode = gps;
+    modeGps.classList.toggle("on", gps);
+    modeDirect.classList.toggle("on", !gps);
+    modeCaption.textContent = gps
+      ? "Engine-Input: 1 Sample/Sekunde, ~0,8 s alt, mit Extrapolation geglättet."
+      : "Engine-Input: perfekte Echtzeit-Messung (zum Vergleich).";
+    if (gps) { lastSampleAt = 0; }
+  }
+  modeGps.addEventListener("click", () => setMode(true));
+  modeDirect.addEventListener("click", () => setMode(false));
+
+  // guard against reviewing a stale copy: show when THIS page file was built
+  const bi = document.getElementById("buildInfo");
+  if (bi && typeof location !== "undefined") {
+    bi.textContent = "Stand dieser Seite: " + document.lastModified +
+      " · " + (location.protocol === "file:" ? "LOKALE KOPIE" : location.hostname);
+  }
+})();
+</script>
+</body>
+</html>
