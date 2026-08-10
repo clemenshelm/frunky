@@ -285,12 +285,17 @@
     [[57, 64, 67, 71], [53, 60, 64, 67], [55, 59, 62, 69], [57, 64, 67, 71]], // Am9 Fmaj9 Gadd9 Am9
     [[57, 64, 67, 71], [50, 57, 62, 66], [57, 64, 67, 72], [55, 62, 64, 71]], // Am9 Dadd9 Am7 G6/9 — dorian lift
     [[57, 64, 67, 71], [52, 59, 62, 67], [53, 60, 64, 67], [55, 59, 62, 69]], // Am9 Em7 Fmaj9 Gadd9
+    [[57, 64, 67, 71], [53, 57, 62, 65], [55, 62, 64, 71], [57, 64, 67, 71]], // Am9 Dm7 G6/9 Am9 — i iv VII i
   ];
   const ROOTS = [
     [33, 29, 31, 33],
     [33, 38, 33, 31],
     [33, 28, 29, 31],
+    [33, 38, 31, 33],
   ];
+  // sections keep their progression or move to a musical neighbour —
+  // never a blind jump across the pool
+  const PROG_NEXT = [[1, 3], [0, 2], [1, 0], [0, 2]];
   const BASSPATS = [
     [2, 6, 10, 14], // straight offbeats
     [2, 6, 11, 14], // funk push on the and-of-three
@@ -421,6 +426,8 @@
     voice: false,     // the singer: rule-based phrases with breaths
     voiceEv: {},
     liftActive: false,
+    flowOn: false,    // latched highway-harmony switch (hysteresis, barline only)
+    progIdx: 0,       // position in the progression graph
     traitsText: "",   // human-readable section readout for the UI
     standstillSince: null,
     armed: false,
@@ -432,7 +439,7 @@
   let nodes = [];
   const reg = (n) => { nodes.push(n); return n; };
 
-  let master, comp, tensionLp, panner, duck, dry;
+  let master, comp, tensionLp, masterHp, panner, duck, dry;
   let revSend, delaySend, delayRet, chorus;
   let kickS, heartS, tomS, hatC, hatO, shakerS, percS;
   let bassS, bassLp, growlS, growlLp, thrustSub, thrustSubGain;
@@ -470,11 +477,12 @@
     master = reg(new Tone.Gain(0.0001));
     comp = reg(new Tone.Compressor(-16, 4));
     tensionLp = reg(new Tone.Filter(18000, "lowpass"));
+    masterHp = reg(new Tone.Filter(25, "highpass"));
     panner = reg(new Tone.Panner(0));
     duck = reg(new Tone.Gain(1));
     dry = reg(new Tone.Gain(1));
     dry.connect(panner); duck.connect(panner);
-    panner.chain(tensionLp, comp, master, Tone.getDestination());
+    panner.chain(tensionLp, masterHp, comp, master, Tone.getDestination());
     master.gain.rampTo(0.9, 0.1);
 
     // space: real convolution reverb, returned through the duck so it pumps
@@ -558,7 +566,7 @@
     // A presence peak lifts the choir out of the pad's register without volume
     ensureSamplers();
     const choirEq = reg(new Tone.Filter({ type: "peaking", frequency: 2000, Q: 1, gain: 4 }));
-    choir.disconnect(); choir.volume.value = db(0.55);
+    choir.disconnect(); choir.volume.value = db(1.15);
     choir.connect(choirEq); choirEq.connect(duck); choirEq.connect(revSend);
     rhodes.disconnect(); rhodes.volume.value = db(0.5);
     rhodes.connect(duck); rhodes.connect(revSend);
@@ -741,7 +749,7 @@
   function voiceNote(t, ev) {
     if (!choir || !choir.loaded) return;
     if (ev.start) breath(Math.max(t - 0.1, 0));
-    choir.triggerAttackRelease(F(ev.m), SPB * ev.d * 0.95, t, vv(ev.v, 0.85));
+    choir.triggerAttackRelease(F(ev.m), SPB * ev.d * 0.95, t, vv(ev.v, 0.7));
   }
   function rhodesChord(t, midis, vol) {
     if (!rhodes || !rhodes.loaded) { stabChord(t, midis, vol); return; }
@@ -781,9 +789,15 @@
     // the ONE dice roll: section traits every 16 bars, fill choice per phrase.
     // steps only read these — no scattered randomness in the sequencer
     if (pos === 0 && bar % 16 === 0) {
-      const pi = Math.floor(Math.random() * PROGS.length);
-      engine.prog = PROGS[pi];
-      engine.roots = ROOTS[pi];
+      // 45% stay, otherwise a related progression from the graph
+      if (Math.random() >= 0.45) {
+        const succ = PROG_NEXT[engine.progIdx];
+        engine.progIdx = succ[Math.floor(Math.random() * succ.length)];
+      }
+      engine.prog = PROGS[engine.progIdx];
+      engine.roots = ROOTS[engine.progIdx];
+      // lingering pads must not carry old harmony into the new section
+      padS.releaseAll(t); padTri.releaseAll(t);
       engine.bassPat = BASSPATS[Math.floor(Math.random() * BASSPATS.length)];
       engine.arpSeq = ARPS[Math.floor(Math.random() * ARPS.length)];
       engine.arpOct = Math.random() < 0.25 ? 12 : 0;
@@ -815,13 +829,34 @@
       ].filter(Boolean).join(" · ");
     }
     if (pos === 0 && bar % 8 === 7) engine.fill = FILLS[Math.floor(Math.random() * FILLS.length)];
+    // DJ turnover: the last bar of a section pulls the lows out of the whole
+    // mix, and the new downbeat drops them back in
+    if (pos === 0) {
+      masterHp.frequency.cancelScheduledValues(t);
+      masterHp.frequency.setValueAtTime(25, t);
+      if (bar % 16 === 15 && !still) {
+        masterHp.frequency.setValueAtTime(30, t);
+        masterHp.frequency.exponentialRampToValueAtTime(240, t + SPB * 15);
+      }
+    }
     // breather: every 48 bars the kick and bass step aside for 4 bars —
     // only while cruising, so it never fights a driving event
     const breather = bar % 48 >= 44 && push < 0.15 && engine.brake < 0.2;
     const turnaround = bar % 8 === 7; // phrase ends earn a variation
-    // on the highway the harmony carries instead of changing
-    const flowMode = flowHigh > 0.6;
+    // on the highway the harmony carries instead of changing.
+    // The switch latches with hysteresis and only flips on a barline —
+    // a threshold hovering mid-bar must never flap the harmony source
+    if (pos === 0) {
+      const was = engine.flowOn;
+      if (!engine.flowOn && flowHigh > 0.65) engine.flowOn = true;
+      else if (engine.flowOn && flowHigh < 0.5) engine.flowOn = false;
+      if (was !== engine.flowOn) { padS.releaseAll(t); padTri.releaseAll(t); }
+    }
+    const flowMode = engine.flowOn;
     const liftPhase = flowMode && bar % 24 >= 16;
+    if (pos === 0 && flowMode && (bar % 24 === 16 || bar % 24 === 0)) {
+      padS.releaseAll(t); padTri.releaseAll(t); // clean lift entry and exit
+    }
     engine.liftActive = liftPhase;
     const progEff = !flowMode ? engine.prog : liftPhase ? LIFTPROG : PEDALPROG;
     const rootsEff = !flowMode ? engine.roots : liftPhase ? LIFTROOTS : PEDALROOTS;
@@ -872,7 +907,7 @@
         bassNote(hum(t, pos), rootF, 420, vel(0.05 * drain), SPB * 0.5);
       }
       // approach note: walk into the next chord instead of just switching
-      if (engine.bassFill && pos === 15 && bar % 2 === 1 && !breather && !lickBar &&
+      if (engine.bassFill && pos === 15 && bar % 2 === 1 && bar % 16 !== 15 && !breather && !lickBar &&
           rootsEff[ciNext] !== rootsEff[ci]) {
         bassNote(bassT(t), F(rootsEff[ciNext] - 2), 380,
           vel(0.09 * drain), SPB * 0.8);
@@ -955,7 +990,8 @@
       if (pos === 0 && bar % 2 === 0) pad(t, progEff[Math.floor(bar / 2) % 4], SPB * 32, padVol, padCut);
     } else if (hrEff === "push") {
       if (pos === 0 && bar % 16 === 0) pad(t, progEff[bar % 4], SPB * 14, padVol, padCut);
-      if (pos === 14) {
+      // never anticipate across a section boundary — the next section owns its one
+      if (pos === 14 && bar % 16 !== 15) {
         pad(t, progEff[(bar + 1) % 4], SPB * 16, padVol, padCut);
         // the pad's slow attack smears the anticipation — Rhodes announces it
         rhodesChord(t, progEff[(bar + 1) % 4], 0.08 + 0.05 * e);
@@ -963,7 +999,7 @@
     } else if (hrEff === "sync") {
       // the next bar's chord arrives at an odd spot — anticipation, not displacement
       if (pos === 0 && bar % 16 === 0) pad(t, progEff[bar % 4], SPB * engine.syncPos, padVol, padCut);
-      if (pos === engine.syncPos) {
+      if (pos === engine.syncPos && bar % 16 !== 15) {
         pad(t, progEff[(bar + 1) % 4], SPB * (16 + 16 - engine.syncPos), padVol, padCut);
         rhodesChord(t, progEff[(bar + 1) % 4], 0.08 + 0.05 * e);
       }
@@ -1131,6 +1167,7 @@
     engine.lick = null; engine.bassMel = null; engine.traitsText = "";
     engine.syncPos = 12; engine.snare = false;
     engine.voice = false; engine.voiceEv = {}; engine.liftActive = false;
+    engine.flowOn = false; engine.progIdx = 0;
     stepIdx = 0; pendingLaunchAt = -1;
     transport = Tone.getTransport();
     transport.bpm.value = BPM;
