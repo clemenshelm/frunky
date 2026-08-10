@@ -371,6 +371,15 @@
   }
   // the bass sits in the pocket: consistently a touch behind the beat
   function bassT(t) { return t + 0.008 + (Math.random() - 0.5) * 0.006; }
+
+  // highway harmony: the section progressions retire on the open road.
+  // A pedal holds Am while one inner voice walks (chorale trick), and every
+  // 24 bars the anthem lift — bVI–bVII–i, F G Am — opens the sky for 8 bars.
+  const PEDALPROG = [[57, 64, 67, 71], [57, 65, 67, 72], [57, 64, 67, 71], [57, 64, 69, 74]];
+  const PEDALROOTS = [33, 33, 33, 33];
+  const LIFTPROG = [[53, 60, 65, 69], [55, 62, 67, 71], [57, 64, 69, 72], [57, 64, 69, 76]];
+  const LIFTROOTS = [29, 31, 33, 33];
+  const PENTA = [9, 0, 2, 4, 7]; // A C D E G — safe over the lift cadence
   // A-minor-pentatonic arps: consonant over every chord in the pools
   const ARPS = [
     [57, 60, 62, 64, 67, 64, 62, 60],
@@ -411,6 +420,7 @@
     snare: false,     // backbeat + ghost-note chatter
     voice: false,     // the singer: rule-based phrases with breaths
     voiceEv: {},
+    liftActive: false,
     traitsText: "",   // human-readable section readout for the UI
     standstillSince: null,
     armed: false,
@@ -813,6 +823,13 @@
     // only while cruising, so it never fights a driving event
     const breather = bar % 48 >= 44 && push < 0.15 && engine.brake < 0.2;
     const turnaround = bar % 8 === 7; // phrase ends earn a variation
+    // on the highway the harmony carries instead of changing
+    const flowMode = flowHigh > 0.6;
+    const liftPhase = flowMode && bar % 24 >= 16;
+    engine.liftActive = liftPhase;
+    const progEff = !flowMode ? engine.prog : liftPhase ? LIFTPROG : PEDALPROG;
+    const rootsEff = !flowMode ? engine.roots : liftPhase ? LIFTROOTS : PEDALROOTS;
+    const hrEff = flowMode ? "twobar" : engine.hr;
 
     if (still) {
       // the beat pulls back — a heartbeat keeps subtle tension alive
@@ -830,14 +847,14 @@
       const fat = clamp(e / 0.35, 0, 1);
       const drain = 1 - 0.5 * engine.brake; // braking audibly drains the drive
       // the bass root moves ONLY on the one — it is the meter's anchor
-      const ci = engine.hr === "twobar" ? Math.floor(bar / 2) % 4 : bar % 4;
-      const ciNext = engine.hr === "twobar" ? Math.floor((bar + 1) / 2) % 4 : (bar + 1) % 4;
-      const rootF = F(engine.roots[ci]);
+      const ci = hrEff === "twobar" ? Math.floor(bar / 2) % 4 : bar % 4;
+      const ciNext = hrEff === "twobar" ? Math.floor((bar + 1) / 2) % 4 : (bar + 1) % 4;
+      const rootF = F(rootsEff[ci]);
       // once per 8-bar phrase a lick takes over the bar's second half
       const lickBar = engine.lick && bar % 8 === 3 && !breather;
       if (!breather && engine.bassPat.includes(pos) && !(lickBar && pos >= 10)) {
         // melodic sections walk root/fifth/octave/seventh instead of pedaling
-        const mi = engine.bassMel
+        const mi = engine.bassMel && !flowMode
           ? engine.bassMel[engine.bassPat.indexOf(pos) % engine.bassMel.length] : 0;
         // Daði pop: one hit per bar jumps up an octave when the section is playful
         const oct = !engine.bassMel && engine.bassFill && pos === 10 ? 2 : 1;
@@ -850,7 +867,7 @@
         if (pos === 10) engine.lickFlashUntil = Date.now() + 2200;
         const hit = engine.lick.find((x) => x[0] === pos);
         if (hit) {
-          bassNote(bassT(t), F(engine.roots[ci] + hit[1]), 800 + 400 * fat,
+          bassNote(bassT(t), F(rootsEff[ci] + hit[1]), 800 + 400 * fat,
             vel(0.18 * drain), SPB * 0.85);
         }
       }
@@ -860,8 +877,8 @@
       }
       // approach note: walk into the next chord instead of just switching
       if (engine.bassFill && pos === 15 && bar % 2 === 1 && !breather && !lickBar &&
-          engine.roots[ciNext] !== engine.roots[ci]) {
-        bassNote(bassT(t), F(engine.roots[ciNext] - 2), 380,
+          rootsEff[ciNext] !== rootsEff[ci]) {
+        bassNote(bassT(t), F(rootsEff[ciNext] - 2), 380,
           vel(0.09 * drain), SPB * 0.8);
       }
       // sustained highway root lives on its own synth — the mono bass would
@@ -886,9 +903,12 @@
         if (pos in bmap) blip(hum(t, pos), F(engine.blipSeq[bmap[pos]]), vel(0.07));
       }
       // Parov seasoning: brass stab anticipates the one — every 4th bar, a spice
-      if (engine.brassy && pos === 14 && bar % 4 === 1 && !breather) {
-        brassHit(t, engine.prog[ciNext], vel(0.09 + 0.07 * e));
+      if (engine.brassy && pos === 14 && bar % 4 === 1 && !breather && !flowMode) {
+        brassHit(t, progEff[ciNext], vel(0.09 + 0.07 * e));
       }
+      // lift drama: a riser announces it, open hats carry the hymn
+      if (flowMode && bar % 24 === 15 && pos === 8) fillSwell(t, SPB * 8);
+      if (liftPhase && pos % 8 === 4) hat(t, true, 0.11);
       // urban detail: a real syncopated groove, gone on the open road
       if (u > 0.05) {
         if (pos === 3) perc(hum(t, pos), vel(0.16 * u));
@@ -920,40 +940,42 @@
       const seq = turnaround ? engine.arpSeq.slice().reverse() : engine.arpSeq;
       // accent contour: downbeats lean forward, offbeats sit back — not uniform
       const accent = pos % 4 === 0 ? 1.15 : 0.9;
-      arpNote(t, F(seq[Math.floor(s / 2) % 8] + engine.arpOct),
+      arpNote(t, F(seq[Math.floor(s / 2) % 8] + (liftPhase ? 12 : engine.arpOct)),
         340 + 2000 * clamp(e, 0, 0.8) * (0.75 + 0.25 * Math.sin(t * 0.3)) + 700 * push,
         vel(0.07 * accent), flowHigh > 0.6 ? SPB * 3.6 : SPB * 1.8);
     }
-    // harmonic rhythm: per bar, held two bars, or pushed in ahead of the one
-    const padVol = (0.16 + 0.2 * flowHigh) * (breather ? 1.5 : 1);
-    const padCut = 950 + 350 * Math.sin(bar * 0.37);
-    if (engine.hr === "twobar") {
-      if (pos === 0 && bar % 2 === 0) pad(t, engine.prog[Math.floor(bar / 2) % 4], SPB * 32, padVol, padCut);
-    } else if (engine.hr === "push") {
-      if (pos === 0 && bar % 16 === 0) pad(t, engine.prog[bar % 4], SPB * 14, padVol, padCut);
+    // harmonic rhythm: per bar, held two bars, or pushed in ahead of the one.
+    // During the lift the pad grows brighter and half again as large
+    const padVol = (0.16 + 0.2 * flowHigh) * (breather ? 1.5 : 1) * (liftPhase ? 1.5 : 1);
+    const padCut = 950 + 350 * Math.sin(bar * 0.37) + (liftPhase ? 350 : 0);
+    if (hrEff === "twobar") {
+      if (pos === 0 && bar % 2 === 0) pad(t, progEff[Math.floor(bar / 2) % 4], SPB * 32, padVol, padCut);
+    } else if (hrEff === "push") {
+      if (pos === 0 && bar % 16 === 0) pad(t, progEff[bar % 4], SPB * 14, padVol, padCut);
       if (pos === 14) {
-        pad(t, engine.prog[(bar + 1) % 4], SPB * 16, padVol, padCut);
+        pad(t, progEff[(bar + 1) % 4], SPB * 16, padVol, padCut);
         // the pad's slow attack smears the anticipation — a stab announces it
-        stabChord(t, engine.prog[(bar + 1) % 4], 0.05 + 0.05 * e);
+        stabChord(t, progEff[(bar + 1) % 4], 0.05 + 0.05 * e);
       }
-    } else if (engine.hr === "sync") {
+    } else if (hrEff === "sync") {
       // the next bar's chord arrives at an odd spot — anticipation, not displacement
-      if (pos === 0 && bar % 16 === 0) pad(t, engine.prog[bar % 4], SPB * engine.syncPos, padVol, padCut);
+      if (pos === 0 && bar % 16 === 0) pad(t, progEff[bar % 4], SPB * engine.syncPos, padVol, padCut);
       if (pos === engine.syncPos) {
-        pad(t, engine.prog[(bar + 1) % 4], SPB * (16 + 16 - engine.syncPos), padVol, padCut);
-        stabChord(t, engine.prog[(bar + 1) % 4], 0.05 + 0.05 * e);
+        pad(t, progEff[(bar + 1) % 4], SPB * (16 + 16 - engine.syncPos), padVol, padCut);
+        stabChord(t, progEff[(bar + 1) % 4], 0.05 + 0.05 * e);
       }
     } else {
-      if (pos === 0) pad(t, engine.prog[bar % 4], SPB * 16, padVol, padCut);
+      if (pos === 0) pad(t, progEff[bar % 4], SPB * 16, padVol, padCut);
     }
     // the ident: five high notes in the reverb, at most once per section
     if (engine.motif && bar % 16 === 0 && pos % 2 === 0 && pos < 10) {
       arpNote(t, F(MOTIF[pos / 2]), 2600, 0.05, SPB * 3);
     }
-    // the voice sings only in calm moments — never against thrust or braking
+    // the voice sings only in calm moments — never against thrust or braking.
+    // Over the lift cadence only pentatonic-safe notes pass (F/G chords underneath)
     if (engine.voice && !still && push < 0.5 && engine.brake < 0.4) {
       const vEv = engine.voiceEv[(bar % 16) + ":" + pos];
-      if (vEv) voiceNote(t, vEv);
+      if (vEv && (!flowMode || PENTA.includes(vEv.m % 12))) voiceNote(t, vEv);
     }
     if (s === pendingLaunchAt) {
       impact(t);
@@ -1042,7 +1064,8 @@
       ui.status.textContent = st[0];
       ui.status.className = "status " + st[1];
       ui.traits.textContent = (engine.traitsText ? "Sektion: " + engine.traitsText : "")
-        + (Date.now() < engine.lickFlashUntil ? "  ▶ LICK" : "");
+        + (Date.now() < engine.lickFlashUntil ? "  ▶ LICK" : "")
+        + (engine.liftActive ? "  ▲ LIFT" : "");
     }
 
     ui.trueBar.style.width = (sim.trueSpeed / 150) * 100 + "%";
@@ -1101,7 +1124,7 @@
     engine.bassFill = false; engine.blips = false; engine.blipSeq = BLIPS[0]; engine.brassy = false;
     engine.lick = null; engine.bassMel = null; engine.traitsText = "";
     engine.syncPos = 12; engine.snare = false;
-    engine.voice = false; engine.voiceEv = {};
+    engine.voice = false; engine.voiceEv = {}; engine.liftActive = false;
     stepIdx = 0; pendingLaunchAt = -1;
     transport = Tone.getTransport();
     transport.bpm.value = BPM;
