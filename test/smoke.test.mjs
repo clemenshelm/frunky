@@ -131,6 +131,8 @@ const seen = new Set();
 const poll = setInterval(() => {
   const s = elements.get("status")?.textContent;
   if (s) seen.add(s);
+  const tr = elements.get("traits")?.textContent;
+  if (tr) elements.get("traits").lastTraits = tr; // survives the stop-handler clear
 }, 40);
 
 await fire("play");                                   // async: Tone.start + buildGraph
@@ -157,6 +159,8 @@ await sleep(300);
 console.log("statuses seen:", [...seen].join(" | "));
 const estShown = elements.get("estVal").textContent;
 console.log("last engine estimate:", estShown);
+const traitsShown = elements.get("traits")?.lastTraits ?? "";
+console.log("last section traits:", traitsShown);
 
 const failures = [];
 if (![...seen].some((s) => s.startsWith("Stand"))) failures.push("never reached standstill state");
@@ -167,6 +171,7 @@ if (!seen.has("Bremsen")) failures.push("braking state never reached");
 if (!seen.has("Stadt")) failures.push("urban state never reached");
 if (!seen.has("Autobahn-Flow")) failures.push("highway flow state never reached");
 if (estShown === "0 km/h") failures.push("engine estimate never moved");
+if (!traitsShown.includes("Akkorde:")) failures.push("section trait readout never rendered");
 
 if (failures.length) {
   console.error("FAILURES:", failures);
