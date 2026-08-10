@@ -95,6 +95,22 @@
      costs a whole drive to discover */
   .build { color: var(--muted); font-family: ui-monospace, "SF Mono", Menlo, monospace;
            font-size: 0.72rem; letter-spacing: 0.1em; opacity: 0.7; }
+  /* The consent ask. Both answers are the same size and the same weight on
+     purpose: a "yes" that is a big bright button next to a grey "no" is a
+     nudged answer, and a nudged answer is not freely given. It disappears once
+     answered — asking again would be pressure with extra steps. */
+  #consent { max-width: 40ch; }
+  body.asked #consent { display: none; }
+  #consentQ { color: var(--muted); font-size: 0.82rem; line-height: 1.5; margin-bottom: 0.55rem; }
+  #consentQ a { color: var(--cyan); }
+  #consentBtns { display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; }
+  #consentBtns button {
+    font-family: inherit; font-size: 0.82rem; font-weight: 600;
+    color: var(--muted); background: transparent;
+    border: 1px solid #232a38; border-radius: 999px;
+    padding: 0.45rem 1.1rem; cursor: pointer;
+  }
+  #consentBtns button:hover { color: var(--text); border-color: #35405a; }
   /* field-test overlay: hidden until the footer is tapped, because the answers
      it gives (does this browser report speed? how often?) can only be found in
      a moving car — and must not be on screen while driving normally */
@@ -147,6 +163,20 @@
   <button id="start">Losfahren</button>
   <p class="note" id="startNote">Braucht Standortfreigabe — die Musik folgt Beschleunigung,
     Bremsen und Kurven. Vor der Fahrt starten.</p>
+
+  <!-- The ask, and it is genuinely an ask: neither button is preselected, the
+       music is identical either way, and the page it links to answers what is
+       sent before anyone has to decide. A "yes" that costs nothing to refuse is
+       the only kind worth having. -->
+  <div id="consent">
+    <p id="consentQ">Anonyme Fehlerdaten senden? Kein Standort, keine Kennung —
+      <a href="privacy.html" id="consentInfo">was genau?</a></p>
+    <div id="consentBtns">
+      <button id="consentNo" type="button">Nein</button>
+      <button id="consentYes" type="button">Ja, hilft beim Debuggen</button>
+    </div>
+  </div>
+
   <p class="build" id="buildNote"></p>
 </main>
 
@@ -168,6 +198,7 @@
   <button id="optCurve">Kurve: aussen</button>
   <button id="optDepth">Trägheits-Tiefe: an</button>
   <button id="optLite">Sparmodus: aus</button>
+  <button id="optTrace">Fehlerdaten: aus</button>
   <button id="optLog">Protokoll</button>
 </div>
 <pre id="logView"></pre><button id="logClose" hidden>Schliessen</button>
@@ -177,9 +208,11 @@
 </footer>
 
 <script src="vendor/Tone.js"></script>
-<script src="engine.js?v=17"></script>
-<script src="geo.js?v=17"></script>
-<script src="diagnose.js?v=17"></script>
+<script src="engine.js?v=18"></script>
+<script src="geo.js?v=18"></script>
+<script src="diagnose.js?v=18"></script>
+<script src="trace-schema.js?v=18"></script>
+<script src="trace.js?v=18"></script>
 <script>
 (() => {
   "use strict";
@@ -187,7 +220,7 @@
   // to know whether a trip tested the code we shipped is to read it back —
   // three reports in a row turned out to be the same stale build.
   // (Loading the page as ?v=<something-new> is what forces a fresh copy.)
-  const BUILD = "17";
+  const BUILD = "18";
   const el = (id) => document.getElementById(id);
   const startBtn = el("start"), stopBtn = el("stop");
   const speedEl = el("speed"), stateEl = el("state"), forceEl = el("forceBar");
@@ -227,10 +260,17 @@
   // but a GPS trace is personal data and that is not a switch to flip casually.)
   window.addEventListener("error", (e) => {
     Frunky.log("js", (e.message || "error") + " @" + (e.filename || "").split("/").pop() + ":" + e.lineno);
+    traceError(e.message);
   });
   window.addEventListener("unhandledrejection", (e) => {
     Frunky.log("js", "unhandled: " + ((e.reason && e.reason.message) || e.reason));
+    traceError((e.reason && e.reason.message) || e.reason);
   });
+  // declared before use because the handlers above are registered first; the
+  // tracer itself is created further down, so this stays a late-bound call
+  function traceError(text) {
+    try { tracer.event("jserror", "", 0); tracer.message(text); } catch (err) { void err; }
+  }
   const logView = el("logView"), logClose = el("logClose");
   function renderLog() {
     const h = Frunky.health();
@@ -275,6 +315,48 @@
     if (logTimer) { clearInterval(logTimer); logTimer = null; }
   });
 
+  // ---- tracing --------------------------------------------------------------
+  // The log above is the offline answer: read it, photograph it, send the photo.
+  // It has carried this project a long way and it stops working the moment
+  // somebody else drives — a stranger will not photograph a diagnostics screen,
+  // and a drive that ends in a freeze is exactly the one nobody thinks to.
+  //
+  // So the same numbers can now be sent home, under three rules that are worth
+  // more than the data would be: nothing at all without an explicit yes, no
+  // position and no persistent identity ever, and every value bucketed in this
+  // browser rather than filtered on a server we operate. trace-schema.js is
+  // where that is decided; this page only feeds it.
+  const TRACE_ENDPOINT = "https://frunky.clemenshelm.com/api/v1/trace";
+  const tracer = FrunkyTrace.create({
+    endpoint: TRACE_ENDPOINT,
+    build: BUILD,
+    userAgent: navigator.userAgent,
+    fetch: (...args) => fetch(...args),
+    storage: (() => { try { return window.localStorage; } catch (err) { void err; return null; } })(),
+  });
+  // a drive that died in a tunnel or took the tab with it left its trace behind;
+  // this page load is the only chance it will ever get to arrive
+  tracer.recover();
+
+  const SCENE_OF = {
+    "LAUNCH": "launch", "Schub": "thrust", "Bremsen": "brake",
+    "Stand": "standstill", "Stand — geladen": "standstill",
+    "Autobahn-Flow": "highway", "Stadt": "city", "Cruise": "cruise",
+  };
+
+  const consentBox = el("consent");
+  function answerConsent(yes) {
+    tracer.setConsent(yes);
+    document.body.classList.add("asked");
+    paintOpts();
+  }
+  el("consentYes").addEventListener("click", () => answerConsent(true));
+  el("consentNo").addEventListener("click", () => answerConsent(false));
+  // an answer already on record is not asked again; asking every time is
+  // pressure with extra steps, and the toggle below is where it can be changed
+  if (tracer.consent() !== null) document.body.classList.add("asked");
+  if (consentBox && !TRACE_ENDPOINT) document.body.classList.add("asked");
+
   // the A/B a field test needs: whether the inertial reading feels right is a
   // question about the body, and a question needs two answers to compare
   const optCurve = el("optCurve"), optDepth = el("optDepth");
@@ -289,7 +371,25 @@
     optLite.textContent = "Sparmodus: " + (o.lite ? "an" : "aus") +
       (Frunky.isRunning() ? " (Neustart)" : "");
     optLite.classList.toggle("on", o.lite);
+    const c = tracer.consent();
+    optTrace.textContent = "Fehlerdaten: " + (c === true ? "an" : c === false ? "aus" : "ungefragt");
+    optTrace.classList.toggle("on", c === true);
   }
+  // Withdrawal has to be exactly as easy as consent, so it sits in the same
+  // place as every other switch — and turning it off also asks the server to
+  // delete what this device already sent, rather than merely stopping.
+  const optTrace = el("optTrace");
+  optTrace.addEventListener("click", async () => {
+    const next = tracer.consent() !== true;
+    document.body.classList.add("asked");
+    if (next) { await tracer.setConsent(true); }
+    else {
+      const n = await tracer.eraseAll();
+      await tracer.setConsent(false);
+      Frunky.log("trace", "widerrufen · " + n + " fahrten gelöscht");
+    }
+    paintOpts();
+  });
   optLite.addEventListener("click", () => {
     const next = !Frunky.options().lite;
     Frunky.setOption("lite", next); paintOpts();
@@ -456,6 +556,8 @@
 
   function stop() {
     Frunky.stop();
+    tracer.end("user");
+    tracer.flush();
     if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
     if (wakeLock) { try { wakeLock.release(); } catch (err) { void err; } wakeLock = null; }
     document.body.classList.remove("driving");
@@ -471,8 +573,18 @@
       maxLat: 0, staleMs: 0, lastSampleAt: 0, clockFallback: 0, errors: 0,
       lastError: "", skipped: 0, minNotes: 9999, maxNotes: 0 });
     freezes = 0; worstFreeze = 0; wasStale = false; shownParked = false;
+    lastTraceSampleAt = 0; ltAtTraceSample = 0; stallsSeen = 0;
+    tracer.begin({ lite: Frunky.options().lite, opts: Frunky.options() });
+    tracer.event("start", Frunky.options().lite ? "on" : "off", 0);
     start();
   }
+
+  // A drive that ends by closing the tab or navigating away is the one most
+  // likely to have ended badly. `keepalive` is what lets a request survive that,
+  // and pagehide is the last event a car browser reliably delivers.
+  window.addEventListener("pagehide", () => {
+    try { tracer.end("unload"); tracer.flush(); } catch (err) { void err; }
+  });
   startBtn.addEventListener("click", beginTrip);
   el("again").addEventListener("click", beginTrip);
   stopBtn.addEventListener("click", stop);
@@ -485,6 +597,10 @@
   let lastFrame = performance.now();
   let lastDiagAt = 0, wasStale = false, freezes = 0, worstFreeze = 0, shownParked = false;
   let notesPerSec = 0, noteWindowAt = 0, noteWindowStart = 0;
+  // one trace sample every five seconds: fine enough to see the second the music
+  // stops, coarse enough that an hour of driving still fits inside the cap
+  const TRACE_SAMPLE_MS = 5000;
+  let lastTraceSampleAt = 0, ltAtTraceSample = 0, stallsSeen = 0, lastFlushAt = 0;
 
   // ---- why does the page stop? ----------------------------------------------
   // Four measurements, because they are what separates the possible causes.
@@ -544,6 +660,9 @@
       Frunky.log("freeze", Math.round(gap) + "ms · " + r.verdict +
         " · langeAufgaben " + (ltDuring == null ? "—" : Math.round(ltDuring) + "ms") +
         " · heap " + (heapDelta == null ? "—" : Math.round(heapDelta / 1e6) + "MB"));
+      // the verdict travels as a code, not as the sentence — the sentence is for
+      // the driver, the code is what can be counted across drives
+      tracer.event("freeze", r.verdict, gap);
     }
     ltAtLastFrame = probe.supported ? probe.longtaskMs : 0;
     const dt = Math.min(0.1, gap / 1000);
@@ -589,6 +708,35 @@
         trip.minNotes = Math.min(trip.minNotes, notesPerSec);
         trip.maxNotes = Math.max(trip.maxNotes, notesPerSec);
       }
+      // ---- one trace sample every five seconds ----------------------------
+      // Raw speed goes in and a bucket comes out on the other side of trace.js;
+      // the page deliberately does not do that conversion itself, so there is
+      // exactly one place where "what may leave the browser" is decided.
+      if (now - lastTraceSampleAt > TRACE_SAMPLE_MS) {
+        const d = reader.diagnostics(Date.now());
+        const h = Frunky.health();
+        const ltNow = probe.supported ? probe.longtaskMs : 0;
+        tracer.sample({
+          speed: input.speed,
+          scene: !gotFix || stale ? "" : (SCENE_OF[st.text] || ""),
+          load: Frunky.load(),
+          notes: notesPerSec,
+          strain: h.strain,
+          late: h.lateSteps, stalls: h.stalls, errors: h.errors, resumes: h.resumes,
+          fixAge: d.ageMs == null ? 0 : d.ageMs,
+          gps: d.fixes ? d.speedSource : "none",
+          lt: Math.max(0, ltNow - ltAtTraceSample),
+        });
+        ltAtTraceSample = ltNow;
+        lastTraceSampleAt = now;
+        if (h.stalls > stallsSeen) { tracer.event("stall", "", h.stalls); stallsSeen = h.stalls; }
+        // A drive that never ends cleanly must still arrive. Sending every
+        // minute means the worst case is one lost minute rather than one lost
+        // drive — which is the case that matters, since the drives that end
+        // badly are the ones worth having.
+        if (now - lastFlushAt > 60000) { lastFlushAt = now; tracer.flush(); }
+      }
+
       trip.maxSpeed = Math.max(trip.maxSpeed, input.speed);
       trip.maxForce = Math.max(trip.maxForce, Frunky.force());
       trip.maxLat = Math.max(trip.maxLat, Math.abs(input.lateralG));

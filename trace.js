@@ -23,7 +23,13 @@
 
   const CONSENT_KEY = "frunky.trace.consent";
   const PENDING_KEY = "frunky.trace.pending";
-  const STORAGE_KEYS = [CONSENT_KEY, PENDING_KEY];
+  // The ids of drives this device has sent. They stay HERE and are never
+  // transmitted as a set — they are kept because they are the only handle
+  // anyone has on those records, and without them "delete my data" is a
+  // sentence rather than a button. Capped, and cleared when the data is.
+  const SENT_KEY = "frunky.trace.sent";
+  const SENT_MAX = 20;
+  const STORAGE_KEYS = [CONSENT_KEY, PENDING_KEY, SENT_KEY];
 
   function create(config) {
     const S = globalThis.FrunkyTraceSchema;
@@ -56,9 +62,40 @@
     let lite = false;
     let stride = 1, seen = 0;
     let pendingSnap = null;
-    const sentIds = new Set();
+    const sessionSent = new Set();
 
     const enabled = () => consentState === true && !!endpoint && !!doFetch;
+
+    // ---- what this device sent ---------------------------------------------
+    const ID_RE = /^[0-9a-f]{16}$/;
+    function storedSent() {
+      try {
+        const raw = read(SENT_KEY);
+        if (!raw) return [];
+        const a = JSON.parse(raw);
+        return Array.isArray(a) ? a.filter((x) => typeof x === "string" && ID_RE.test(x)) : [];
+      } catch (err) { void err; return []; }
+    }
+    // storage may be absent or refuse; the session set is what keeps erasure
+    // working for the drive currently in progress in that case
+    const sent = () => [...new Set([...storedSent(), ...sessionSent])];
+    function rememberSent(traceId) {
+      sessionSent.add(traceId);
+      // the in-memory half needs the same cap as the stored one, or a device
+      // that drives all day keeps every id it ever sent for as long as the tab
+      // is open — which is the unbounded identifier list the cap exists to stop
+      while (sessionSent.size > SENT_MAX) sessionSent.delete(sessionSent.values().next().value);
+      const a = storedSent().filter((x) => x !== traceId);
+      a.push(traceId);
+      while (a.length > SENT_MAX) a.shift();
+      write(SENT_KEY, JSON.stringify(a));
+    }
+    function forgetSent(traceId) {
+      sessionSent.delete(traceId);
+      const a = storedSent().filter((x) => x !== traceId);
+      if (a.length) write(SENT_KEY, JSON.stringify(a));
+      else erase(SENT_KEY);
+    }
 
     // ---- the buffer ---------------------------------------------------------
     // A drive longer than the cap thins instead of stopping. Truncating would
@@ -203,7 +240,7 @@
         const okSent = await post(snap);
         if (!okSent) { pendingSnap = snap; return false; }
         pendingSnap = null;
-        sentIds.add(snap.id);
+        rememberSent(snap.id);
         erase(PENDING_KEY);
         return true;
       } catch (err) {
@@ -228,42 +265,58 @@
         if (!r.ok) { erase(PENDING_KEY); return false; }
         const okSent = await post(r.trace);
         if (!okSent) return false;
-        sentIds.add(r.trace.id);
+        rememberSent(r.trace.id);
         erase(PENDING_KEY);
         return true;
       } catch (err) { void err; return false; }
     }
 
+    // Erasure. Every drive this device delivered is asked to be deleted, one
+    // request per id — the collector needs no account to authorise that, because
+    // the id IS the only handle on the record and whoever holds it is the only
+    // person who ever had it.
+    //
+    // An id is forgotten only once its deletion was actually acknowledged. A
+    // network that refused leaves it on the device, so the next attempt can
+    // finish the job instead of the record becoming unreachable forever.
+    async function eraseAll() {
+      let done = 0;
+      try {
+        const ids = sent();
+        if (id) ids.push(id);
+        if (!endpoint || !doFetch) return 0;
+        for (const one of [...new Set(ids)]) {
+          try {
+            const res = await doFetch(endpoint + "/" + encodeURIComponent(one), {
+              method: "DELETE", mode: "cors", credentials: "omit", cache: "no-store",
+            });
+            if (res && res.ok === false) continue;
+            forgetSent(one);
+            done++;
+          } catch (err) { void err; }
+        }
+        return done;
+      } catch (err) { void err; return done; }
+    }
+
     // Withdrawal has to reach what was already sent, or it is not withdrawal.
-    // Every id delivered in this session is asked to be erased; the server needs
-    // no account for that, because the id IS the only handle on the record and
-    // whoever holds it is the only person who ever had it.
+    // Note the order: consent goes off FIRST and unconditionally. Whether the
+    // deletion request got through is a separate question from whether we are
+    // still allowed to collect, and tying them together would leave a driver
+    // who said no, on a bad connection, still being traced.
     async function setConsent(value) {
       try {
         const next = value === true;
         consentState = next;
         write(CONSENT_KEY, next ? "1" : "0");
         if (next) return false;
-        // switching off: stop, forget, and ask for erasure
-        const ids = [...sentIds];
-        if (id) ids.push(id);
         pendingSnap = null;
-        id = null;
         reset();
         erase(PENDING_KEY);
-        sentIds.clear();
-        if (!endpoint || !doFetch || !ids.length) return false;
-        let asked = false;
-        for (const one of [...new Set(ids)]) {
-          try {
-            await doFetch(endpoint + "/" + encodeURIComponent(one), {
-              method: "DELETE", mode: "cors", credentials: "omit", cache: "no-store",
-            });
-            asked = true;
-          } catch (err) { void err; }
-        }
-        return asked;
-      } catch (err) { void err; return false; }
+        const erased = await eraseAll();
+        id = null;
+        return erased > 0;
+      } catch (err) { void err; id = null; return false; }
     }
 
     return {
@@ -271,6 +324,7 @@
       setConsent,
       enabled,
       begin, sample, event, message, end, flush, recover, snapshot,
+      sent, eraseAll,
       id: () => id,
       pending: () => pendingSnap !== null,
       __storageKeys: () => STORAGE_KEYS.slice(),

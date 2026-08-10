@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Frunky · Datenschutz</title>
+<style>
+  :root {
+    --bg: #07090c; --fg: #e6ebf2; --muted: #7c8794; --cyan: #6ee7ff;
+    --green: #7dff9b; --red: #ff6b6b; --line: #1b212a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 1.4rem 1.2rem 4rem; background: var(--bg); color: var(--fg);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 46rem; margin-inline: auto; -webkit-text-size-adjust: 100%;
+  }
+  h1 { font-size: 1.5rem; letter-spacing: .02em; margin: 0 0 .2rem; }
+  h1 span { color: var(--cyan); }
+  h2 { font-size: 1.05rem; margin: 2.2rem 0 .5rem; color: var(--cyan);
+       letter-spacing: .06em; text-transform: uppercase; }
+  p.lead { color: var(--muted); margin: 0 0 2rem; }
+  a { color: var(--cyan); }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0 1rem; font-size: .93rem; }
+  th, td { text-align: left; padding: .45rem .5rem; border-bottom: 1px solid var(--line);
+           vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .88em;
+         color: var(--green); }
+  ul { padding-left: 1.1rem; }
+  li { margin: .3rem 0; }
+  .yes { color: var(--green); }
+  .no { color: var(--red); }
+  .box { border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem;
+         margin: 1.4rem 0; background: #0b0f14; }
+  button {
+    font: inherit; font-weight: 600; padding: .7rem 1.2rem; border-radius: 10px;
+    border: 1px solid var(--line); background: #131a22; color: var(--fg); cursor: pointer;
+  }
+  button.danger { border-color: var(--red); color: var(--red); }
+  button:disabled { opacity: .45; cursor: default; }
+  #eraseNote { margin: .7rem 0 0; color: var(--muted); font-size: .93rem; }
+  footer { margin-top: 3rem; color: var(--muted); font-size: .88rem; }
+</style>
+</head>
+<body>
+
+<h1>Frun<span>ky</span> · Datenschutz</h1>
+<p class="lead">Was Frunky über eine Fahrt weiss, was davon dieses Gerät verlässt — und
+  wie du es wieder loswirst.</p>
+
+<h2>Die Kurzfassung</h2>
+<p>Frunky läuft vollständig in deinem Browser. Ohne deine ausdrückliche Zustimmung
+  verlässt <strong>nichts</strong> dein Gerät — kein Standort, keine Messwerte, keine Kennung.
+  Es gibt keine Konten, keine Cookies und kein Tracking über Websites hinweg.</p>
+<p>Wenn du zustimmst, senden wir nach jeder Fahrt ein technisches Protokoll: wie die Musik
+  gelaufen ist, wo sie gehakt hat, wie oft der Browser die Seite angehalten hat. Das brauchen
+  wir, weil sich manche Fehler nur im Auto zeigen und wir sie sonst raten müssten.</p>
+
+<h2>Der Standort verlässt dein Gerät nie</h2>
+<p>Frunky liest deine Position, um die Geschwindigkeit zu bestimmen — das ist der ganze Zweck
+  der Standortfreigabe. Diese Position wird ausschliesslich im Arbeitsspeicher deines Browsers
+  verarbeitet und niemals übertragen, auch nicht mit deiner Zustimmung. Es gibt in unserem
+  Protokoll <strong>keine Position, keine Route und keinen Kurs</strong> — dafür ist schlicht
+  kein Feld vorgesehen.</p>
+<p>Auch die Geschwindigkeit selbst senden wir nicht. Eine metergenaue Tempokurve <em>ist</em>
+  ein Bewegungsprofil, also übertragen wir statt eines Werts nur eine von vierzehn
+  <strong>Geschwindigkeitsklassen</strong> (steht, 2–9, 10–19 … 120+ km/h). Für die einzige Frage,
+  die wir stellen — „fuhr das Auto, als die Musik aufhörte?" — reicht das, für eine Route
+  reicht es nicht.</p>
+
+<h2>Was genau übertragen wird</h2>
+<table>
+  <thead><tr><th>Feld</th><th>Beispiel</th><th>Wozu</th></tr></thead>
+  <tbody>
+    <tr><td>Kennung der Fahrt</td><td><code>a1b2c3d4e5f60718</code></td>
+        <td>Zufällig, gilt für <em>eine</em> Fahrt und wird danach verworfen. Keine Geräte-,
+            Nutzer- oder Sitzungskennung — zwei Fahrten lassen sich nicht verknüpfen.</td></tr>
+    <tr><td>Build-Nummer</td><td><code>18</code></td>
+        <td>Welche Programmversion gefahren wurde.</td></tr>
+    <tr><td>Geräteklasse</td><td><code>tesla</code>, <code>ios</code>, <code>android</code>,
+            <code>desktop</code>, <code>other</code></td>
+        <td>Eine von fünf Klassen, im Browser bestimmt. Die vollständige Browserkennung
+            (User-Agent) wird nicht gesendet.</td></tr>
+    <tr><td>Messpunkte (alle 5 s)</td>
+        <td>Geschwindigkeitsklasse, Szene, Rechenlast, Noten/s, GPS-Quelle, Alter des letzten
+            Fixes, lange Browseraufgaben</td>
+        <td>Die eigentliche Diagnose: läuft der Sequencer noch, während nichts zu hören ist?</td></tr>
+    <tr><td>Ereignisse</td><td><code>freeze</code>, <code>stall</code>, <code>launch</code> …</td>
+        <td>Wann etwas passiert ist, aus einer festen Liste von Begriffen — kein Freitext.</td></tr>
+    <tr><td>Fehlermeldungen</td><td><code>Cannot read properties of undefined</code></td>
+        <td>Das einzige Freitextfeld. Vor dem Senden bereinigt: nur gewöhnliche Wörter,
+            keine Zahlen, Pfade, Adressen, Kennungen oder Web-Adressen.</td></tr>
+    <tr><td>Ankunftszeit</td><td><code>2026-08-11 13:00</code></td>
+        <td>Vom Server vergeben und auf die <em>Stunde</em> gerundet. Die Messpunkte selbst
+            tragen nur Millisekunden seit Fahrtbeginn, keine Uhrzeit.</td></tr>
+  </tbody>
+</table>
+<p>Die vollständige, maschinenlesbare Liste steht offen im Quelltext:
+  <a href="https://github.com/clemenshelm/frunky/blob/main/trace-schema.js">trace-schema.js</a>.
+  Sie ist keine Beschreibung des Programms, sondern das Programm — dieselbe Datei entscheidet
+  im Browser, was gesendet wird, und auf dem Server, was gespeichert werden darf. Was dort
+  nicht steht, kann nicht ankommen.</p>
+
+<h2>Was <span class="no">nicht</span> gespeichert wird</h2>
+<ul>
+  <li><span class="no">Keine Position, keine Route, kein Kurs, keine Genauigkeitsangabe.</span></li>
+  <li><span class="no">Keine IP-Adresse.</span> Der Server schreibt keine Zugriffsprotokolle.
+      Für die Begrenzung der Anfragerate wird die Adresse nur im Arbeitsspeicher und nur als
+      Prüfsumme mit einem stündlich wechselnden Zufallsschlüssel gehalten — sie steht nie in
+      einer Datei.</li>
+  <li><span class="no">Keine Cookies</span> und keine Zählpixel.</li>
+  <li><span class="no">Keine dauerhafte Kennung.</span> Es gibt nichts, worüber sich zwei
+      Fahrten demselben Gerät zuordnen liessen.</li>
+  <li><span class="no">Keine Weitergabe an Dritte</span>, keine Werbung, keine Analysedienste.</li>
+</ul>
+
+<h2>Rechtsgrundlage, Zweck, Dauer</h2>
+<ul>
+  <li><strong>Rechtsgrundlage:</strong> deine <strong>Einwilligung</strong>
+      (Art. 6 Abs. 1 lit. a DSGVO). Du erteilst sie aktiv; ohne Antwort wird nichts gesendet.
+      Frunky funktioniert ohne Einwilligung vollständig gleich — die Musik hängt nicht daran.</li>
+  <li><strong>Zweck:</strong> ausschliesslich Fehlersuche und Verbesserung der Wiedergabe im
+      Fahrzeugbrowser. Keine Profilbildung, keine automatisierte Entscheidung.</li>
+  <li><strong>Speicherdauer:</strong> <strong>30 Tage</strong>. Danach löscht der Server die
+      Tagesdatei, in der die Fahrt steht, von selbst — das ist ein Löschvorgang, nicht ein
+      Filter beim Lesen.</li>
+  <li><strong>Verarbeiter / Hosting:</strong> Hetzner Online GmbH, Industriestr. 25,
+      91710 Gunzenhausen, Deutschland; Server im EU-Rechenzentrum Helsinki (Finnland).
+      Kein Datentransfer in Drittländer.</li>
+</ul>
+
+<h2>Widerruf und Löschung</h2>
+<p>Du kannst deine Einwilligung jederzeit widerrufen — auf der Startseite oder hier. Der
+  Widerruf wirkt sofort: es wird nichts mehr gesendet.</p>
+<p>Dein Gerät merkt sich die Kennungen der zuletzt gesendeten Fahrten (nur lokal, höchstens 20,
+  nie übertragen). Genau dafür: damit du die Löschung selbst auslösen kannst. Der Knopf unten
+  schickt für jede dieser Kennungen eine Löschanweisung an den Server.</p>
+
+<div class="box">
+  <p id="eraseCount">Wird geprüft …</p>
+  <button id="erase" class="danger" disabled>Meine Fahrten löschen und Einwilligung widerrufen</button>
+  <p id="eraseNote">Es werden nur Fahrten gelöscht, die von diesem Gerät und diesem Browser
+    gesendet wurden.</p>
+</div>
+
+<h2>Deine Rechte</h2>
+<p>Dir stehen Auskunft, Berichtigung, Löschung, Einschränkung, Datenübertragbarkeit und
+  Widerspruch zu (Art. 15–21 DSGVO) sowie das Recht auf Beschwerde bei einer Aufsichtsbehörde.
+  In der Praxis ist die Löschung der wichtigste davon, und sie ist deshalb ein Knopf statt
+  einer E-Mail.</p>
+<p>Ein Hinweis in aller Offenheit: Die gespeicherten Daten enthalten keine Kennung, die auf dich
+  zurückführt. Wir <em>können</em> eine Fahrt niemandem zuordnen — das ist Absicht und der
+  eigentliche Schutz. Es bedeutet aber auch, dass wir eine Auskunft nur zu einer Fahrtkennung
+  erteilen können, die du uns nennst (Art. 11 DSGVO).</p>
+
+<h2>Verantwortlich</h2>
+<p>Clemens Helm · <a href="mailto:kontakt@helmcraft.ai">kontakt@helmcraft.ai</a><br>
+  Quelltext, Fehlermeldungen und Fragen:
+  <a href="https://github.com/clemenshelm/frunky">github.com/clemenshelm/frunky</a></p>
+
+<footer>
+  <p><a href="index.html">← Zurück zu Frunky</a></p>
+  <p>Stand dieser Erklärung: August 2026.</p>
+</footer>
+
+<script src="trace-schema.js?v=18"></script>
+<script src="trace.js?v=18"></script>
+<script>
+(() => {
+  "use strict";
+  // Same endpoint constant as the driver page. Keeping it a literal in both
+  // places rather than sharing a config file is deliberate: this page must work
+  // when everything else is broken, and it must be readable in the browser's
+  // "view source" by anyone who wants to check the claim above.
+  const TRACE_ENDPOINT = "https://frunky.clemenshelm.com/api/v1/trace";
+
+  const btn = document.getElementById("erase");
+  const countEl = document.getElementById("eraseCount");
+  const noteEl = document.getElementById("eraseNote");
+
+  let tracer = null;
+  try {
+    tracer = FrunkyTrace.create({
+      endpoint: TRACE_ENDPOINT,
+      build: "0",
+      userAgent: navigator.userAgent,
+      fetch: (...a) => fetch(...a),
+      storage: window.localStorage,
+    });
+  } catch (err) { void err; }
+
+  function paint() {
+    if (!tracer) { countEl.textContent = "Dieser Browser lässt keine lokale Ablage zu — es kann hier nichts gespeichert sein."; return; }
+    const n = tracer.sent().length;
+    const consent = tracer.consent();
+    countEl.textContent = n === 0
+      ? (consent === true
+        ? "Einwilligung erteilt, aber von diesem Gerät ist noch keine Fahrt angekommen."
+        : "Von diesem Gerät wurde noch keine Fahrt gesendet.")
+      : (n === 1 ? "Eine Fahrt von diesem Gerät liegt auf dem Server."
+        : n + " Fahrten von diesem Gerät liegen auf dem Server.");
+    btn.disabled = n === 0 && consent !== true;
+  }
+
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    btn.textContent = "Wird gelöscht …";
+    let erased = 0;
+    try {
+      erased = await tracer.eraseAll();
+      await tracer.setConsent(false);
+    } catch (err) { void err; }
+    const left = tracer.sent().length;
+    btn.textContent = "Gelöscht";
+    noteEl.textContent = left === 0
+      ? "Erledigt: " + erased + " Fahrt(en) gelöscht, Einwilligung widerrufen. Es wird nichts mehr gesendet."
+      : "Es wurden " + erased + " Fahrt(en) gelöscht, " + left + " konnten nicht erreicht werden — " +
+        "die Einwilligung ist trotzdem widerrufen. Bitte bei Gelegenheit mit Netzverbindung erneut versuchen.";
+    paint();
+  });
+
+  paint();
+})();
+</script>
+</body>
+</html>

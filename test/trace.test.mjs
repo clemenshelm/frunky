@@ -324,6 +324,61 @@ const drive = (tr, seconds, speedKmh) => {
   eq("and nothing is sent", fetchSpy.calls.length, 0);
 }
 
+// ---- 10. erasure has to work from a different page, days later ------------
+// The right to have it deleted is worth what it is easy to exercise. The ids of
+// the drives sent from this browser are kept ON THE DEVICE — they are the only
+// handle anyone has on those records, and without them "delete my data" is a
+// sentence rather than a button. They are never transmitted as a set, and they
+// go when the data goes.
+{
+  const store = fakeStorage();
+  const sendFetch = fakeFetch();
+  const tr = makeTracer({ fetch: sendFetch, storage: store });
+  tr.setConsent(true);
+  const ids = [];
+  for (let i = 0; i < 3; i++) {
+    tr.begin();
+    ids.push(tr.id());
+    drive(tr, 4, 40);
+    tr.end("user");
+    await tr.flush();
+  }
+  eq("three drives delivered", sendFetch.calls.length, 3);
+  ok("the device remembers what it sent", tr.sent().length === 3);
+  ok("and remembers exactly those", ids.every((i) => tr.sent().includes(i)));
+
+  // a fresh page — the privacy page, say — sees the same list
+  const other = makeTracer({ fetch: fakeFetch(), storage: store });
+  ok("another page on the same device can see them", other.sent().length === 3);
+  ok("without any of them having been sent as a list",
+    !sendFetch.calls.some((c) => JSON.stringify(c.body || {}).includes(ids[1]) &&
+      JSON.stringify(c.body || {}).includes(ids[2])));
+
+  const eraseFetch = fakeFetch();
+  const eraser = makeTracer({ fetch: eraseFetch, storage: store });
+  const count = await eraser.eraseAll();
+  eq("all three were asked to be erased", count, 3);
+  ok("each by its own id", ids.every((id) =>
+    eraseFetch.calls.some((c) => c.init.method === "DELETE" && c.url.endsWith("/" + id))));
+  eq("and the device forgets them too", eraser.sent().length, 0);
+  eq("as does a page loaded afterwards", makeTracer({ storage: store }).sent().length, 0);
+
+  // the list cannot grow without bound on a device that drives every day
+  const many = makeTracer({ fetch: fakeFetch(), storage: fakeStorage() });
+  many.setConsent(true);
+  for (let i = 0; i < 60; i++) { many.begin(); many.end("user"); await many.flush(); }
+  ok("the remembered list is capped (" + many.sent().length + ")", many.sent().length <= 20);
+
+  // and a failed erasure does not pretend to have happened
+  const brokenFetch = fakeFetch();
+  const stubborn = makeTracer({ fetch: brokenFetch, storage: fakeStorage() });
+  stubborn.setConsent(true);
+  stubborn.begin(); stubborn.end("user"); await stubborn.flush();
+  brokenFetch.setMode("reject");
+  eq("a network that refuses erases nothing", await stubborn.eraseAll(), 0);
+  eq("so the id is still known, to try again", stubborn.sent().length, 1);
+}
+
 if (failures.length) {
   console.error("FAILURES:");
   for (const f of failures) console.error("  -", f);
