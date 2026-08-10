@@ -459,7 +459,7 @@
       oscillator: { type: "fattriangle", count: 2, spread: 8 },
       envelope: { attack: 0.008, decay: 0.06, sustain: 0.85, release: 0.12 },
     }));
-    bassS.volume.value = db(0.68); bassS.connect(bassLp); bassLp.connect(duck);
+    bassS.volume.value = db(1.2); bassS.connect(bassLp); bassLp.connect(duck);
     const bassSubLp = reg(new Tone.Filter({ frequency: 320, type: "lowpass", Q: 0.7 }));
     bassSubS = reg(new Tone.Synth({
       oscillator: { type: "sawtooth" },
@@ -737,8 +737,8 @@
         // Daði pop: one hit per bar jumps up an octave when the section is playful
         const oct = !engine.bassMel && engine.bassFill && pos === 10 ? 2 : 1;
         // natural correlation: louder notes ring brighter, lengths breathe
-        const v = vel((0.13 + 0.26 * fat) * (1 - 0.45 * flowHigh) * drain);
-        bassNote(bassT(t), F(engine.roots[ci] + mi) * oct, 450 + 650 * fat + v * 350, v,
+        const v = vel((0.16 + 0.3 * fat) * (1 - 0.4 * flowHigh) * drain);
+        bassNote(bassT(t), F(engine.roots[ci] + mi) * oct, 500 + 700 * fat + v * 350, v,
           SPB * (1.5 + Math.random() * 0.4));
       }
       if (lickBar) {
