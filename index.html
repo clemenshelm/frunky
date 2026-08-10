@@ -194,6 +194,7 @@
     latenzimmun. Der Ampelsprint ist das eine diskrete Event, abgesichert über
     den Stillstand-als-Zustand-Trick (Herzschlag = geladener Puls).
   </p>
+  <p class="foot" id="buildInfo"></p>
 </div>
 
 <script src="vendor/Tone.js"></script>
@@ -1004,6 +1005,13 @@
   }
   modeGps.addEventListener("click", () => setMode(true));
   modeDirect.addEventListener("click", () => setMode(false));
+
+  // guard against reviewing a stale copy: show when THIS page file was built
+  const bi = document.getElementById("buildInfo");
+  if (bi && typeof location !== "undefined") {
+    bi.textContent = "Stand dieser Seite: " + document.lastModified +
+      " · " + (location.protocol === "file:" ? "LOKALE KOPIE" : location.hostname);
+  }
 })();
 </script>
 </body>
