@@ -295,17 +295,23 @@
     [2, 6, 11, 14], // funk push on the and-of-three
     [2, 10, 13],    // laid back, with holes
   ];
-  const HRS = ["bar", "twobar", "push"]; // harmonic rhythm: per bar / held / anticipated
+  const HRS = ["bar", "twobar", "push", "half"]; // per bar / held / anticipated / mid-bar
   const FILLS = ["toms", "sweep", "swell"];
   const MOTIF = [69, 72, 76, 71, 69]; // the app's own 5-note ident — rare on purpose
   // call-and-response answers for the square-wave blip voice (pentatonic, high)
   const BLIPS = [[76, 74, 72], [72, 76, 79], [74, 72, 69]];
-  // bass licks as [pos, semitones-from-root]: pickups into the next ONE,
-  // pitched an octave-plus up — melody doesn't read in the sub register
+  // bass licks as [pos, semitones-from-root]: pickups into the next ONE.
+  // One register above the groove so they connect instead of interrupting
   const LICKS = [
-    [[12, 12], [13, 15], [14, 17], [15, 19]], // run-up: A2 C3 D3 E3 → lands on the one
-    [[10, 24], [11, 12], [13, 24], [15, 22]], // octave bounce with a high pop
-    [[11, 19], [12, 17], [13, 15], [15, 14]], // walk-down, hangs a step above the root
+    [[10, 5], [12, 7], [14, 10], [15, 12]],  // run-up into the one
+    [[10, 12], [12, 7], [13, 12], [15, 10]], // octave bounce
+    [[11, 12], [12, 10], [13, 7], [15, 5]],  // walk-down, resolves on the one
+  ];
+  // melodic bass lines: pentatonic-safe intervals per pattern hit
+  const BASSMELS = [
+    [0, 0, 7, 0],
+    [0, 12, 7, 10],
+    [0, 3, 5, 7],
   ];
   // the bass sits in the pocket: consistently a touch behind the beat
   function bassT(t) { return t + 0.008 + (Math.random() - 0.5) * 0.006; }
@@ -344,6 +350,7 @@
     brassy: false,    // Parov: anticipated brass stab on the and-of-four
     lick: null,       // playful bass figure, once per 8-bar phrase
     lickFlashUntil: 0,
+    bassMel: null,    // the pattern itself turns melodic: root/fifth/octave/seventh
     traitsText: "",   // human-readable section readout for the UI
     standstillSince: null,
     armed: false,
@@ -427,13 +434,13 @@
     percS = reg(new Tone.NoiseSynth({ envelope: { attack: 0.001, decay: 0.03, sustain: 0 } }));
     percS.volume.value = db(0.25); percS.connect(percBp);
 
-    // warm, restrained bass: low cutoff, gentle resonance, soft attack
+    // warm, restrained bass: triangle core — only weak odd harmonics, never rasping
     bassLp = reg(new Tone.Filter({ frequency: 420, type: "lowpass", Q: 0.8 }));
     bassS = reg(new Tone.Synth({
-      oscillator: { type: "sawtooth" },
-      envelope: { attack: 0.008, decay: 0.06, sustain: 0.85, release: 0.08 },
+      oscillator: { type: "fattriangle", count: 2, spread: 8 },
+      envelope: { attack: 0.008, decay: 0.06, sustain: 0.85, release: 0.12 },
     }));
-    bassS.volume.value = db(0.37); bassS.connect(bassLp); bassLp.connect(duck);
+    bassS.volume.value = db(0.42); bassS.connect(bassLp); bassLp.connect(duck);
     const bassSubLp = reg(new Tone.Filter({ frequency: 320, type: "lowpass", Q: 0.7 }));
     bassSubS = reg(new Tone.Synth({
       oscillator: { type: "sawtooth" },
@@ -658,9 +665,11 @@
       engine.blipSeq = BLIPS[Math.floor(Math.random() * BLIPS.length)];
       engine.brassy = Math.random() < 0.35;
       engine.lick = Math.random() < 0.5 ? LICKS[Math.floor(Math.random() * LICKS.length)] : null;
+      engine.bassMel = Math.random() < 0.4 ? BASSMELS[Math.floor(Math.random() * BASSMELS.length)] : null;
       engine.traitsText = [
         "Akkorde: " + engine.hr,
         "Bass-Pattern " + (BASSPATS.indexOf(engine.bassPat) + 1),
+        engine.bassMel && "Bass-Melodie",
         engine.bassFill && "Pops",
         engine.ghosts && "Ghosts",
         engine.lick && "Lick " + (LICKS.indexOf(engine.lick) + 1),
@@ -689,25 +698,30 @@
       // bass follows the chord roots and a groove pattern with holes in it
       const fat = clamp(e / 0.6, 0, 1);
       const drain = 1 - 0.5 * engine.brake; // braking audibly drains the drive
-      const ci = engine.hr === "twobar" ? Math.floor(bar / 2) % 4 : bar % 4;
+      const ci = engine.hr === "twobar" ? Math.floor(bar / 2) % 4
+        : engine.hr === "half" && pos >= 8 ? (bar + 1) % 4
+        : bar % 4;
       const ciNext = engine.hr === "twobar" ? Math.floor((bar + 1) / 2) % 4 : (bar + 1) % 4;
       const rootF = F(engine.roots[ci]);
       // once per 8-bar phrase a lick takes over the bar's second half
       const lickBar = engine.lick && bar % 8 === 3 && !breather;
       if (!breather && engine.bassPat.includes(pos) && !(lickBar && pos >= 10)) {
+        // melodic sections walk root/fifth/octave/seventh instead of pedaling
+        const mi = engine.bassMel
+          ? engine.bassMel[engine.bassPat.indexOf(pos) % engine.bassMel.length] : 0;
         // Daði pop: one hit per bar jumps up an octave when the section is playful
-        const oct = engine.bassFill && pos === 10 ? 2 : 1;
+        const oct = !engine.bassMel && engine.bassFill && pos === 10 ? 2 : 1;
         // natural correlation: louder notes ring brighter, lengths breathe
         const v = vel((0.1 + 0.22 * fat) * (1 - 0.45 * flowHigh) * drain);
-        bassNote(bassT(t), rootF * oct, 300 + 520 * fat + v * 350, v,
+        bassNote(bassT(t), F(engine.roots[ci] + mi) * oct, 380 + 620 * fat + v * 350, v,
           SPB * (1.5 + Math.random() * 0.4));
       }
       if (lickBar) {
         if (pos === 10) engine.lickFlashUntil = Date.now() + 2200;
         const hit = engine.lick.find((x) => x[0] === pos);
         if (hit) {
-          bassNote(bassT(t), F(engine.roots[ci] + hit[1]), 900 + 500 * fat,
-            vel(0.26 * drain), SPB * 0.85);
+          bassNote(bassT(t), F(engine.roots[ci] + hit[1]), 800 + 400 * fat,
+            vel(0.18 * drain), SPB * 0.85);
         }
       }
       // funk vocabulary: quiet ghost notes between the hits — felt, not heard
@@ -736,9 +750,9 @@
         const bmap = { 6: 0, 10: 1, 13: 2 };
         if (pos in bmap) blip(hum(t, pos), F(engine.blipSeq[bmap[pos]]), vel(0.07));
       }
-      // Parov seasoning: brass stab anticipates the one, every other bar
-      if (engine.brassy && pos === 14 && bar % 2 === 1 && !breather) {
-        brassHit(t, engine.prog[ciNext], vel(0.1 + 0.08 * e));
+      // Parov seasoning: brass stab anticipates the one — every 4th bar, a spice
+      if (engine.brassy && pos === 14 && bar % 4 === 1 && !breather) {
+        brassHit(t, engine.prog[ciNext], vel(0.09 + 0.07 * e));
       }
       // urban detail: a real syncopated groove, gone on the open road
       if (u > 0.05) {
@@ -782,7 +796,15 @@
       if (pos === 0 && bar % 2 === 0) pad(t, engine.prog[Math.floor(bar / 2) % 4], SPB * 32, padVol, padCut);
     } else if (engine.hr === "push") {
       if (pos === 0 && bar % 16 === 0) pad(t, engine.prog[bar % 4], SPB * 14, padVol, padCut);
-      if (pos === 14) pad(t, engine.prog[(bar + 1) % 4], SPB * 16, padVol, padCut);
+      if (pos === 14) {
+        pad(t, engine.prog[(bar + 1) % 4], SPB * 16, padVol, padCut);
+        // the pad's slow attack smears the anticipation — a stab announces it
+        stabChord(t, engine.prog[(bar + 1) % 4], 0.05 + 0.05 * e);
+      }
+    } else if (engine.hr === "half") {
+      // chord changes on beat THREE — never on the one
+      if (pos === 0 && bar % 16 === 0) pad(t, engine.prog[0], SPB * 8, padVol, padCut);
+      if (pos === 8) pad(t, engine.prog[(bar + 1) % 4], SPB * 16, padVol, padCut);
     } else {
       if (pos === 0) pad(t, engine.prog[bar % 4], SPB * 16, padVol, padCut);
     }
@@ -934,7 +956,7 @@
     engine.arpSeq = ARPS[0]; engine.arpOct = 0;
     engine.hr = "bar"; engine.fill = "toms"; engine.ghosts = false; engine.motif = false;
     engine.bassFill = false; engine.blips = false; engine.blipSeq = BLIPS[0]; engine.brassy = false;
-    engine.lick = null; engine.traitsText = "";
+    engine.lick = null; engine.bassMel = null; engine.traitsText = "";
     stepIdx = 0; pendingLaunchAt = -1;
     transport = Tone.getTransport();
     transport.bpm.value = BPM;
