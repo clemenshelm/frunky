@@ -58,7 +58,8 @@ function toneNode() {
     triggerAttack() {}, triggerRelease() {},
     ready: Promise.resolve(),
     gain: param(1), frequency: param(440), Q: param(1), pan: param(0),
-    volume: param(0), feedback: param(0), delayTime: param(0), wet: param(1), detune: param(0),
+    volume: param(0), feedback: param(0), delayTime: param(0), wet: param(1),
+    detune: param(0), amplitude: param(1),
   };
   return n;
 }
