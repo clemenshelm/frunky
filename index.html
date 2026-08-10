@@ -440,7 +440,21 @@
   let stretchNoise, stretchBp, stretchGain;
   let padS, padTri, padHp, padLp, arpS, arpLp, stabS, stabLp;
   let blipS, brassS, brassLp, bassSubS, snareS, snareBody;
-  let voiceS, voiceF1, voiceF2, vibLfo;
+  // sampled instruments persist across play cycles — buffers load once
+  let rhodes = null, choir = null;
+  function ensureSamplers() {
+    if (rhodes) return;
+    rhodes = new Tone.Sampler({
+      urls: { A2: "A2.mp3", C3: "C3.mp3", Eb3: "Eb3.mp3", Gb3: "Gb3.mp3", A3: "A3.mp3",
+        C4: "C4.mp3", Eb4: "Eb4.mp3", Gb4: "Gb4.mp3", A4: "A4.mp3", C5: "C5.mp3" },
+      baseUrl: "samples/rhodes/",
+    });
+    choir = new Tone.Sampler({
+      urls: { A3: "A3.mp3", C4: "C4.mp3", Eb4: "Eb4.mp3", Gb4: "Gb4.mp3",
+        A4: "A4.mp3", C5: "C5.mp3", E5: "E5.mp3" },
+      baseUrl: "samples/choir/",
+    });
+  }
   let transport = null, repeatId = null;
   let stepIdx = 0;
   let pendingLaunchAt = -1;
@@ -540,25 +554,12 @@
     blipS.volume.value = db(0.09); blipS.connect(blipLp);
     blipLp.connect(duck); blipLp.connect(delaySend); blipLp.connect(revSend);
 
-    // the voice: soft saw through two formant bandpasses ('ah', closing to 'oo'
-    // at phrase ends), portamento glide, vibrato that arrives late like a singer's
-    voiceF1 = reg(new Tone.Filter({ frequency: 700, type: "bandpass", Q: 5 }));
-    voiceF2 = reg(new Tone.Filter({ frequency: 1220, type: "bandpass", Q: 7 }));
-    const voiceMix = reg(new Tone.Gain(1.7));
-    const voiceLp = reg(new Tone.Filter(3200, "lowpass"));
-    voiceS = reg(new Tone.Synth({
-      portamento: 0.045,
-      oscillator: { type: "sawtooth" },
-      envelope: { attack: 0.06, decay: 0.1, sustain: 0.85, release: 0.3 },
-    }));
-    voiceS.volume.value = db(0.5);
-    voiceS.connect(voiceF1); voiceS.connect(voiceF2);
-    voiceF1.connect(voiceMix); voiceF2.connect(voiceMix);
-    voiceMix.connect(voiceLp); voiceLp.connect(duck);
-    voiceLp.connect(revSend); voiceLp.connect(delaySend);
-    vibLfo = reg(new Tone.LFO({ frequency: 5.2, min: -14, max: 14 }).start());
-    vibLfo.amplitude.value = 0;
-    vibLfo.connect(voiceS.detune);
+    // sampled color: choir 'aah' is the voice, Rhodes dabs the chords
+    ensureSamplers();
+    choir.disconnect(); choir.volume.value = db(0.22);
+    choir.connect(duck); choir.connect(revSend);
+    rhodes.disconnect(); rhodes.volume.value = db(0.5);
+    rhodes.connect(duck); rhodes.connect(revSend);
 
     // Parov seasoning: brass-like stab — filter snaps open and shuts
     brassLp = reg(new Tone.Filter({ frequency: 900, type: "lowpass", Q: 1.2 }));
@@ -736,20 +737,13 @@
     Tone.connect(g, dry);
   }
   function voiceNote(t, ev) {
-    if (ev.start) {
-      breath(Math.max(t - 0.1, 0));
-      vibLfo.amplitude.cancelScheduledValues(t);
-      vibLfo.amplitude.setValueAtTime(0, t);
-      vibLfo.amplitude.linearRampToValueAtTime(1, t + 0.7); // vibrato arrives late
-      voiceF1.frequency.setValueAtTime(700, t);
-      voiceF2.frequency.setValueAtTime(1220, t);
-    }
-    const dur = SPB * ev.d * 0.95;
-    if (ev.tail) { // phrase end: the vowel closes, 'ah' -> 'oo'
-      voiceF1.frequency.linearRampToValueAtTime(450, t + dur);
-      voiceF2.frequency.linearRampToValueAtTime(820, t + dur);
-    }
-    voiceS.triggerAttackRelease(F(ev.m), dur, t, vv(ev.v, 0.7));
+    if (!choir || !choir.loaded) return;
+    if (ev.start) breath(Math.max(t - 0.1, 0));
+    choir.triggerAttackRelease(F(ev.m), SPB * ev.d * 0.95, t, vv(ev.v, 1.1));
+  }
+  function rhodesChord(t, midis, vol) {
+    if (!rhodes || !rhodes.loaded) { stabChord(t, midis, vol); return; }
+    rhodes.triggerAttackRelease(midis.map(F), SPB * 6, t, vv(vol, 0.25));
   }
   function brassHit(t, midis, vol) {
     const f = brassLp.frequency;
@@ -906,9 +900,16 @@
       if (engine.brassy && pos === 14 && bar % 4 === 1 && !breather && !flowMode) {
         brassHit(t, progEff[ciNext], vel(0.09 + 0.07 * e));
       }
-      // lift drama: a riser announces it, open hats carry the hymn
+      // lift drama: a riser announces it, open hats carry the hymn, Rhodes doubles
       if (flowMode && bar % 24 === 15 && pos === 8) fillSwell(t, SPB * 8);
       if (liftPhase && pos % 8 === 4) hat(t, true, 0.11);
+      if (liftPhase && pos === 0 && bar % 2 === 0) {
+        rhodesChord(t, progEff[Math.floor(bar / 2) % 4], 0.11);
+      }
+      // Rhodes comping: a soft chord dab answers on the and-of-two in town
+      if (u > 0.15 && pos === 6 && bar % 2 === 0 && !breather) {
+        rhodesChord(hum(t, pos), progEff[ci], vel(0.05 + 0.08 * u));
+      }
       // urban detail: a real syncopated groove, gone on the open road
       if (u > 0.05) {
         if (pos === 3) perc(hum(t, pos), vel(0.16 * u));
@@ -954,15 +955,15 @@
       if (pos === 0 && bar % 16 === 0) pad(t, progEff[bar % 4], SPB * 14, padVol, padCut);
       if (pos === 14) {
         pad(t, progEff[(bar + 1) % 4], SPB * 16, padVol, padCut);
-        // the pad's slow attack smears the anticipation — a stab announces it
-        stabChord(t, progEff[(bar + 1) % 4], 0.05 + 0.05 * e);
+        // the pad's slow attack smears the anticipation — Rhodes announces it
+        rhodesChord(t, progEff[(bar + 1) % 4], 0.08 + 0.05 * e);
       }
     } else if (hrEff === "sync") {
       // the next bar's chord arrives at an odd spot — anticipation, not displacement
       if (pos === 0 && bar % 16 === 0) pad(t, progEff[bar % 4], SPB * engine.syncPos, padVol, padCut);
       if (pos === engine.syncPos) {
         pad(t, progEff[(bar + 1) % 4], SPB * (16 + 16 - engine.syncPos), padVol, padCut);
-        stabChord(t, progEff[(bar + 1) % 4], 0.05 + 0.05 * e);
+        rhodesChord(t, progEff[(bar + 1) % 4], 0.08 + 0.05 * e);
       }
     } else {
       if (pos === 0) pad(t, progEff[bar % 4], SPB * 16, padVol, padCut);
@@ -1110,6 +1111,7 @@
     try {
       await Tone.start();
       await buildGraph();
+      await Tone.loaded(); // sample buffers (Rhodes, choir)
     } finally {
       building = false;
       playBtn.disabled = false;

@@ -60,6 +60,7 @@ function toneNode() {
     gain: param(1), frequency: param(440), Q: param(1), pan: param(0),
     volume: param(0), feedback: param(0), delayTime: param(0), wet: param(1),
     detune: param(0), amplitude: param(1),
+    loaded: true,
   };
   return n;
 }
@@ -80,6 +81,7 @@ const transport = {
 const Tone = new Proxy({}, {
   get(_, key) {
     if (key === "start") return async () => {};
+    if (key === "loaded") return async () => {};
     if (key === "getTransport") return () => transport;
     if (key === "getDestination") return () => toneNode();
     if (key === "getContext") return () => ({ rawContext: fakeCtx });
