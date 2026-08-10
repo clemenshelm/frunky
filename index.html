@@ -1051,7 +1051,9 @@
         const oct = !engine.bassMel && engine.bassFill && pos === 10 ? 2 : 1;
         // natural correlation: louder notes ring brighter, lengths breathe
         const v = vel((0.16 + 0.3 * fat) * (1 - 0.4 * flowHigh) * drain);
-        bassNote(bassT(t), F(engine.roots[ci] + mi) * oct, 500 + 700 * fat + v * 350, v,
+        // rootsEff, not engine.roots: during the highway lift the bass must
+        // walk the LIFT roots, not the retired section progression's
+        bassNote(bassT(t), F(rootsEff[ci] + mi) * oct, 500 + 700 * fat + v * 350, v,
           SPB * (1.5 + Math.random() * 0.4));
       }
       if (lickBar) {
