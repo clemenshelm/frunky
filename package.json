@@ -11,5 +11,8 @@
     "url": "https://github.com/clemenshelm/frunky.git"
   },
   "author": "Clemens Helm",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "tone": "^15.1.22"
+  }
 }

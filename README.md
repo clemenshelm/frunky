@@ -59,12 +59,14 @@ Repetition doesn't fatigue; missing change *underneath* the repetition does. The
 
 ## Roadmap
 
-1. **Real GPS** via the browser Geolocation API + in-car field test (update rate, accuracy at speed, audio while driving)
-2. **Tone.js port** — battle-tested transport/swing/effects instead of the hand-rolled scheduler
-3. **1–2 sampled instruments** (Rhodes-style keys, soft mallets) via [smplr](https://github.com/danigb/smplr) or Tone.js Sampler for the color layers
-4. **Scene detection from OpenStreetMap** (road class, curviness, tunnels, speed limits) with lookahead
-5. **Context layers**: weather (Open-Meteo), time of day / sun position, location-seeded motifs (your commute gets its own theme)
-6. Speed-limit awareness (OSM `maxspeed`) so excess speed is never musically rewarded
+Sound first, car second — the plan is to iterate on the music until it carries, then integrate the real vehicle:
+
+1. ~~**Tone.js port**~~ — done: transport/swing/effects now run on Tone.js ([#2](https://github.com/clemenshelm/frunky/issues/2))
+2. **1–2 sampled instruments** (Rhodes-style keys, soft mallets) via [smplr](https://github.com/danigb/smplr) or Tone.js Sampler for the color layers ([#3](https://github.com/clemenshelm/frunky/issues/3))
+3. **Real GPS** via the browser Geolocation API + in-car field test (update rate, accuracy at speed, audio while driving) ([#1](https://github.com/clemenshelm/frunky/issues/1))
+4. **Scene detection from OpenStreetMap** (road class, curviness, tunnels, speed limits) with lookahead ([#4](https://github.com/clemenshelm/frunky/issues/4))
+5. **Context layers**: weather (Open-Meteo), time of day / sun position, location-seeded motifs (your commute gets its own theme) ([#5](https://github.com/clemenshelm/frunky/issues/5))
+6. Speed-limit awareness (OSM `maxspeed`) so excess speed is never musically rewarded ([#6](https://github.com/clemenshelm/frunky/issues/6))
 
 ## Influences
 
@@ -75,7 +77,7 @@ Repetition doesn't fatigue; missing change *underneath* the repetition does. The
 
 ## Development
 
-No build step, no dependencies. The engine lives in `index.html`; `npm test` runs a headless smoke test that drives the full scenario (standstill → armed → launch → thrust → city → cruise → highway flow → braking) against stubbed Web Audio and DOM, with a cycling pseudo-random so every variation pool is exercised.
+No build step. The audio engine runs on [Tone.js](https://tonejs.github.io/) v15 (MIT), vendored as `vendor/Tone.js` so the app stays a self-contained static site — Transport with built-in swing, fat-oscillator supersaws, chorus, convolution reverb, and compressor routing replace the earlier hand-rolled Web Audio graph. The engine lives in `index.html`; `npm test` runs a headless smoke test that drives the full scenario (standstill → armed → launch → thrust → city → cruise → highway flow → braking) against stubbed Web Audio and DOM, with a cycling pseudo-random so every variation pool is exercised.
 
 UI copy is currently German (the prototype's first test driver is German-speaking); i18n is fair game once the engine stabilizes.
 
