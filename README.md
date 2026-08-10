@@ -50,7 +50,8 @@ A car browser delivers GPS at ~1 Hz with ~1 s of lag. The engine is designed so 
 
 Repetition doesn't fatigue; missing change *underneath* the repetition does. The engine follows club-music form rules:
 
-- **Sections every 16 bars** roll new traits from data pools: chord progression (+ matching bass roots), harmonic rhythm (per bar / held / *pushed* ahead of the one), bass groove pattern, arp figure and octave, ghost notes on/off.
+- **Sections every 16 bars** roll new traits from data pools: chord progression (walking a graph of proven progressions, never a blind jump), harmonic rhythm (per bar / held / anticipated ahead of the one — anticipation, never displacement: the bass root only moves on the one), bass groove pattern and melodic bass lines, licks, arp figure and octave, ghost notes, a ghost-note snare, brass stabs, square-wave blips — and **a singer**: a rule-based voice (music-cognition rules after Huron/Meyer — stepwise motion, gap-fill, chord-tone anchors) singing classical phrase forms (sentence, period, sparse calls) on a sampled choir "aah", with breaths between phrases. The live **section readout** in the UI shows what the current section rolled.
+- **DJ turnover**: the last bar of each section high-passes the whole mix, the new downbeat drops the lows back in.
 - **Every 8th bar is a turnaround** (arp runs backwards, a fill from the fill pool, an open hat breathes the phrase out).
 - **Every 48 bars** kick and bass step aside for four bars — only while cruising, never during a driving event.
 - **Humanization**: swing on the off-16ths, micro-timing jitter, velocity spread — on percussion and arps only; kick, bass and growl stay machine-tight.
@@ -62,7 +63,7 @@ Repetition doesn't fatigue; missing change *underneath* the repetition does. The
 Sound first, car second — the plan is to iterate on the music until it carries, then integrate the real vehicle:
 
 1. ~~**Tone.js port**~~ — done: transport/swing/effects now run on Tone.js ([#2](https://github.com/clemenshelm/frunky/issues/2))
-2. **1–2 sampled instruments** (Rhodes-style keys, soft mallets) via [smplr](https://github.com/danigb/smplr) or Tone.js Sampler for the color layers ([#3](https://github.com/clemenshelm/frunky/issues/3))
+2. ~~**Sampled instruments**~~ — done: choir "aah" voice + Rhodes chords, FluidR3 subsets vendored under `samples/` ([#3](https://github.com/clemenshelm/frunky/issues/3))
 3. **Real GPS** via the browser Geolocation API + in-car field test (update rate, accuracy at speed, audio while driving) ([#1](https://github.com/clemenshelm/frunky/issues/1))
 4. **Scene detection from OpenStreetMap** (road class, curviness, tunnels, speed limits) with lookahead ([#4](https://github.com/clemenshelm/frunky/issues/4))
 5. **Context layers**: weather (Open-Meteo), time of day / sun position, location-seeded motifs (your commute gets its own theme) ([#5](https://github.com/clemenshelm/frunky/issues/5))
