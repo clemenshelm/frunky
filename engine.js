@@ -259,7 +259,10 @@
   }
 
   // swing lives in the Tone.js Transport now — hum() only adds micro-jitter
-  function hum(t, pos) { void pos; return t + (Math.random() - 0.5) * 0.006; }
+  // micro-timing only ever pushes LATE. A jitter that can move a note earlier
+  // can invert the order of two events on the same voice, which Tone refuses
+  // outright — and human players drag, they do not anticipate
+  function hum(t, pos) { void pos; return t + Math.random() * 0.005; }
   function vel(v) { return v * (0.85 + Math.random() * 0.3); }
 
   const engine = {
@@ -635,8 +638,27 @@
   // ---- voices --------------------------------------------------------------
 
   const vv = (vol, ref) => clamp(vol / ref, 0, 1);
+
+  // Tone REFUSES a voice triggered at or before its own previous start time,
+  // and the refusal is thrown inside the transport callback — so every voice
+  // scheduled later in that step never plays, the arrangement audibly loses
+  // parts, and a step that throws every bar stops the music altogether.
+  // Two things here trigger the same voice twice in one step by design (the
+  // shaker runs a backbeat AND the urban groove; the arp runs its figure AND
+  // a phrase-end fill), and the fallbacks add more (a Rhodes dab becomes a
+  // stab when the sample is missing). Rather than hunt every pair, each voice
+  // gets a slot: a second trigger at the same instant is nudged a hair later,
+  // which is what the ear would call a flam anyway.
+  const sched = new Map();
+  function at(key, t) {
+    const prev = sched.get(key);
+    const tt = prev != null && t <= prev ? prev + 0.002 : t;
+    sched.set(key, tt);
+    return tt;
+  }
+
   function kick(t, vol, click = 0) {
-    kickS.triggerAttackRelease(46, "8n", t, vv(vol, 0.95));
+    kickS.triggerAttackRelease(46, "8n", at("kick", t), vv(vol, 0.95));
     // the click is a thrust ornament, not part of the kick. The old threshold
     // was below the resting value, so every kick built and threw away three
     // audio nodes — four times a bar, forever, for nothing audible
@@ -658,39 +680,42 @@
     g.linearRampToValueAtTime(1, t + 0.28);
   }
   function heartbeat(t, vol, f0) {
-    heartS.triggerAttackRelease(f0 * 0.35, 0.3, t, vv(vol, 0.6));
+    heartS.triggerAttackRelease(f0 * 0.35, 0.3, at("heart", t), vv(vol, 0.6));
   }
   function tom(t, f0, vol) {
-    tomS.triggerAttackRelease(f0 * 0.45, 0.18, t, vv(vol, 0.35));
+    tomS.triggerAttackRelease(f0 * 0.45, 0.18, at("tom", t), vv(vol, 0.35));
   }
   function hat(t, open, vol) {
-    (open ? hatO : hatC).triggerAttackRelease(open ? 0.26 : 0.04, t, vv(vol, 0.2));
+    (open ? hatO : hatC).triggerAttackRelease(open ? 0.26 : 0.04,
+      at(open ? "hatO" : "hatC", t), vv(vol, 0.2));
   }
-  function shaker(t, vol) { shakerS.triggerAttackRelease(0.055, t, vv(vol, 0.16)); }
+  function shaker(t, vol) { shakerS.triggerAttackRelease(0.055, at("shaker", t), vv(vol, 0.16)); }
   function snare(t, vol, ghost = false) {
-    snareS.triggerAttackRelease(ghost ? 0.045 : 0.13, t, vv(vol, 0.3));
-    if (!ghost) snareBody.triggerAttackRelease(185, 0.09, t, vv(vol * 0.7, 0.25));
+    snareS.triggerAttackRelease(ghost ? 0.045 : 0.13, at("snare", t), vv(vol, 0.3));
+    if (!ghost) snareBody.triggerAttackRelease(185, 0.09, at("snareBody", t), vv(vol * 0.7, 0.25));
   }
-  function perc(t, vol) { percS.triggerAttackRelease(0.03, t, vv(vol, 0.25)); }
+  function perc(t, vol) { percS.triggerAttackRelease(0.03, at("perc", t), vv(vol, 0.25)); }
   function bassNote(t, freq, cut, vol, dur = SPB) {
-    bassLp.frequency.setValueAtTime(cut, t);
-    bassS.triggerAttackRelease(freq, dur * 0.85, t, vv(vol, 0.5));
+    const tt = at("bass", t);
+    bassLp.frequency.setValueAtTime(cut, tt);
+    bassS.triggerAttackRelease(freq, dur * 0.85, tt, vv(vol, 0.5));
   }
   function bassSubNote(t, freq, vol, dur) {
-    bassSubS.triggerAttackRelease(freq, dur, t, vv(vol, 0.4));
+    bassSubS.triggerAttackRelease(freq, dur, at("bassSub", t), vv(vol, 0.4));
   }
   function growlNote(t, vol, dur) {
-    growlS.triggerAttackRelease(F(33), dur * 0.85, t, vv(vol, 0.6));
+    growlS.triggerAttackRelease(F(33), dur * 0.85, at("growl", t), vv(vol, 0.6));
   }
   function stabChord(t, midis, vol) {
-    stabS.triggerAttackRelease(midis.map(F), 0.16, t, vv(vol, 0.14));
+    stabS.triggerAttackRelease(midis.map(F), 0.16, at("stab", t), vv(vol, 0.14));
   }
   function blip(t, freq, vol) {
-    blipS.triggerAttackRelease(freq, 0.1, t, vv(vol, 0.09));
+    blipS.triggerAttackRelease(freq, 0.1, at("blip", t), vv(vol, 0.09));
   }
   function hookNote(t, freq, dur, vol) {
-    if (hookGit && hookGit.loaded) hookGit.triggerAttackRelease(freq, dur, t, vv(vol, 0.16));
-    else hookS.triggerAttackRelease(freq, dur, t, vv(vol, 0.2));
+    const tt = at("hook", t);
+    if (hookGit && hookGit.loaded) hookGit.triggerAttackRelease(freq, dur, tt, vv(vol, 0.16));
+    else hookS.triggerAttackRelease(freq, dur, tt, vv(vol, 0.2));
   }
   // the gate's amplitude, one automation point per sixteenth. No
   // cancelScheduledValues: steps are scheduled in increasing time order, so
@@ -701,11 +726,11 @@
   }
   function gateHold(t, midis) {
     // one bar plus a tail; the tail is what sounds through a closed step
-    gateS.triggerAttackRelease(midis.map(F), SPB * 18, t, 0.55);
+    gateS.triggerAttackRelease(midis.map(F), SPB * 18, at("gate", t), 0.55);
   }
   function rhodesChord(t, midis, vol) {
     if (!rhodes || !rhodes.loaded) { stabChord(t, midis, vol); return; }
-    rhodes.triggerAttackRelease(midis.map(F), SPB * 6, t, vv(vol, 0.25));
+    rhodes.triggerAttackRelease(midis.map(F), SPB * 6, at("rhodes", t), vv(vol, 0.25));
   }
   function chordVoice(t, midis, dur, vol, cut) {
     const style = engine.flowOn ? "wash" : engine.padStyle; // the highway carries
@@ -717,7 +742,8 @@
     if (style === "keys" && rhodes && rhodes.loaded) {
       // rolled Rhodes chord, pad reduced to glue underneath
       midis.forEach((m, i) =>
-        rhodes.triggerAttackRelease(F(m), Math.min(dur, SPB * 12), t + i * 0.014, 0.55));
+        rhodes.triggerAttackRelease(F(m), Math.min(dur, SPB * 12),
+          at("rhodes", t + i * 0.014), 0.55));
       pad(t, midis, dur, vol * 0.35, cut);
       return;
     }
@@ -729,11 +755,12 @@
     f.setValueAtTime(700, t);
     f.linearRampToValueAtTime(2400, t + 0.04);
     f.linearRampToValueAtTime(800, t + 0.28);
-    brassS.triggerAttackRelease(midis.map(F), 0.22, t, vv(vol, 0.16));
+    brassS.triggerAttackRelease(midis.map(F), 0.22, at("brass", t), vv(vol, 0.16));
   }
   function arpNote(t, freq, cut, vol, dur = SPB) {
     arpLp.frequency.setValueAtTime(cut, t);
-    arpS.triggerAttackRelease(freq, Math.max(dur * 0.7, 0.08), t, vv(vol, 0.14));
+
+    arpS.triggerAttackRelease(freq, Math.max(dur * 0.7, 0.08), at("arp", t), vv(vol, 0.14));
   }
   function pad(t, midis, dur, vol, cut = 1100) {
     const f = padLp.frequency;
@@ -741,8 +768,9 @@
     f.setValueAtTime(cut * 0.45, t);
     f.linearRampToValueAtTime(cut * 1.25, t + dur * 0.45);
     f.linearRampToValueAtTime(cut * 0.6, t + dur);
-    padS.triggerAttackRelease(midis.map(F), dur * 0.85, t, vv(vol, 0.4));
-    padTri.triggerAttackRelease(midis.map((m) => F(m + 12)), dur * 0.85, t, vv(vol * 0.55, 0.4));
+    padS.triggerAttackRelease(midis.map(F), dur * 0.85, at("pad", t), vv(vol, 0.4));
+    padTri.triggerAttackRelease(midis.map((m) => F(m + 12)), dur * 0.85,
+      at("padTri", t), vv(vol * 0.55, 0.4));
   }
 
   // ---- sequencer -----------------------------------------------------------
@@ -1010,7 +1038,8 @@
         const bi = engine.brokenPat[Math.floor(s / 2) % 8];
         const m = chordNow[Math.min(bi, chordNow.length - 1)];
         if (rhodes && rhodes.loaded) {
-          rhodes.triggerAttackRelease(F(m), SPB * 3, hum(t, pos), pos === 0 ? 0.5 : 0.32);
+          rhodes.triggerAttackRelease(F(m), SPB * 3, at("rhodes", hum(t, pos)),
+            pos === 0 ? 0.5 : 0.32);
         } else {
           blip(hum(t, pos), F(m), vel(0.05));
         }
@@ -1213,6 +1242,7 @@
     engine.liftActive = false; engine.pullChorus = false; engine.dropAt = -1;
     engine.flowOn = false; engine.progIdx = 0; engine.piece = null; engine.partLabel = "";
     stepIdx = 0; pendingLaunchAt = -1; tp = 0; clock = 0;
+    sched.clear();
     transport = Tone.getTransport();
     transport.bpm.value = BPM;
     transport.swing = 0.22; // light 16th shuffle — the pulse stays straight

@@ -51,12 +51,29 @@ const fakeCtx = new FakeAudioContext();
 // ---- Tone.js stub ----------------------------------------------------------
 // Generic chainable nodes; a working Transport that actually drives the
 // 16th-note callback so the sequencer and phase machine really run.
+let nodeSeq = 0;
 function toneNode() {
+  const id = ++nodeSeq;
+  let lastStart = null;
   const n = {
     connect() { return n; }, chain() { return n; }, fan() { return n; },
     disconnect() {}, dispose() {}, start() { return n; }, stop() { return n; },
+    // Real Tone.js REFUSES a voice triggered at or before its previous start
+    // time, and the throw lands inside the transport callback — so every voice
+    // scheduled after it in that step is simply never played, and the music
+    // audibly loses parts and then stops. The old stub accepted anything,
+    // which is exactly why a green fuzz run sat next to a broken browser.
+    // Every call site here passes velocity last, so the time is args[len-2].
     triggerAttackRelease(...args) {
       for (const a of args) if (typeof a === "number" && !Number.isFinite(a)) throw new Error("non-finite trigger arg");
+      const t = args.length >= 3 ? args[args.length - 2] : null;
+      if (typeof t === "number") {
+        if (lastStart !== null && t <= lastStart) {
+          throw new Error(`node ${id}: start time ${t} must be strictly greater ` +
+            `than previous start time ${lastStart}`);
+        }
+        lastStart = t;
+      }
     },
     triggerAttack() {}, triggerRelease() {}, releaseAll() {},
     ready: Promise.resolve(),
