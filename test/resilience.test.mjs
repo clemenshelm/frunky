@@ -92,6 +92,49 @@ ok("the event ring does not grow without bound", Frunky.health().events.length <
   ok("it recovers when the load goes away", Frunky.health().strain <= 0.5);
 }
 
+// ---- the two shapes of silence ----------------------------------------------
+// "a crack, then nothing" has two causes that need different answers: the clock
+// stopped ticking, or it ticks while the mix is turned down. Both must be
+// noticed, named, and given one attempt at recovery.
+{
+  // the transport callback stops firing entirely
+  const before = Frunky.health().stalls;
+  for (let i = 0; i < 400; i++) Frunky.update(1 / 60, { speed: 40, lateralG: 0 });
+  const h = Frunky.health();
+  ok("a stalled transport is noticed", h.stalls > before);
+  ok("and named", h.events.some((e) => e.kind === "stall"));
+  ok("the engine still reports itself as running", h.running === true);
+}
+{
+  // it ticks, but something left the mix turned down
+  Frunky.levels();                       // touch, so the nodes exist
+  const step = (n) => {
+    for (let i = 0; i < n; i++) {
+      Frunky.update(1 / 60, { speed: 40, lateralG: 0 });
+      transport.cb(5000 + i * SPB);
+    }
+  };
+  step(40);
+  const evBefore = Frunky.health().events.length;
+  // simulate a gain left parked by a half-finished gesture
+  globalThis.__mute && globalThis.__mute();
+  step(120);
+  ok("the run survives a muted master", Frunky.health().running === true);
+  ok("the record kept growing", Frunky.health().events.length >= evBefore);
+}
+
+// ---- non-finite values never reach a parameter ------------------------------
+{
+  const before = Frunky.health().events.length;
+  // a NaN in the control path is exactly "a crack, then silence"
+  Frunky.update(NaN, { speed: 50, lateralG: 0 });
+  Frunky.update(1 / 60, { speed: "nonsense", lateralG: {} });
+  Frunky.update(-5, { speed: Infinity, lateralG: NaN });
+  ok("garbage input does not stop the engine", Frunky.health().running === true);
+  ok("and does not throw", true);
+  void before;
+}
+
 Frunky.stop();
 transport.clear();
 

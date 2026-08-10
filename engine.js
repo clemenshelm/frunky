@@ -293,6 +293,7 @@
     thrust: 0,
     brake: 0,
     urban: 0,
+    wake: 0,          // how far the rhythm section has faded in, 0..1
     fillAt: -1,
     prog: null,   // the section object: rolled ONCE per boundary, only read in steps
     roots: null,
@@ -369,6 +370,11 @@
   const ctlLast = new Map();
   function ctl(param, key, value, tol, ramp = 0.04) {
     if (!param) return;
+    // ONE non-finite value is "a crack, then silence": the step is heard as a
+    // click and from then on the node feeds NaN to everything downstream, which
+    // renders as permanent quiet. Nothing that cannot be reasoned about gets
+    // past here, and the fact that it happened is worth more than the value
+    if (!Number.isFinite(value)) { note("param", key + " = " + value); return; }
     const prev = ctlLast.get(key);
     if (prev != null && Math.abs(value - prev) < tol) return;
     ctlLast.set(key, value);
@@ -406,6 +412,7 @@
   // first, then the chord figures collapse to a plain pad. Simpler music beats
   // no music, and it recovers on its own when the device catches up
   let strain = 0, strainSteps = 0, totalSteps = 0;
+  let lateSteps = 0, worstLate = 0;
   // A ring of what actually went wrong, on the device it went wrong on. There
   // is no console to read in a car, so the engine keeps its own short record
   const events = [];
@@ -851,7 +858,12 @@
   // the ramps chain by themselves — and a cancel is exactly how an automated
   // gain gets left parked somewhere it can't come back from
   function gateLevel(t, target, up) {
-    gateAmp.gain.linearRampToValueAtTime(target, t + (up ? 0.014 : 0.032));
+    // "steps arrive in increasing time order" is true until the scheduler falls
+    // behind ONCE and fires a backlog. Tone refuses an automation point behind
+    // the last one, and this runs on every single step — so one late burst
+    // would throw for the rest of the drive. The slot makes it unfalsifiable
+    const tt = at("gateAmp", t);
+    gateAmp.gain.linearRampToValueAtTime(target, tt + (up ? 0.014 : 0.032));
   }
   function gateHold(t, midis) {
     // one bar plus a tail; the tail is what sounds through a closed step
@@ -889,6 +901,9 @@
     brassS.triggerAttackRelease(midis.map(F), 0.22, at("brass", t), vv(vol, 0.16));
   }
   function arpNote(t, freq, cut, vol, dur = SPB) {
+    // the filter has to follow the note's OWN (possibly nudged) time, or a
+    // collision leaves an automation point behind the last one
+    arpLp.frequency.cancelScheduledValues(t);
     arpLp.frequency.setValueAtTime(cut, t);
 
     arpS.triggerAttackRelease(freq, Math.max(dur * 0.7, 0.08), at("arp", t), vv(vol, 0.14));
@@ -909,6 +924,7 @@
   function onStep(s, t) {
     const pos = s % 16, bar = Math.floor(s / 16);
     const lean = strain > 0.5; // the device is at its limit — shed ornaments
+    const wake = clamp(engine.wake, 0, 1); // the rhythm section fading in
     engine.lean = lean;
     const e = clamp(engine.energy + engine.launchBoost * 0.3, 0, 1);
     const still = e < 0.06;
@@ -1013,12 +1029,12 @@
     } else {
       // pump stays gentle at cruise, deepens only under force
       if (pos % 4 === 0 && !breather && !bridgeDown) {
-        kick(t, (0.85 + 0.1 * e) * (1 - 0.18 * flowHigh), 0.05 + 0.3 * push);
+        kick(t, (0.85 + 0.1 * e) * (1 - 0.18 * flowHigh) * wake, 0.05 + 0.3 * push);
         duckAt(t, 0.3 * (1 - 0.3 * flowHigh) + 0.28 * push);
       }
       // bass follows the chord roots and a groove pattern with holes in it;
       // it reaches full weight at city speeds already, not only on the highway
-      const fat = clamp(e / 0.35, 0, 1);
+      const fat = clamp(e / 0.5, 0, 1);
       const drain = 1 - 0.5 * engine.brake; // braking audibly drains the drive
       // the bass root moves ONLY on the one — it is the meter's anchor
       const ci = hrEff === "twobar" ? Math.floor(bar / 2) % 4 : bar % 4;
@@ -1033,7 +1049,7 @@
         // Daði pop: one hit per bar jumps up an octave when the section is playful
         const oct = !engine.bassMel && engine.bassFill && pos === 10 ? 2 : 1;
         // natural correlation: louder notes ring brighter, lengths breathe
-        const v = vel((0.16 + 0.3 * fat) * (1 - 0.4 * flowHigh) * drain);
+        const v = vel((0.16 + 0.3 * fat) * (1 - 0.4 * flowHigh) * drain * wake);
         // rootsEff, not engine.roots: during the highway lift the bass must
         // walk the LIFT roots, not the retired section progression's
         bassNote(bassT(t), F(rootsEff[ci] + mi) * oct, 500 + 700 * fat + v * 350, v,
@@ -1065,14 +1081,14 @@
       if (push > 0.55 && (pos % 4 === 1 || pos % 4 === 3)) growlNote(t, 0.3 * push, SPB * 0.8);
       // the stab rides the CURRENT chord — a hard-wired Am rubbed against Gadd9
       if (push > 0.06 && pos % 4 === 2) stabChord(t, progEff[ci], 0.12 * Math.pow(push, 1.3));
-      if (pos % 4 === 2) hat(hum(t, pos), false, vel((0.03 + 0.05 * u) * (1 - 0.55 * flowHigh)));
+      if (pos % 4 === 2) hat(hum(t, pos), false, vel((0.03 + 0.05 * u) * (1 - 0.55 * flowHigh) * wake));
       // snare sections: soft backbeat on 2 and 4, funk ghost chatter between
       if (engine.snare && !breather && !bridgeDown) {
-        if (pos === 4 || pos === 12) snare(hum(t, pos), vel(0.12 + 0.05 * e));
-        if (pos === 7 || pos === 10 || pos === 15) snare(hum(t, pos), vel(0.035 + 0.025 * u), true);
+        if (pos === 4 || pos === 12) snare(hum(t, pos), vel((0.12 + 0.05 * e) * wake));
+        if (pos === 7 || pos === 10 || pos === 15) snare(hum(t, pos), vel((0.035 + 0.025 * u) * wake), true);
       }
       // accel percussion: shaker/toms in the background, swelling with force
-      if (pos % 2 === 1 && (!lean || pos % 4 === 1)) shaker(hum(t, pos), vel(0.015 + 0.1 * push));
+      if (pos % 2 === 1 && (!lean || pos % 4 === 1)) shaker(hum(t, pos), vel((0.015 + 0.1 * push) * wake));
       if ((pos === 5 || pos === 13) && push > 0.05) tom(t, pos === 5 ? 150 : 120, 0.03 + 0.15 * push);
       // Daði charm: the blip voice answers the arp — one bar in four, quiet
       if (engine.blips && bar % 4 === 2 && !lean) {
@@ -1101,11 +1117,12 @@
       }
       // urban detail: a real syncopated groove, gone on the open road
       if (u > 0.05 && !bridgeDown && !lean) {
-        if (pos === 3) perc(hum(t, pos), vel(0.16 * u));
-        if (pos === 6) perc(hum(t, pos), vel(0.1 * u));
-        if (pos === 10) perc(hum(t, pos), vel(0.13 * u));
-        if (pos === 14) perc(hum(t, pos), vel(0.08 * u));
-        if (pos % 4 === 3) shaker(hum(t, pos), vel(0.05 * u));
+        const uw = u * wake;
+        if (pos === 3) perc(hum(t, pos), vel(0.16 * uw));
+        if (pos === 6) perc(hum(t, pos), vel(0.1 * uw));
+        if (pos === 10) perc(hum(t, pos), vel(0.13 * uw));
+        if (pos === 14) perc(hum(t, pos), vel(0.08 * uw));
+        if (pos % 4 === 3) shaker(hum(t, pos), vel(0.05 * uw));
       }
       // phrase-end fill, drawn from the pool once per phrase
       if (turnaround) {
@@ -1260,30 +1277,32 @@
   // picture. speed in km/h, lateralG in -1..1. Everything here is smoothed and
   // therefore latency-immune — the ear has no reference for "what 120 km/h
   // should sound like right now"
-  function update(dt, input) {
+  function update(dtRaw, input) {
     if (!engine.running) return;
+    // a frame delta that is negative, zero-length or absurd turns every
+    // exponential smoother into a divergence, and a diverging gain is the
+    // crack this whole guard exists to prevent
+    const dt = Number.isFinite(dtRaw) ? clamp(dtRaw, 0, 0.25) : 0.016;
     clock += dt * 1000;
-    // A car browser can suspend the audio clock when it loses focus, when
-    // another media source takes over, or when the screen sleeps — and it does
-    // not always come back. Silence that looks exactly like a crash
-    if (clock - lastResumeAt > 1000) {
-      lastResumeAt = clock;
-      try {
-        const c = Tone.getContext();
-        const state = c.state || (c.rawContext && c.rawContext.state);
-        if (state && state !== "running") {
-          resumes++;
-          note("audio", "context " + state + " — resuming");
-          resume();
-        }
-      } catch (err) { void err; }
-    }
+    watchdog();
+
     const speed = clamp(Number(input && input.speed) || 0, 0, 300);
     const lat = clamp(Number(input && input.lateralG) || 0, -1, 1);
 
-    // energy follows speed, slowly; launch boost decays over ~4 bars
+    // Energy rises SLOWLY and falls at the old rate. Pulling away gently still
+    // reaches 30 km/h within a few seconds, and at the old 1.4 s the whole
+    // arrangement arrived in one lump — which is heard as the music being
+    // switched on rather than starting. A traffic-light sprint is unaffected:
+    // launchBoost bypasses this and lands on the beat
     const target = clamp(speed / 110, 0, 1);
-    engine.energy += (target - engine.energy) * (1 - Math.exp(-dt / 1.4));
+    const rising = target > engine.energy;
+    engine.energy += (target - engine.energy) *
+      (1 - Math.exp(-dt / (rising ? 3.2 : 1.2)));
+    // the rhythm section fades in rather than appearing: "standstill" was a
+    // hard switch, and a hard switch is exactly what an abrupt swell is
+    const awake = engine.energy > 0.055 || engine.launchBoost > 0.2 ? 1 : 0;
+    engine.wake += (awake - engine.wake) *
+      (1 - Math.exp(-dt / (awake > engine.wake ? 2.2 : 0.9)));
     engine.launchBoost = Math.max(0, engine.launchBoost - dt / (SPB * 64));
 
     // launch detection: standstill -> first movement the engine can see.
@@ -1333,7 +1352,10 @@
     ctl(stretchGain.gain, "stretch", gAbs * 0.16 * clamp(speed / 50, 0, 1), 0.004);
     ctl(stretchBp.frequency, "stretchBp", 2100 + 1900 * gAbs, 25);
     // urban weight: city speed band, fades out toward the highway
-    engine.urban = clamp((speed - 12) / 12, 0, 1) * (1 - clamp((speed - 65) / 30, 0, 1));
+    // 12 -> 24 km/h took the city groove from nothing to everything, and that
+    // is a band a car crosses in about two seconds. Spread over 10 -> 45 it
+    // arrives with the driving rather than on top of it
+    engine.urban = clamp((speed - 10) / 35, 0, 1) * (1 - clamp((speed - 70) / 30, 0, 1));
 
     // Scene loudness. The highway arrangement thins ON PURPOSE — the bass pulls
     // back 40 %, the kick 18 %, the hats more than half — and without
@@ -1352,6 +1374,47 @@
     const flowHigh = clamp((eNow - 0.5) / 0.35, 0, 1);
     ctl(makeup.gain, "makeup", 1 + 0.16 * flowHigh, 0.006, 0.2);
     ctl(busDrums.gain, "busDrums", 1 - 0.08 * engine.urban, 0.006, 0.2);
+  }
+
+  // Silence has exactly two shapes and they need different answers: the clock
+  // stopped ticking (no more steps at all), or it ticks while the mix is turned
+  // down. Telling them apart is the difference between guessing and knowing,
+  // and each one gets one attempt at recovery before it is merely reported
+  let lastStepSeen = -1, lastStepAt = 0, stalls = 0;
+  function watchdog() {
+    if (clock - lastResumeAt < 1000) return;
+    lastResumeAt = clock;
+    try {
+      const c = Tone.getContext();
+      const state = c.state || (c.rawContext && c.rawContext.state);
+      if (state && state !== "running") {
+        resumes++;
+        note("audio", "context " + state + " — resuming");
+        resume();
+      }
+    } catch (err) { void err; }
+
+    // the transport callback has stopped firing
+    if (stepIdx === lastStepSeen && clock - lastStepAt > 1500) {
+      stalls++;
+      note("stall", "no step for " + Math.round(clock - lastStepAt) +
+        "ms at step " + stepIdx + " — restarting transport");
+      lastStepAt = clock;
+      try { transport.start(); } catch (err) { note("stall", "restart failed: " + err); }
+    } else if (stepIdx !== lastStepSeen) {
+      lastStepSeen = stepIdx;
+      lastStepAt = clock;
+    }
+
+    // it ticks, but the mix is down and no drop gap is running
+    if (master && engine.dropAt < 0 && master.gain.value < 0.5) {
+      note("mute", "master at " + master.gain.value.toFixed(3) + " — restoring");
+      try { master.gain.rampTo(0.9, 0.05); } catch (err) { void err; }
+    }
+    if (duck && duck.gain.value < 0.5) {
+      note("mute", "duck at " + duck.gain.value.toFixed(3) + " — restoring");
+      try { duck.gain.rampTo(1, 0.05); } catch (err) { void err; }
+    }
   }
 
   // what the drive is doing, in one word — the only readout the driver page shows
@@ -1421,7 +1484,7 @@
     engine.energy = 0; engine.launchBoost = 0;
     engine.armed = false; engine.standstillSince = null; engine.prevEst = 0;
     engine.accelEst = 0; engine.thrust = 0;
-    engine.brake = 0; engine.urban = 0; engine.fillAt = -1;
+    engine.brake = 0; engine.urban = 0; engine.wake = 0; engine.fillAt = -1;
     engine.prog = PROGS[0]; engine.roots = ROOTS[0]; engine.bassPat = BASSPATS[0];
     engine.arpSeq = ARPS[0]; engine.arpOct = 0;
     engine.hr = "bar"; engine.fill = "toms"; engine.ghosts = false;
@@ -1434,12 +1497,30 @@
     sched.clear(); ctlLast.clear(); stepCost = 0; peakCost = 0;
     events.length = 0; errCount = 0; resumes = 0; lastResumeAt = 0;
     strain = 0; strainSteps = 0; totalSteps = 0;
+    lastStepSeen = -1; lastStepAt = 0; stalls = 0;
+    lateSteps = 0; worstLate = 0;
     transport = Tone.getTransport();
     transport.bpm.value = BPM;
     transport.swing = 0.22; // light 16th shuffle — the pulse stays straight
     transport.swingSubdivision = "16n";
     repeatId = transport.scheduleRepeat((time) => {
       const t0 = nowMs();
+      // Is the scheduler still ahead of the clock? A step whose events are
+      // already in the past does not get played later — Web Audio fires it
+      // IMMEDIATELY, so a backlog arrives as one burst. That burst is what a
+      // listener calls a crack, and it is the single most likely explanation
+      // for "a crack, then silence" on a device at its limit
+      try {
+        const lateBy = Tone.now() - time;
+        if (lateBy > 0.005) {
+          lateSteps++;
+          worstLate = Math.max(worstLate, lateBy);
+          if (lateSteps === 1 || lateSteps % 50 === 0) {
+            note("late", "scheduler " + Math.round(lateBy * 1000) + "ms behind (" +
+              lateSteps + " steps)");
+          }
+        }
+      } catch (err) { void err; }
       // An exception thrown here used to end the music: the callback dies and
       // every later step goes with it. Nothing the sequencer can get wrong is
       // worth silence — a swallowed step is a missing note, and the record of
@@ -1456,7 +1537,9 @@
       // them as the peak would make every device look overloaded
       if (stepIdx > 32) peakCost = Math.max(peakCost, cost);
       const was = strain > 0.5;
-      if (cost > 0.45) strain = Math.min(1, strain + 0.15);
+      // being late is not a warning, it is the failure itself
+      if (lateSteps && stepIdx > 32) strain = 1;
+      else if (cost > 0.45) strain = Math.min(1, strain + 0.15);
       else if (cost < 0.3) strain = Math.max(0, strain - 0.02);
       totalSteps++;
       if (strain > 0.5) strainSteps++;
@@ -1500,7 +1583,8 @@
     } catch (err) { void err; }
     return {
       running: engine.running, step: stepIdx, audio: state,
-      errors: errCount, resumes, load: stepCost, peakLoad: peakCost,
+      errors: errCount, resumes, stalls, lateSteps, worstLate,
+      load: stepCost, peakLoad: peakCost,
       strain, strainPct: totalSteps ? (strainSteps / totalSteps) * 100 : 0,
       events: events.slice(),
     };
