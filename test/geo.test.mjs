@@ -86,6 +86,34 @@ ok("standing still has no lateral force", Geo.lateralG(0, 30) === 0);
   ok("fix count starts at zero", r.fixCount() === 0);
 }
 
+// ---- field-test diagnostics -------------------------------------------------
+// The in-car test's real question is whether this browser reports speed and
+// heading at all; a reader that cannot say so leaves the trip unevaluable
+{
+  const r = Geo.createReader();
+  const t0 = 4_000_000;
+  let d = r.diagnostics(t0);
+  ok("no fixes yet reports no age", d.fixes === 0 && d.ageMs === null);
+  r.push({ lat: 48, lon: 11, speed: 12, heading: 90, accuracy: 8, t: t0 });
+  r.push({ lat: 48.001, lon: 11, speed: 13, heading: 92, accuracy: 5, t: t0 + 1000 });
+  d = r.diagnostics(t0 + 1400);
+  ok("counts fixes", d.fixes === 2);
+  near("reports fix age", d.ageMs, 400, 1);
+  near("reports the measured update interval", d.intervalMs, 1000, 1);
+  near("reports accuracy", d.accuracy, 5, 0.001);
+  ok("names the receiver as the speed source", d.speedSource === "coords");
+  ok("names the receiver as the heading source", d.headingSource === "coords");
+
+  const r2 = Geo.createReader();
+  r2.push({ lat: 48, lon: 11, speed: null, heading: null, t: t0 });
+  r2.push({ lat: 48.001, lon: 11, speed: null, heading: null, t: t0 + 1000 });
+  const d2 = r2.diagnostics(t0 + 1000);
+  ok("names the track as the speed source when the browser withholds it",
+    d2.speedSource === "track");
+  ok("names the track as the heading source when the browser withholds it",
+    d2.headingSource === "track");
+}
+
 if (failures.length) {
   console.error("FAILURES:");
   for (const f of failures) console.error("  -", f);

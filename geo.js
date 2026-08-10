@@ -55,6 +55,11 @@
     let rawG = 0;         // lateral g at the last fix
     let est = 0, estG = 0;
     let fixes = 0;
+    // field-test diagnostics: what the receiver actually gave us, as opposed
+    // to what we derived. Whether the Tesla browser reports speed and heading
+    // at all is the single biggest unknown of the in-car test
+    const stats = { fixes: 0, accuracy: null, intervalMs: null, lastFixAt: null,
+      speedSource: "—", headingSource: "—" };
 
     // one fix from the Geolocation API. `speed` is m/s or null, `heading` is
     // degrees or null — both are null often enough that neither can be trusted
@@ -64,6 +69,11 @@
       let speed = Number.isFinite(fix.speed) && fix.speed >= 0 ? fix.speed * 3.6 : null;
       let heading = Number.isFinite(fix.heading) ? fix.heading : null;
       const dt = last ? (t - last.t) / 1000 : 0;
+      stats.speedSource = speed != null ? "coords" : "track";
+      stats.headingSource = heading != null ? "coords" : "track";
+      if (last) stats.intervalMs = t - last.t;
+      if (Number.isFinite(fix.accuracy)) stats.accuracy = fix.accuracy;
+      stats.lastFixAt = t;
 
       // the browser's own speed is the best source; derive it from the track
       // only when the device withholds it
@@ -86,6 +96,7 @@
       last = { t, speed, heading };
       lastPos = pos;
       fixes++;
+      stats.fixes = fixes;
     }
 
     // called once per animation frame: extrapolate to now, then smooth
@@ -98,7 +109,20 @@
       return { speed: est, lateralG: estG };
     }
 
-    return { push, sample, fixCount: () => fixes };
+    // a snapshot for the field-test overlay; ageMs is measured, not stored,
+    // because "how stale is the fix right now" is the question that matters
+    function diagnostics(nowMs) {
+      return {
+        fixes: stats.fixes,
+        ageMs: stats.lastFixAt == null ? null : nowMs - stats.lastFixAt,
+        intervalMs: stats.intervalMs,
+        accuracy: stats.accuracy,
+        speedSource: stats.speedSource,
+        headingSource: stats.headingSource,
+      };
+    }
+
+    return { push, sample, diagnostics, fixCount: () => fixes };
   }
 
   window.FrunkyGeo = { haversineMeters, bearingDeg, headingDelta, lateralG, createReader,

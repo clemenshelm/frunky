@@ -87,6 +87,13 @@
   body.driving #stop { visibility: visible; }
   .note { color: var(--muted); font-size: 0.9rem; max-width: 40ch; line-height: 1.5; }
   .note.err { color: var(--amber); }
+  /* field-test overlay: hidden until the footer is tapped, because the answers
+     it gives (does this browser report speed? how often?) can only be found in
+     a moving car — and must not be on screen while driving normally */
+  #diag { display: none; padding: 0.6rem 1.1rem 0; color: var(--muted);
+          font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.7rem;
+          line-height: 1.7; word-spacing: 0.4em; }
+  body.diag #diag { display: block; }
 </style>
 </head>
 <body>
@@ -106,6 +113,7 @@
   <div class="force"><i id="forceBar"></i></div>
 </main>
 
+<p id="diag"></p>
 <footer>
   <span id="foot">Frunky</span>
   <button id="stop">Beenden</button>
@@ -122,8 +130,14 @@
   const speedEl = el("speed"), stateEl = el("state"), forceEl = el("forceBar");
   const noteEl = el("startNote");
 
+  const diagEl = el("diag");
   const reader = FrunkyGeo.createReader();
   let watchId = null, wakeLock = null, gotFix = false;
+
+  // tap the footer to reveal what the receiver is actually delivering. The
+  // in-car test's real question is whether this browser reports coords.speed
+  // and coords.heading at all — everything else can be tuned afterwards
+  el("foot").addEventListener("click", () => document.body.classList.toggle("diag"));
 
   function note(text, isError) {
     noteEl.textContent = text;
@@ -148,7 +162,7 @@
     const c = pos.coords;
     reader.push({
       lat: c.latitude, lon: c.longitude,
-      speed: c.speed, heading: c.heading,
+      speed: c.speed, heading: c.heading, accuracy: c.accuracy,
       t: pos.timestamp || Date.now(),
     });
   }
@@ -221,6 +235,18 @@
       }
       const f = Math.round(Frunky.force() * 50) * 2; // 2 % steps
       if (f !== shownForce) { shownForce = f; forceEl.style.width = f + "%"; }
+
+      if (document.body.classList.contains("diag")) {
+        const d = reader.diagnostics(Date.now());
+        diagEl.textContent =
+          "fixes " + d.fixes +
+          " · alt " + (d.ageMs == null ? "—" : Math.round(d.ageMs) + "ms") +
+          " · takt " + (d.intervalMs == null ? "—" : Math.round(d.intervalMs) + "ms") +
+          " · genau " + (d.accuracy == null ? "—" : Math.round(d.accuracy) + "m") +
+          " · speed " + d.speedSource +
+          " · kurs " + d.headingSource +
+          " · g " + input.lateralG.toFixed(2);
+      }
     }
     requestAnimationFrame(frame);
   }
