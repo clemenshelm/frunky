@@ -103,6 +103,17 @@
     padding: 0.3rem 0.6rem; cursor: pointer;
   }
   #diagOpts button.on { color: var(--cyan); border-color: var(--cyan); }
+  /* the log is the whole remote-debugging story: no backend, no streaming — a
+     car has no console, but it has a screen you can read and photograph */
+  #logView { display: none; position: fixed; inset: 0; background: var(--bg);
+             padding: 1rem; overflow: auto; z-index: 10;
+             font-family: ui-monospace, "SF Mono", Menlo, monospace;
+             font-size: 0.72rem; line-height: 1.6; white-space: pre-wrap; }
+  body.log #logView { display: block; }
+  #logClose { position: fixed; right: 0.8rem; bottom: 0.8rem; font-family: inherit;
+              font-size: 0.85rem; font-weight: 600; color: #06282c;
+              background: var(--cyan); border: none; border-radius: 999px;
+              padding: 0.6rem 1.4rem; cursor: pointer; }
   /* the trip summary is the point of a field test: an impression is not a
      result, and nobody can read a diagnostics line at 130 km/h */
   #trip { display: none; padding: 1.2rem 1.1rem; max-width: 46ch; margin: 0 auto; }
@@ -148,7 +159,9 @@
   <button id="optCurve">Kurve: aussen</button>
   <button id="optDepth">Trägheits-Tiefe: an</button>
   <button id="optLite">Sparmodus: aus</button>
+  <button id="optLog">Protokoll</button>
 </div>
+<pre id="logView"></pre><button id="logClose" hidden>Schliessen</button>
 <footer>
   <span id="foot">Frunky</span>
   <button id="stop">Beenden</button>
@@ -190,6 +203,57 @@
   // in-car test's real question is whether this browser reports coords.speed
   // and coords.heading at all — everything else can be tuned afterwards
   el("foot").addEventListener("click", () => document.body.classList.toggle("diag"));
+
+  // ---- the log --------------------------------------------------------------
+  // A car has no console. Everything worth knowing goes into the engine's ring
+  // and is rendered on demand — readable, photographable, no backend involved.
+  // (Streaming it somewhere would be genuinely useful for other people later,
+  // but a GPS trace is personal data and that is not a switch to flip casually.)
+  window.addEventListener("error", (e) => {
+    Frunky.log("js", (e.message || "error") + " @" + (e.filename || "").split("/").pop() + ":" + e.lineno);
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    Frunky.log("js", "unhandled: " + ((e.reason && e.reason.message) || e.reason));
+  });
+  const logView = el("logView"), logClose = el("logClose");
+  function renderLog() {
+    const h = Frunky.health();
+    const d = reader.diagnostics(Date.now());
+    const lines = [
+      "FRUNKY " + document.lastModified,
+      "",
+      "audio      " + h.audio + (h.running ? " · läuft" : " · gestoppt"),
+      "steps      " + h.step,
+      "fehler     " + h.errors + " · resumes " + h.resumes,
+      "last       " + Math.round(h.load * 100) + "% · spitze " + Math.round(h.peakLoad * 100) + "%",
+      "sparmodus  " + (Frunky.options().lite ? "an" : "aus"),
+      "",
+      "gps fixes  " + d.fixes + " · verworfen " + d.rejected,
+      "gps alter  " + (d.ageMs == null ? "—" : Math.round(d.ageMs) + " ms") +
+        " · takt " + (d.intervalMs == null ? "—" : Math.round(d.intervalMs) + " ms"),
+      "gps genau  " + (d.accuracy == null ? "—" : Math.round(d.accuracy) + " m"),
+      "gps quelle " + d.speedSource + "/" + d.headingSource +
+        " · uhr " + (trip.clockFallback ? "ankunft" : "gerät"),
+      "gps fehler " + trip.errors + (trip.lastError ? " (" + trip.lastError + ")" : ""),
+      "",
+      "ereignisse:",
+    ];
+    for (const e of h.events) lines.push("  " + e.at + "ms " + e.kind + ": " + e.text);
+    if (!h.events.length) lines.push("  (keine)");
+    logView.textContent = lines.join("\n");
+  }
+  let logTimer = null;
+  el("optLog").addEventListener("click", () => {
+    document.body.classList.add("log");
+    logClose.hidden = false;
+    renderLog();
+    logTimer = setInterval(renderLog, 1000);
+  });
+  logClose.addEventListener("click", () => {
+    document.body.classList.remove("log");
+    logClose.hidden = true;
+    if (logTimer) { clearInterval(logTimer); logTimer = null; }
+  });
 
   // the A/B a field test needs: whether the inertial reading feels right is a
   // question about the body, and a question needs two answers to compare
@@ -253,6 +317,12 @@
       t,
     });
     const after = reader.diagnostics(Date.now());
+    if (trip.fixes <= 3 || trip.fixes % 25 === 0) {
+      Frunky.log("gps", "fix " + trip.fixes + " takt=" +
+        (after.intervalMs == null ? "—" : Math.round(after.intervalMs)) +
+        " genau=" + (after.accuracy == null ? "—" : Math.round(after.accuracy)) +
+        " quelle=" + after.speedSource + (t !== pos.timestamp ? " uhr=ankunft" : ""));
+    }
     if (after.intervalMs != null) trip.intervals.push(after.intervalMs);
     if (after.speedSource === "grob") trip.coarse++;
     if (after.rejected > before.rejected) trip.rejected++;
@@ -265,6 +335,7 @@
       : "Standort nicht verfügbar.";
     trip.errors++;
     trip.lastError = ["", "abgelehnt", "nicht verfügbar", "Zeitüberschreitung"][err.code] || "Fehler";
+    Frunky.log("gps", "fehler " + err.code + ": " + (err.message || trip.lastError));
     if (!document.body.classList.contains("driving")) note(msg, true);
     // while driving, the diagnostics line already carries the detail — and it
     // opens itself when the signal is gone, so the failure explains itself

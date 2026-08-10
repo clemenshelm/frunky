@@ -399,6 +399,14 @@
   // device that cannot keep up, and it is the only number a field test can
   // bring home
   let stepCost = 0, peakCost = 0;
+  // A ring of what actually went wrong, on the device it went wrong on. There
+  // is no console to read in a car, so the engine keeps its own short record
+  const events = [];
+  let errCount = 0, resumes = 0, lastResumeAt = 0;
+  function note(kind, text) {
+    events.push({ at: Math.round(clock), kind, text: String(text).slice(0, 160) });
+    if (events.length > 40) events.shift();
+  }
   const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
   let transport = null, repeatId = null;
@@ -1244,6 +1252,21 @@
   function update(dt, input) {
     if (!engine.running) return;
     clock += dt * 1000;
+    // A car browser can suspend the audio clock when it loses focus, when
+    // another media source takes over, or when the screen sleeps — and it does
+    // not always come back. Silence that looks exactly like a crash
+    if (clock - lastResumeAt > 1000) {
+      lastResumeAt = clock;
+      try {
+        const c = Tone.getContext();
+        const state = c.state || (c.rawContext && c.rawContext.state);
+        if (state && state !== "running") {
+          resumes++;
+          note("audio", "context " + state + " — resuming");
+          resume();
+        }
+      } catch (err) { void err; }
+    }
     const speed = clamp(Number(input && input.speed) || 0, 0, 300);
     const lat = clamp(Number(input && input.lateralG) || 0, -1, 1);
 
@@ -1370,9 +1393,17 @@
     try {
       await Tone.start();
       await buildGraph();
-      // sample buffers (Rhodes, muted guitar) — a failed load must never
-      // block play, the synth fallbacks cover it
-      try { await Tone.loaded(); } catch (err) { console.warn("samples missing:", err); }
+      // Sample buffers (Rhodes, muted guitar). A failed load must never block
+      // play — but neither must a SLOW one: on a weak connection Tone.loaded()
+      // simply never settles, and the start button sits on "preparing audio"
+      // forever. The synth fallbacks are already in the graph, so after a few
+      // seconds we start without the samples and let them arrive late
+      try {
+        await Promise.race([
+          Tone.loaded(),
+          new Promise((r) => setTimeout(() => { note("samples", "load timed out"); r(); }, 6000)),
+        ]);
+      } catch (err) { note("samples", (err && err.message) || err); }
     } finally {
       building = false;
     }
@@ -1390,13 +1421,23 @@
     engine.flowOn = false; engine.progIdx = 0; engine.piece = null; engine.partLabel = "";
     stepIdx = 0; pendingLaunchAt = -1; tp = 0; clock = 0;
     sched.clear(); ctlLast.clear(); stepCost = 0; peakCost = 0;
+    events.length = 0; errCount = 0; resumes = 0; lastResumeAt = 0;
     transport = Tone.getTransport();
     transport.bpm.value = BPM;
     transport.swing = 0.22; // light 16th shuffle — the pulse stays straight
     transport.swingSubdivision = "16n";
     repeatId = transport.scheduleRepeat((time) => {
       const t0 = nowMs();
-      onStep(stepIdx++, time);
+      // An exception thrown here used to end the music: the callback dies and
+      // every later step goes with it. Nothing the sequencer can get wrong is
+      // worth silence — a swallowed step is a missing note, and the record of
+      // it is what a field test brings home
+      try {
+        onStep(stepIdx++, time);
+      } catch (err) {
+        errCount++;
+        if (errCount <= 5) note("step", (err && err.message) || err);
+      }
       const cost = (nowMs() - t0) / (SPB * 1000);
       stepCost += (cost - stepCost) * 0.05;
       peakCost = Math.max(peakCost, cost);
@@ -1427,6 +1468,20 @@
   // the music dying and is visible nowhere else
   const load = () => stepCost;
   const peakLoad = () => peakCost;
+  // everything a stuck engine can say about itself
+  function health() {
+    let state = "?";
+    try {
+      const c = Tone.getContext();
+      state = c.state || (c.rawContext && c.rawContext.state) || "?";
+    } catch (err) { void err; }
+    return {
+      running: engine.running, step: stepIdx, audio: state,
+      errors: errCount, resumes, load: stepCost, peakLoad: peakCost,
+      events: events.slice(),
+    };
+  }
+  const log = (kind, text) => note(kind, text);
 
   function levels() {
     return {
@@ -1455,7 +1510,7 @@
 
   window.Frunky = {
     start, stop, update, status, describe, force, levels, setOption, options, resume,
-    load, peakLoad,
+    load, peakLoad, health, log,
     isRunning: () => engine.running,
     isBuilding: () => building,
   };
