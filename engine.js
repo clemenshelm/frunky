@@ -346,7 +346,33 @@
   // Spatial behaviour is a QUESTION, not a setting: whether the inertial
   // direction feels right can only be answered in a moving car, and an answer
   // needs an A and a B. Both default to the congruent reading
-  const opts = { curveOutward: true, inertiaDepth: true };
+  // A phone or a car head unit is not a laptop. "lite" trades the expensive
+  // parts of the graph — a long convolution reverb, three-oscillator supersaws,
+  // a chorus — for the same arrangement at a fraction of the cost. It is
+  // detected rather than asked about, and takes effect on the next start
+  // because it is built into the graph
+  const lowPower = (() => {
+    try {
+      if (typeof navigator === "undefined") return false;
+      if (Number.isFinite(navigator.hardwareConcurrency) && navigator.hardwareConcurrency <= 6) return true;
+      return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+    } catch (err) { void err; return false; }
+  })();
+  const opts = { curveOutward: true, inertiaDepth: true, lite: lowPower };
+
+  // Control-rate writes. Setting an AudioParam's .value schedules a STEP, and
+  // fifteen of them sixty times a second is nine hundred discontinuities per
+  // second in the signal — which is heard as crackle, most obviously on gains.
+  // Every continuous control now moves as a short ramp, and only when it has
+  // actually changed enough to matter
+  const ctlLast = new Map();
+  function ctl(param, key, value, tol, ramp = 0.04) {
+    if (!param) return;
+    const prev = ctlLast.get(key);
+    if (prev != null && Math.abs(value - prev) < tol) return;
+    ctlLast.set(key, value);
+    param.rampTo(value, ramp);
+  }
   let kickS, heartS, tomS, hatC, hatO, shakerS, percS;
   let bassS, bassLp, growlS, growlLp, thrustSub, thrustSubGain;
   let brakeNoise, brakeLp, brakeGain, brakeOsc, brakeOscGain;
@@ -367,6 +393,14 @@
       baseUrl: "samples/rhodes/",
     });
   }
+  // How much of each sixteenth's budget the scheduler spends. It measures the
+  // MAIN thread, not the audio renderer — no browser exposes an underrun
+  // counter — but a step callback that eats its own budget is the shape of a
+  // device that cannot keep up, and it is the only number a field test can
+  // bring home
+  let stepCost = 0, peakCost = 0;
+  const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+
   let transport = null, repeatId = null;
   let stepIdx = 0;
   let pendingLaunchAt = -1;
@@ -443,7 +477,7 @@
     busLead.chain(leadHp, duck);
 
     // space: real convolution reverb, returned through the duck so it pumps
-    const reverb = reg(new Tone.Reverb({ decay: 2.6, preDelay: 0.02, wet: 1 }));
+    const reverb = reg(new Tone.Reverb({ decay: opts.lite ? 1.2 : 2.6, preDelay: 0.02, wet: 1 }));
     await reverb.ready;
     revSend = reg(new Tone.Gain(0.4));
     const revRet = reg(new Tone.Gain(0.5));
@@ -454,7 +488,10 @@
     delayRet = reg(new Tone.Gain(0.6));
     delaySend.connect(delay); delay.connect(delayRet); delayRet.connect(duck);
 
-    chorus = reg(new Tone.Chorus({ frequency: 0.5, delayTime: 3.5, depth: 0.5, wet: 0.5 }).start());
+    // the chorus is a per-sample modulated delay on the widest bus; on a
+    // modest CPU it is pure cost for a thickening nobody would miss
+    chorus = opts.lite ? null
+      : reg(new Tone.Chorus({ frequency: 0.5, delayTime: 3.5, depth: 0.5, wet: 0.5 }).start());
 
     kickS = reg(new Tone.MembraneSynth({
       pitchDecay: 0.08, octaves: 1.9,
@@ -503,7 +540,7 @@
     // ~6 dB less energy than saws, so the level and filter make up for it
     bassLp = reg(new Tone.Filter({ frequency: 480, type: "lowpass", Q: 0.8 }));
     bassS = reg(new Tone.Synth({
-      oscillator: { type: "fattriangle", count: 2, spread: 8 },
+      oscillator: opts.lite ? { type: "triangle" } : { type: "fattriangle", count: 2, spread: 8 },
       envelope: { attack: 0.008, decay: 0.06, sustain: 0.85, release: 0.12 },
     }));
     bassS.volume.value = db(1.2); bassS.connect(bassLp); bassLp.connect(busBass);
@@ -549,13 +586,14 @@
     const gateLp = reg(new Tone.Filter({ frequency: 1050, type: "lowpass", Q: 0.5 }));
     gateAmp = reg(new Tone.Gain(0));
     gateS = reg(new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: "fattriangle", count: 2, spread: 12 },
+      oscillator: opts.lite ? { type: "triangle" } : { type: "fattriangle", count: 2, spread: 12 },
       envelope: { attack: 0.35, decay: 0.2, sustain: 1, release: 0.8 },
     }));
     gateS.volume.value = db(0.3);
     poly(gateS, 12);
     gateS.connect(gateAmp); gateAmp.connect(gateHp); gateHp.connect(gateLp);
-    gateLp.connect(chorus); gateLp.connect(busHarm);
+    if (chorus) gateLp.connect(chorus);
+    gateLp.connect(busHarm);
     gateLp.connect(delaySend); gateLp.connect(revSend);
 
     // The hook lead has to be AUDIBLE without being a guest. Two rounds went
@@ -570,7 +608,7 @@
     const hookAir = reg(new Tone.Filter({ type: "highshelf", frequency: 4800, gain: -5 }));
     const hookLp = reg(new Tone.Filter({ frequency: 2300, type: "lowpass", Q: 0.9 }));
     hookS = reg(new Tone.Synth({
-      oscillator: { type: "fatsquare", count: 2, spread: 12 },
+      oscillator: opts.lite ? { type: "square" } : { type: "fatsquare", count: 2, spread: 12 },
       envelope: { attack: 0.004, decay: 0.18, sustain: 0.15, release: 0.08 },
     }));
     hookS.volume.value = db(0.42);
@@ -588,17 +626,17 @@
     // Parov seasoning: brass-like stab — filter snaps open and shuts
     brassLp = reg(new Tone.Filter({ frequency: 900, type: "lowpass", Q: 1.2 }));
     brassS = reg(new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: "fatsawtooth", count: 3, spread: 18 },
+      oscillator: opts.lite ? { type: "sawtooth" } : { type: "fatsawtooth", count: 3, spread: 18 },
       envelope: { attack: 0.02, decay: 0.18, sustain: 0.3, release: 0.12 },
     }));
     brassS.volume.value = db(0.16);
-    poly(brassS, 24);
+    poly(brassS, opts.lite ? 10 : 24);
     brassS.connect(brassLp); brassLp.connect(busHarm); brassLp.connect(revSend);
 
     growlLp = reg(new Tone.Filter({ frequency: 160, type: "lowpass", Q: 1 }));
     const growlDist = reg(new Tone.Distortion(0.7));
     growlS = reg(new Tone.Synth({
-      oscillator: { type: "fatsawtooth", count: 3, spread: 24 },
+      oscillator: opts.lite ? { type: "sawtooth" } : { type: "fatsawtooth", count: 3, spread: 24 },
       envelope: { attack: 0.01, decay: 0.05, sustain: 0.8, release: 0.08 },
     }));
     growlS.volume.value = db(0.6); growlS.chain(growlDist, growlLp, busBass);
@@ -625,19 +663,21 @@
     padHp = reg(new Tone.Filter(160, "highpass"));
     padLp = reg(new Tone.Filter({ frequency: 900, type: "lowpass", Q: 0.4 }));
     padS = reg(new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: "fatsawtooth", count: 3, spread: 14 },
+      oscillator: opts.lite ? { type: "sawtooth" } : { type: "fatsawtooth", count: 3, spread: 14 },
       envelope: { attack: 1.1, decay: 0.3, sustain: 0.8, release: 1.6 },
     }));
     padS.volume.value = db(0.16);
-    poly(padS, 64);
+    poly(padS, opts.lite ? 24 : 64);
     padTri = reg(new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: "triangle" },
       envelope: { attack: 1.3, decay: 0.3, sustain: 0.7, release: 1.8 },
     }));
     padTri.volume.value = db(0.09);
-    poly(padTri, 64);
+    poly(padTri, opts.lite ? 24 : 64);
     padS.connect(padHp); padTri.connect(padHp);
-    padHp.connect(padLp); padLp.connect(chorus); chorus.connect(busHarm);
+    padHp.connect(padLp);
+    if (chorus) { padLp.connect(chorus); chorus.connect(busHarm); }
+    else padLp.connect(busHarm);
     padLp.connect(revSend);
 
     arpLp = reg(new Tone.Filter({ frequency: 800, type: "lowpass", Q: 4 }));
@@ -650,11 +690,11 @@
 
     stabLp = reg(new Tone.Filter({ frequency: 1400, type: "lowpass", Q: 1 }));
     stabS = reg(new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: "fatsawtooth", count: 2, spread: 14 },
+      oscillator: opts.lite ? { type: "sawtooth" } : { type: "fatsawtooth", count: 2, spread: 14 },
       envelope: { attack: 0.003, decay: 0.16, sustain: 0, release: 0.05 },
     }));
     stabS.volume.value = db(0.14);
-    poly(stabS, 24);
+    poly(stabS, opts.lite ? 12 : 24);
     stabS.connect(stabLp); stabLp.connect(busHarm); stabLp.connect(delaySend); stabLp.connect(revSend);
   }
 
@@ -736,7 +776,7 @@
     // the click is a thrust ornament, not part of the kick. The old threshold
     // was below the resting value, so every kick built and threw away three
     // audio nodes — four times a bar, forever, for nothing audible
-    if (click > 0.12) kickClick(t, click * vol);
+    if (click > 0.12 && !opts.lite) kickClick(t, click * vol);
   }
   function duckAt(t, depth) {
     const g = duck.gain;
@@ -1238,26 +1278,26 @@
     engine.thrust += (thrustTarget - engine.thrust) *
       (1 - Math.exp(-dt / (thrustTarget > engine.thrust ? 0.7 : 1.6)));
     const thrust = engine.thrust;
-    thrustSubGain.gain.value = thrust * 0.3;
-    growlLp.frequency.value = 160 + 1000 * thrust;
+    ctl(thrustSubGain.gain, "thrustSub", thrust * 0.3, 0.008);
+    ctl(growlLp.frequency, "growlLp", 160 + 1000 * thrust, 15);
     // braking = force too: pressure plus the master filter closing over the mix
     const brakeTarget = clamp(-engine.accelEst / 16, 0, 1);
     engine.brake += (brakeTarget - engine.brake) *
       (1 - Math.exp(-dt / (brakeTarget > engine.brake ? 0.4 : 1.1)));
     const brake = engine.brake;
-    brakeGain.gain.value = brake * 0.5;
-    brakeOscGain.gain.value = brake * 0.32;
-    brakeOsc.frequency.value = 88 - 46 * brake;
-    tensionLp.frequency.value = 1200 + 16800 * Math.pow(1 - brake, 2);
+    ctl(brakeGain.gain, "brakeGain", brake * 0.5, 0.008);
+    ctl(brakeOscGain.gain, "brakeOsc", brake * 0.32, 0.008);
+    ctl(brakeOsc.frequency, "brakeOscF", 88 - 46 * brake, 0.8);
+    ctl(tensionLp.frequency, "tensionLp", 1200 + 16800 * Math.pow(1 - brake, 2), 120);
     // Curve: the mix slides OUTWARD, the way you are pushed. Leaning into the
     // turn was the intuitive reading and the wrong one — the pseudo-force in a
     // right-hand bend points left, so audio that moves right contradicts what
     // the body feels, and sensory conflict is the motion-sickness mechanism
-    panner.pan.value = (opts.curveOutward ? -lat : lat) * 0.45;
-    delayRet.gain.value = 0.6 + Math.abs(lat) * 0.9;
+    ctl(panner.pan, "pan", (opts.curveOutward ? -lat : lat) * 0.45, 0.008);
+    ctl(delayRet.gain, "delayRet", 0.6 + Math.abs(lat) * 0.9, 0.01);
     const gAbs = Math.abs(lat);
-    stretchGain.gain.value = gAbs * 0.16 * clamp(speed / 50, 0, 1);
-    stretchBp.frequency.value = 2100 + 1900 * gAbs;
+    ctl(stretchGain.gain, "stretch", gAbs * 0.16 * clamp(speed / 50, 0, 1), 0.004);
+    ctl(stretchBp.frequency, "stretchBp", 2100 + 1900 * gAbs, 25);
     // urban weight: city speed band, fades out toward the highway
     engine.urban = clamp((speed - 12) / 12, 0, 1) * (1 - clamp((speed - 65) / 30, 0, 1));
 
@@ -1269,14 +1309,15 @@
     // so the drum family steps back a touch to make room for it
     // depth: positive = receding under thrust, negative = coming forward
     const depth = opts.inertiaDepth ? clamp(thrust - brake, -1, 1) : 0;
-    revSend.gain.value = 0.4 + (depth > 0 ? 0.35 * depth : 0.12 * depth);
-    depthLp.frequency.value = 18000 - 13000 * Math.max(depth, 0);
-    depthGain.gain.value = 1 - 0.12 * Math.max(depth, 0) + 0.06 * Math.max(-depth, 0);
+    ctl(revSend.gain, "revSend", 0.4 + (depth > 0 ? 0.35 * depth : 0.12 * depth), 0.008);
+    ctl(depthLp.frequency, "depthLp", 18000 - 13000 * Math.max(depth, 0), 120);
+    ctl(depthGain.gain, "depthGain",
+      1 - 0.12 * Math.max(depth, 0) + 0.06 * Math.max(-depth, 0), 0.006);
 
     const eNow = clamp(engine.energy + engine.launchBoost * 0.3, 0, 1);
     const flowHigh = clamp((eNow - 0.5) / 0.35, 0, 1);
-    makeup.gain.value = 1 + 0.16 * flowHigh;
-    busDrums.gain.value = 1 - 0.08 * engine.urban;
+    ctl(makeup.gain, "makeup", 1 + 0.16 * flowHigh, 0.006, 0.2);
+    ctl(busDrums.gain, "busDrums", 1 - 0.08 * engine.urban, 0.006, 0.2);
   }
 
   // what the drive is doing, in one word — the only readout the driver page shows
@@ -1348,12 +1389,18 @@
     engine.liftActive = false; engine.pullChorus = false; engine.dropAt = -1;
     engine.flowOn = false; engine.progIdx = 0; engine.piece = null; engine.partLabel = "";
     stepIdx = 0; pendingLaunchAt = -1; tp = 0; clock = 0;
-    sched.clear();
+    sched.clear(); ctlLast.clear(); stepCost = 0; peakCost = 0;
     transport = Tone.getTransport();
     transport.bpm.value = BPM;
     transport.swing = 0.22; // light 16th shuffle — the pulse stays straight
     transport.swingSubdivision = "16n";
-    repeatId = transport.scheduleRepeat((time) => onStep(stepIdx++, time), "16n");
+    repeatId = transport.scheduleRepeat((time) => {
+      const t0 = nowMs();
+      onStep(stepIdx++, time);
+      const cost = (nowMs() - t0) / (SPB * 1000);
+      stepCost += (cost - stepCost) * 0.05;
+      peakCost = Math.max(peakCost, cost);
+    }, "16n");
     transport.start("+0.05");
     engine.running = true;
     return true;
@@ -1378,6 +1425,9 @@
   // "silent": both of these gains are automated by the music itself (the
   // sidechain, the drop gap), so a bug that parks one of them low is heard as
   // the music dying and is visible nowhere else
+  const load = () => stepCost;
+  const peakLoad = () => peakCost;
+
   function levels() {
     return {
       master: master ? master.gain.value : 0,
@@ -1405,6 +1455,7 @@
 
   window.Frunky = {
     start, stop, update, status, describe, force, levels, setOption, options, resume,
+    load, peakLoad,
     isRunning: () => engine.running,
     isBuilding: () => building,
   };

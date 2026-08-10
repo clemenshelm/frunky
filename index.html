@@ -147,6 +147,7 @@
 <div id="diagOpts">
   <button id="optCurve">Kurve: aussen</button>
   <button id="optDepth">Trägheits-Tiefe: an</button>
+  <button id="optLite">Sparmodus: aus</button>
 </div>
 <footer>
   <span id="foot">Frunky</span>
@@ -177,6 +178,7 @@
     startedAt: 0, fixes: 0, fromCoords: 0, coarse: 0, rejected: 0,
     intervals: [], accuracies: [],
     maxSpeed: 0, maxForce: 0, maxLat: 0, staleMs: 0, lastSampleAt: 0,
+    clockFallback: 0, errors: 0, lastError: "",
   };
   const median = (a) => {
     if (!a.length) return null;
@@ -192,13 +194,21 @@
   // the A/B a field test needs: whether the inertial reading feels right is a
   // question about the body, and a question needs two answers to compare
   const optCurve = el("optCurve"), optDepth = el("optDepth");
+  const optLite = document.getElementById("optLite");
   function paintOpts() {
     const o = Frunky.options();
     optCurve.textContent = "Kurve: " + (o.curveOutward ? "aussen" : "innen");
     optCurve.classList.toggle("on", o.curveOutward);
     optDepth.textContent = "Trägheits-Tiefe: " + (o.inertiaDepth ? "an" : "aus");
     optDepth.classList.toggle("on", o.inertiaDepth);
+    // the low-power graph is BUILT, so switching it is a restart, not a fade
+    optLite.textContent = "Sparmodus: " + (o.lite ? "an" : "aus") +
+      (Frunky.isRunning() ? " (Neustart)" : "");
+    optLite.classList.toggle("on", o.lite);
   }
+  optLite.addEventListener("click", () => {
+    Frunky.setOption("lite", !Frunky.options().lite); paintOpts();
+  });
   optCurve.addEventListener("click", () => {
     Frunky.setOption("curveOutward", !Frunky.options().curveOutward); paintOpts();
   });
@@ -233,10 +243,14 @@
     trip.fixes++;
     if (Number.isFinite(c.speed) && c.speed >= 0) trip.fromCoords++;
     if (Number.isFinite(c.accuracy)) trip.accuracies.push(c.accuracy);
+    // position.timestamp is not guaranteed to be on our clock — see fixTime
+    const arrived = Date.now();
+    const t = FrunkyGeo.fixTime(pos.timestamp, arrived);
+    if (t !== pos.timestamp) trip.clockFallback++;
     reader.push({
       lat: c.latitude, lon: c.longitude,
       speed: c.speed, heading: c.heading, accuracy: c.accuracy,
-      t: pos.timestamp || Date.now(),
+      t,
     });
     const after = reader.diagnostics(Date.now());
     if (after.intervalMs != null) trip.intervals.push(after.intervalMs);
@@ -249,8 +263,11 @@
       : err.code === 3
       ? "Kein GPS-Signal. Freie Sicht zum Himmel abwarten."
       : "Standort nicht verfügbar.";
+    trip.errors++;
+    trip.lastError = ["", "abgelehnt", "nicht verfügbar", "Zeitüberschreitung"][err.code] || "Fehler";
     if (!document.body.classList.contains("driving")) note(msg, true);
-    else stateEl.textContent = "Kein GPS";
+    // while driving, the diagnostics line already carries the detail — and it
+    // opens itself when the signal is gone, so the failure explains itself
   }
 
   async function start() {
@@ -268,8 +285,11 @@
       startBtn.disabled = false;
       return;
     }
+    // maximumAge 0 with a short timeout asks a car browser for a brand-new fix
+    // every time and gives up quickly when it is slow; a couple of seconds of
+    // cache is fine for music, and a generous timeout keeps the watch alive
     watchId = navigator.geolocation.watchPosition(onFix, onGeoError, {
-      enableHighAccuracy: true, maximumAge: 0, timeout: 15000,
+      enableHighAccuracy: true, maximumAge: 2000, timeout: 60000,
     });
     keepAwake();
     trip.startedAt = Date.now();
@@ -291,6 +311,9 @@
       ["Fixes zu ungenau", String(trip.coarse)],
       ["Sprünge verworfen", String(trip.rejected)],
       ["Ohne Signal", (trip.staleMs / 1000).toFixed(0) + " s"],
+      ["Standort-Fehler", trip.errors ? trip.errors + " (" + trip.lastError + ")" : "0"],
+      ["Zeitstempel", trip.clockFallback ? "Ankunftszeit (Gerät unbrauchbar)" : "vom Gerät"],
+      ["Audio-Last (Spitze)", Math.round(Frunky.peakLoad() * 100) + " %"],
       ["Höchsttempo", Math.round(trip.maxSpeed) + " km/h"],
       ["Stärkste Kraft", Math.round(trip.maxForce * 100) + " %"],
       ["Stärkste Querkraft", trip.maxLat.toFixed(2)],
@@ -316,7 +339,8 @@
     document.body.classList.remove("done");
     Object.assign(trip, { startedAt: 0, fixes: 0, fromCoords: 0, coarse: 0,
       rejected: 0, intervals: [], accuracies: [], maxSpeed: 0, maxForce: 0,
-      maxLat: 0, staleMs: 0, lastSampleAt: 0 });
+      maxLat: 0, staleMs: 0, lastSampleAt: 0, clockFallback: 0, errors: 0,
+      lastError: "" });
     start();
   }
   startBtn.addEventListener("click", beginTrip);
@@ -342,6 +366,9 @@
       // never show a musical state on top of a signal that stopped arriving:
       // a frozen number reads as a working readout, which is worse than none
       const stale = reader.isStale(Date.now());
+      // "no signal" with nothing behind it is unactionable in a moving car, so
+      // the diagnostics open themselves the moment it happens
+      if (stale && gotFix) document.body.classList.add("diag");
       const text = !gotFix ? "Warte auf GPS" : stale ? "Kein GPS-Signal" : st.text;
       if (text !== shownState) {
         shownState = text;
@@ -368,7 +395,10 @@
           " · speed " + d.speedSource +
           " · kurs " + d.headingSource +
           " · verworfen " + d.rejected +
-          " · g " + input.lateralG.toFixed(2);
+          " · uhr " + (trip.clockFallback ? "ankunft" : "gerät") +
+          " · fehler " + (trip.errors ? trip.errors + " (" + trip.lastError + ")" : "0") +
+          " · g " + input.lateralG.toFixed(2) +
+          " · last " + Math.round(Frunky.load() * 100) + "%";
       }
     }
     requestAnimationFrame(frame);

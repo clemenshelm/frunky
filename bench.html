@@ -190,6 +190,7 @@
     <div class="mode" role="group" aria-label="Räumliches Modell">
       <button id="optCurve" class="on">Kurve: aussen</button>
       <button id="optDepth" class="on">Trägheits-Tiefe: an</button>
+      <button id="optLite">Sparmodus: aus</button>
     </div>
     <p class="mode-caption">
       Trägheits-Modell: In der Kurve rutscht die Mischung nach aussen, so wie du
@@ -433,13 +434,21 @@
   // about the body, and a question needs two answers to compare
   const optCurve = document.getElementById("optCurve");
   const optDepth = document.getElementById("optDepth");
+  const optLite = document.getElementById("optLite");
   function paintOpts() {
     const o = Frunky.options();
     optCurve.textContent = "Kurve: " + (o.curveOutward ? "aussen" : "innen");
     optCurve.classList.toggle("on", o.curveOutward);
     optDepth.textContent = "Trägheits-Tiefe: " + (o.inertiaDepth ? "an" : "aus");
     optDepth.classList.toggle("on", o.inertiaDepth);
+    // the low-power graph is BUILT, so switching it is a restart, not a fade
+    optLite.textContent = "Sparmodus: " + (o.lite ? "an" : "aus") +
+      (Frunky.isRunning() ? " (Neustart)" : "");
+    optLite.classList.toggle("on", o.lite);
   }
+  optLite.addEventListener("click", () => {
+    Frunky.setOption("lite", !Frunky.options().lite); paintOpts();
+  });
   optCurve.addEventListener("click", () => {
     Frunky.setOption("curveOutward", !Frunky.options().curveOutward); paintOpts();
   });

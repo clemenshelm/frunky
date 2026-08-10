@@ -171,6 +171,29 @@ ok("standing still has no lateral force", Geo.lateralG(0, 30) === 0);
     d2.headingSource === "track");
 }
 
+// ---- the clock trap ---------------------------------------------------------
+// position.timestamp may be a Unix epoch value OR milliseconds since page load,
+// and browsers really do differ. Reading the second as the first puts every fix
+// decades in the past, so a working receiver is declared dead on its first fix
+{
+  const now = 1_770_000_000_000;
+  ok("an epoch timestamp is trusted", Geo.fixTime(now - 400, now) === now - 400);
+  ok("a page-relative timestamp is refused", Geo.fixTime(5230, now) === now);
+  ok("a missing timestamp falls back to arrival", Geo.fixTime(undefined, now) === now);
+  ok("a wildly skewed device clock falls back to arrival",
+    Geo.fixTime(now - 86_400_000, now) === now);
+  ok("a small skew is tolerated", Geo.fixTime(now - 2000, now) === now - 2000);
+}
+{
+  // a receiver that delivers every 3 s is slow, not broken
+  const r = Geo.createReader();
+  const t0 = 8_000_000;
+  r.push({ lat: 48, lon: 11, speed: 20, heading: 0, accuracy: 7, t: t0 });
+  r.push({ lat: 48.0005, lon: 11, speed: 21, heading: 0, accuracy: 7, t: t0 + 3000 });
+  ok("a 3 s gap is not yet stale", r.diagnostics(t0 + 3500).stale === false);
+  ok("a 7 s gap is stale", r.diagnostics(t0 + 10000).stale === true);
+}
+
 if (failures.length) {
   console.error("FAILURES:");
   for (const f of failures) console.error("  -", f);

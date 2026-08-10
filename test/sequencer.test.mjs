@@ -20,18 +20,25 @@ const SEEDS = [0.377, 0.113, 0.641, 0.209, 0.888, 0.05, 0.5, 0.731];
 const BARS = 160; // ~10 pieces' worth of sections per seed
 
 const styles = new Set(), rhythms = new Set(), parts = new Set(), moods = new Set();
-let steps = 0;
+let steps = 0, liteRuns = 0;
 // mix consistency: the family levels that hold every layer combination to the
 // same loudness, and how many notes each bar actually fires
 const seenHarm = [], seenDrums = [], seenMakeup = [], barNotes = [];
 
-for (const seed of SEEDS) {
+for (const [si, seed] of SEEDS.entries()) {
   let rc = 0;
   Math.random = () => (rc = (rc + seed) % 1);
   transport.manual = true;
   globalThis.window = { Tone: globalThis.Tone };
   eval(script);
   const Frunky = globalThis.window.Frunky;
+  // half the seeds build the low-power graph. It is a DIFFERENT graph — no
+  // chorus, plain oscillators, lower voice ceilings — and an untested second
+  // graph is exactly the kind of thing that only breaks on the device that
+  // needs it
+  const lite = si % 2 === 1;
+  Frunky.setOption("lite", lite);
+  if (lite) liteRuns++;
   await Frunky.start();
 
   // a gas pedal being shoved around: standstill, launches, hard braking,
@@ -112,7 +119,8 @@ for (const seed of SEEDS) {
   transport.clear();
 }
 
-console.log("stepped:", steps, "sixteenths across", SEEDS.length, "seeds");
+console.log("stepped:", steps, "sixteenths across", SEEDS.length,
+  "seeds (" + liteRuns + " on the low-power graph)");
 console.log("chord styles seen:", [...styles].sort().join(", "));
 console.log("harmonic rhythms seen:", [...rhythms].sort().join(", "));
 console.log("parts seen:", [...parts].sort().join(", "));
@@ -153,6 +161,7 @@ for (const s of ["wash", "keys", "broken", "gate"]) {
 for (const r of ["bar", "twobar", "push", "sync"]) {
   if (!rhythms.has(r)) failures.push(`fuzz never exercised the "${r}" harmonic rhythm`);
 }
+if (liteRuns === 0) failures.push("the low-power graph was never built");
 for (const p of ["A", "B", "C"]) {
   if (!parts.has(p)) failures.push(`fuzz never exercised part ${p}`);
 }

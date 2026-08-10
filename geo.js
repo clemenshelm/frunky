@@ -53,7 +53,11 @@
   const ACC_TRUST_M = 25;    // derive speed from the track only at real GPS accuracy
   const MAX_DERIVED_KMH = 200; // a first reading above this is a relocation, not a car
   const MAX_ACCEL_KMH_S = 54;  // ~1.5 g; a Tesla launch is about half of this
-  const STALE_S = 2.5;       // beyond this we no longer claim to know the speed
+  // A car browser is not obliged to deliver at 1 Hz, and the first fixes after a
+  // cold start can be seconds apart. 2.5 s was tight enough to call a working
+  // receiver dead; 5 s at 100 km/h is 140 m, which is where claiming to know
+  // the speed really does become dishonest
+  const STALE_S = 5;         // beyond this we no longer claim to know the speed
   const MAX_EXTRAP_S = 1.2;  // how far dead reckoning may run past the last fix
 
   function createReader() {
@@ -182,6 +186,19 @@
     return { push, sample, diagnostics, isStale, fixCount: () => fixes };
   }
 
+  // The Geolocation spec allows position.timestamp to be either a Unix epoch
+  // value or milliseconds since the page loaded, and browsers genuinely differ.
+  // Reading a page-relative timestamp as an epoch one puts every fix decades in
+  // the past, so the receiver is declared dead the moment it starts working —
+  // which is exactly how a working Tesla reads "no GPS signal" while a phone is
+  // fine. When the reported time is not plausibly the same clock as ours, the
+  // moment the fix ARRIVED is the honest answer
+  const CLOCK_TOLERANCE_MS = 5 * 60 * 1000;
+  function fixTime(reported, now) {
+    return Number.isFinite(reported) && Math.abs(reported - now) < CLOCK_TOLERANCE_MS
+      ? reported : now;
+  }
+
   window.FrunkyGeo = { haversineMeters, bearingDeg, headingDelta, lateralG, createReader,
-    HEADING_FLOOR_KMH };
+    fixTime, HEADING_FLOOR_KMH, STALE_S };
 })();
