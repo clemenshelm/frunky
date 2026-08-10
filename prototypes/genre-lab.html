@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Drive Sound Lab — Genre-Demos</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --surface: #12161f;
+    --line: #232a38;
+    --text: #e9ecf2;
+    --muted: #8b94a6;
+    --cyan: #46d4e0;
+    --amber: #f2a65a;
+    --hot: #f2f2f2;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: var(--bg); }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    line-height: 1.55;
+    padding: 3rem 1.25rem 4rem;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--cyan);
+    margin-bottom: 0.75rem;
+  }
+  h1 {
+    font-family: Futura, "Century Gothic", "Trebuchet MS", sans-serif;
+    font-weight: 500;
+    font-size: clamp(1.7rem, 4vw, 2.4rem);
+    letter-spacing: 0.01em;
+    text-wrap: balance;
+    margin-bottom: 0.9rem;
+  }
+  .intro { color: var(--muted); max-width: 60ch; margin-bottom: 0.65rem; }
+  .hint {
+    color: var(--muted);
+    font-size: 0.85rem;
+    border-left: 2px solid var(--amber);
+    padding-left: 0.75rem;
+    margin: 1.5rem 0 2.5rem;
+    max-width: 60ch;
+  }
+  .cards { display: flex; flex-direction: column; gap: 1.25rem; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1.4rem 1.5rem 1.25rem;
+    transition: border-color 0.4s;
+  }
+  .card.playing { border-color: var(--cyan); }
+  .card.tension { border-color: var(--amber); }
+  .card-head { display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; }
+  .card h2 {
+    font-family: Futura, "Century Gothic", "Trebuchet MS", sans-serif;
+    font-weight: 500;
+    font-size: 1.15rem;
+    letter-spacing: 0.02em;
+  }
+  .bpm {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+  }
+  .tagline { color: var(--muted); font-size: 0.9rem; margin: 0.35rem 0 1rem; max-width: 58ch; }
+  .listen { font-size: 0.9rem; margin-bottom: 1.1rem; max-width: 58ch; }
+  .listen strong { color: var(--cyan); font-weight: 600; }
+  .controls { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+  button {
+    font-family: inherit;
+    font-size: 0.92rem;
+    font-weight: 600;
+    border-radius: 7px;
+    padding: 0.55rem 1.2rem;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: filter 0.15s, opacity 0.15s;
+  }
+  button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+  button:hover:not(:disabled) { filter: brightness(1.15); }
+  .btn-play { background: var(--cyan); color: #06282c; }
+  .btn-play.on { background: transparent; color: var(--cyan); border-color: var(--cyan); }
+  .btn-sprint { background: transparent; color: var(--amber); border-color: var(--amber); }
+  .btn-sprint:disabled { opacity: 0.35; cursor: default; }
+  .phase {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-left: auto;
+  }
+  .phase.cruise { color: var(--cyan); }
+  .phase.tension { color: var(--amber); }
+  .phase.drop { color: var(--hot); }
+  .leds { display: flex; gap: 4px; margin-top: 1rem; }
+  .leds span {
+    flex: 1; height: 4px; border-radius: 2px;
+    background: var(--line);
+    transition: background 0.12s;
+  }
+  .leds span.on { background: var(--cyan); }
+  .card.tension .leds span.on { background: var(--amber); }
+  .foot { color: var(--muted); font-size: 0.82rem; margin-top: 2.5rem; max-width: 62ch; }
+  @media (prefers-reduced-motion: reduce) {
+    .leds span, .card, button { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <p class="eyebrow">Drive Sound Lab · Prototyp 0</p>
+  <h1>Vier Klangrichtungen, live im Browser synthetisiert</h1>
+  <p class="intro">
+    Keine Samples, keine Aufnahmen — alles hier entsteht in Echtzeit aus der Web
+    Audio API, derselben Technik, die später im Tesla-Browser läuft. Jede Demo
+    spielt einen generativen Loop.
+  </p>
+  <p class="hint">
+    Der Knopf <strong>Ampelsprint</strong> ist der eigentliche Test: zwei Takte
+    Stillstand-Spannung (Filter schließt, Riser lauert), dann die Entladung beim
+    Anrollen. Hör bei jedem Genre darauf, wie natürlich sich dieser Bogen anfühlt —
+    das ist die Dramaturgie, die die echte Ampel später gratis liefert.
+    Am besten laut oder mit Kopfhörern.
+  </p>
+  <div class="cards" id="cards"></div>
+  <p class="foot">
+    Alle vier Demos teilen sich dieselbe Engine: ein 16tel-Sequencer, Layer für
+    Kick, Bass, Akkorde, Lead und Textur, dazu ein globales Spannungs-Filter.
+    Im Auto würden Geschwindigkeit und G-Kraft steuern, was hier die Knöpfe tun.
+  </p>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const F = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  const AC = window.AudioContext || window.webkitAudioContext;
+  let ctx = null;
+  let noiseBuf = null;
+
+  function ensureCtx() {
+    if (!ctx) {
+      ctx = new AC();
+      noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    if (ctx.state === "suspended") ctx.resume();
+    return ctx;
+  }
+
+  function noiseSrc(t, dur) {
+    const s = ctx.createBufferSource();
+    s.buffer = noiseBuf;
+    s.loop = true;
+    s.start(t);
+    s.stop(t + dur + 0.1);
+    return s;
+  }
+
+  // ---- voices --------------------------------------------------------------
+
+  function kick(e, t, vol = 1) {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(160, t);
+    o.frequency.exponentialRampToValueAtTime(46, t + 0.12);
+    g.gain.setValueAtTime(0.9 * vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+    o.connect(g).connect(e.dry);
+    o.start(t); o.stop(t + 0.3);
+    const n = noiseSrc(t, 0.02);
+    const ng = ctx.createGain();
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass"; hp.frequency.value = 1200;
+    ng.gain.setValueAtTime(0.25 * vol, t);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.02);
+    n.connect(hp).connect(ng).connect(e.dry);
+  }
+
+  function duckAt(e, t) {
+    const g = e.duck.gain;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(0.4, t);
+    g.linearRampToValueAtTime(1, t + 0.3);
+  }
+
+  function hat(e, t, open, vol) {
+    const n = noiseSrc(t, open ? 0.3 : 0.05);
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass"; hp.frequency.value = 8200;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + (open ? 0.28 : 0.045));
+    n.connect(hp).connect(g).connect(e.dry);
+  }
+
+  function snareGated(e, t, vol = 0.5) {
+    const n = noiseSrc(t, 0.16);
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass"; bp.frequency.value = 1900; bp.Q.value = 0.8;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.linearRampToValueAtTime(vol * 0.7, t + 0.11);
+    g.gain.setValueAtTime(0.0001, t + 0.12); // hard gate
+    n.connect(bp).connect(g).connect(e.dry);
+    const o = ctx.createOscillator();
+    const og = ctx.createGain();
+    o.type = "triangle"; o.frequency.value = 190;
+    og.gain.setValueAtTime(vol * 0.5, t);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
+    o.connect(og).connect(e.dry);
+    o.start(t); o.stop(t + 0.12);
+  }
+
+  function bass(e, t, freq, dur, cut, vol) {
+    const o = ctx.createOscillator();
+    o.type = "sawtooth"; o.frequency.value = freq;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass"; lp.frequency.value = cut; lp.Q.value = 1.2;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.setValueAtTime(vol, t + dur * 0.6);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(lp).connect(g).connect(e.ducked);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+
+  function seqNote(e, t, freq, dur, cut, q, vol) {
+    const o = ctx.createOscillator();
+    o.type = "sawtooth"; o.frequency.value = freq;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass"; lp.frequency.value = cut; lp.Q.value = q;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(lp).connect(g).connect(e.ducked);
+    g.connect(e.send);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+
+  function stab(e, t, freqs, dur, cut, vol) {
+    for (const f of freqs) {
+      for (const det of [-6, 6]) {
+        const o = ctx.createOscillator();
+        o.type = "sawtooth";
+        o.frequency.value = f;
+        o.detune.value = det;
+        const lp = ctx.createBiquadFilter();
+        lp.type = "lowpass"; lp.Q.value = 1;
+        lp.frequency.setValueAtTime(cut * 2.5, t);
+        lp.frequency.exponentialRampToValueAtTime(cut, t + dur);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(vol / freqs.length, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        o.connect(lp).connect(g).connect(e.ducked);
+        g.connect(e.send);
+        o.start(t); o.stop(t + dur + 0.05);
+      }
+    }
+  }
+
+  function pad(e, t, freqs, dur, vol = 0.055, detune = 9) {
+    for (const f of freqs) {
+      for (const det of [-detune, detune]) {
+        const o = ctx.createOscillator();
+        o.type = "sawtooth";
+        o.frequency.value = f;
+        o.detune.value = det;
+        const lp = ctx.createBiquadFilter();
+        lp.type = "lowpass"; lp.frequency.value = 1150; lp.Q.value = 0.5;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(vol, t + dur * 0.25);
+        g.gain.setValueAtTime(vol, t + dur * 0.8);
+        g.gain.linearRampToValueAtTime(0.0001, t + dur + 0.4);
+        o.connect(lp).connect(g).connect(e.ducked);
+        o.start(t); o.stop(t + dur + 0.5);
+      }
+    }
+  }
+
+  function lead(e, t, freq, dur, vol, type = "square") {
+    const o = ctx.createOscillator();
+    o.type = type; o.frequency.value = freq;
+    const vib = ctx.createOscillator();
+    const vg = ctx.createGain();
+    vib.frequency.value = 5.5; vg.gain.value = 4;
+    vib.connect(vg).connect(o.detune);
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass"; lp.frequency.value = 2800;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.02);
+    g.gain.setValueAtTime(vol * 0.8, t + dur * 0.7);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(lp).connect(g).connect(e.ducked);
+    g.connect(e.send);
+    o.start(t); o.stop(t + dur + 0.05);
+    vib.start(t); vib.stop(t + dur + 0.05);
+  }
+
+  function riser(e, t, dur) {
+    const n = noiseSrc(t, dur);
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass"; bp.Q.value = 1.5;
+    bp.frequency.setValueAtTime(250, t);
+    bp.frequency.exponentialRampToValueAtTime(3800, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.4, t + dur);
+    g.gain.setValueAtTime(0.0001, t + dur + 0.01);
+    n.connect(bp).connect(g).connect(e.dry);
+    const o = ctx.createOscillator();
+    o.type = "sawtooth";
+    o.frequency.setValueAtTime(110, t);
+    o.frequency.exponentialRampToValueAtTime(440, t + dur);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(0.0001, t);
+    og.gain.linearRampToValueAtTime(0.12, t + dur);
+    og.gain.setValueAtTime(0.0001, t + dur + 0.01);
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass"; lp.frequency.value = 1500;
+    o.connect(lp).connect(og).connect(e.dry);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+
+  function impact(e, t) {
+    const o = ctx.createOscillator();
+    o.type = "sine";
+    o.frequency.setValueAtTime(90, t);
+    o.frequency.exponentialRampToValueAtTime(34, t + 0.4);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.9, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    o.connect(g).connect(e.dry);
+    o.start(t); o.stop(t + 0.65);
+    const n = noiseSrc(t, 0.3);
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass"; lp.frequency.value = 500;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.5, t);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+    n.connect(lp).connect(ng).connect(e.dry);
+  }
+
+  // ---- engine --------------------------------------------------------------
+
+  const TENSION_BARS = 2;
+  const DROP_BARS = 8;
+
+  class Engine {
+    constructor(spec, ui) {
+      this.spec = spec;
+      this.ui = ui;
+      this.running = false;
+    }
+    start() {
+      ensureCtx();
+      this.master = ctx.createGain();
+      this.master.gain.value = 0.0001;
+      this.master.gain.setTargetAtTime(0.9, ctx.currentTime, 0.1);
+      this.comp = ctx.createDynamicsCompressor();
+      this.comp.threshold.value = -16;
+      this.comp.ratio.value = 4;
+      this.tension = ctx.createBiquadFilter();
+      this.tension.type = "lowpass";
+      this.tension.frequency.value = 18000;
+      this.tension.Q.value = 0.7;
+      // dry: percussion & fx, ducked: tonal bus with sidechain
+      this.duck = ctx.createGain();
+      this.dry = ctx.createGain();
+      this.ducked = this.duck;
+      this.dry.connect(this.tension);
+      this.duck.connect(this.tension);
+      this.tension.connect(this.comp).connect(this.master).connect(ctx.destination);
+      // delay send
+      this.send = ctx.createGain(); this.send.gain.value = 0.22;
+      this.delay = ctx.createDelay(2);
+      this.spb = 60 / this.spec.bpm / 4;
+      this.delay.delayTime.value = this.spb * 6; // dotted 8th
+      this.fb = ctx.createGain(); this.fb.gain.value = 0.35;
+      const dlp = ctx.createBiquadFilter();
+      dlp.type = "lowpass"; dlp.frequency.value = 3800;
+      this.send.connect(this.delay);
+      this.delay.connect(dlp).connect(this.fb).connect(this.delay);
+      const ret = ctx.createGain(); ret.gain.value = 0.7;
+      this.delay.connect(ret).connect(this.duck);
+
+      this.phase = "normal";
+      this.pendingSprint = false;
+      this.phaseLeft = 0;
+      this.step = 0;
+      this.nextT = ctx.currentTime + 0.08;
+      this.spec.init && this.spec.init(this);
+      this.timer = setInterval(() => this.tick(), 25);
+      this.running = true;
+      this.ui.phase("cruise");
+    }
+    tick() {
+      while (this.nextT < ctx.currentTime + 0.15) {
+        this.onStep(this.step, this.nextT);
+        this.nextT += this.spb;
+        this.step++;
+      }
+    }
+    onStep(s, t) {
+      const pos = s % 16;
+      if (pos === 0) {
+        if (this.pendingSprint) {
+          this.pendingSprint = false;
+          this.phase = "tension";
+          this.phaseLeft = TENSION_BARS;
+          const dur = TENSION_BARS * 16 * this.spb;
+          this.tension.frequency.cancelScheduledValues(t);
+          this.tension.frequency.setValueAtTime(16000, t);
+          this.tension.frequency.exponentialRampToValueAtTime(380, t + dur * 0.9);
+          riser(this, t, dur);
+          this.uiAt(t, () => this.ui.phase("tension"));
+        } else if (this.phase === "tension" && --this.phaseLeft <= 0) {
+          this.phase = "drop";
+          this.phaseLeft = DROP_BARS;
+          this.tension.frequency.cancelScheduledValues(t);
+          this.tension.frequency.setValueAtTime(18000, t);
+          impact(this, t);
+          this.uiAt(t, () => this.ui.phase("drop"));
+        } else if (this.phase === "drop" && --this.phaseLeft <= 0) {
+          this.phase = "normal";
+          this.uiAt(t, () => this.ui.phase("cruise"));
+        }
+      }
+      this.spec.step(this, s, t, this.phase);
+      this.uiAt(t, () => this.ui.led(pos));
+    }
+    uiAt(t, fn) {
+      setTimeout(fn, Math.max(0, (t - ctx.currentTime) * 1000));
+    }
+    sprint() {
+      if (this.running && this.phase === "normal") this.pendingSprint = true;
+    }
+    stop() {
+      if (!this.running) return;
+      this.running = false;
+      clearInterval(this.timer);
+      const m = this.master;
+      m.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.08);
+      setTimeout(() => m.disconnect(), 600);
+      this.ui.phase(null);
+    }
+  }
+
+  // ---- genre specs ---------------------------------------------------------
+
+  const AM = [45, 52, 55, 59];   // A2 E3 G3 B3  (Am add9 voicing)
+  const FM = [41, 48, 52, 57];   // F2 C3 E3 A3
+
+  const SPECS = [
+    {
+      id: "techno",
+      name: "Melodic Techno",
+      bpm: 124,
+      tagline: "Four-to-the-floor, rollender Offbeat-Bass, Stabs, ein langsames Lead-Motiv. Das Skelett mit eingebauter Build-up/Drop-Grammatik.",
+      listen: "Wie selbstverständlich der Sprint hier wirkt — Spannung und Entladung sind die Muttersprache dieses Genres.",
+      init(e) {
+        e.leadSeq = [[0, 64], [6, 67], [12, 69], [16, 72], [22, 71], [28, 67]];
+      },
+      step(e, s, t, ph) {
+        const pos = s % 16, p2 = s % 32;
+        const drop = ph === "drop";
+        if (ph === "tension") {
+          if (pos === 0) kick(e, t, 0.8);
+          if (pos % 2 === 1) hat(e, t, false, 0.05);
+          if (pos === 8) stab(e, t, [F(57), F(60), F(64)], 0.35, 700, 0.09);
+        } else {
+          if (pos % 4 === 0) { kick(e, t, 1); duckAt(e, t); }
+          if (pos % 4 !== 0) bass(e, t, F(33), e.spb * 0.9, drop ? 950 : 560, pos % 4 === 2 ? 0.5 : 0.36);
+          if (pos % 4 === 2) {
+            stab(e, t, [F(57), F(60), F(64)], 0.16, 1400, drop ? 0.15 : 0.11);
+            hat(e, t, true, drop ? 0.2 : 0.15);
+          }
+          if (drop && pos % 2 === 1) hat(e, t, false, 0.08);
+          const n = e.leadSeq.find((x) => x[0] === p2);
+          if (n) lead(e, t, F(n[1] + (drop ? 12 : 0)), e.spb * 5, drop ? 0.1 : 0.075, "sawtooth");
+        }
+        if (p2 === 0) pad(e, t, (Math.floor(s / 32) % 2 === 0 ? AM : FM).map(F), e.spb * 32);
+      },
+    },
+    {
+      id: "synthwave",
+      name: "Synthwave / Outrun",
+      bpm: 100,
+      tagline: "Breite Analog-Flächen, Gated Snare, pumpender Achtel-Bass. Nachtfahrt-Nostalgie pur.",
+      listen: "Wie gut das Cruisen trägt — und ob dir der Sprint hier zu zahm ist. Das Genre hat wenig natürliche Drop-Munition.",
+      init(e) {
+        e.prog = [[57, 60, 64, 69], [53, 57, 60, 65], [55, 60, 64, 67], [50, 55, 59, 62]]; // Am F C G
+        e.roots = [33, 29, 36, 31];
+        e.leadSeq = [[0, 69], [8, 72], [16, 65], [28, 69], [32, 64], [40, 67], [48, 62], [56, 64]];
+      },
+      step(e, s, t, ph) {
+        const pos = s % 16, bar = Math.floor(s / 16), p4 = s % 64;
+        const drop = ph === "drop";
+        if (pos === 0) pad(e, t, e.prog[bar % 4].map(F), e.spb * 16, 0.07, 12);
+        if (ph === "tension") {
+          if (pos % 4 === 0) hat(e, t, false, 0.05);
+        } else {
+          if (pos % 4 === 0) { kick(e, t, 0.9); duckAt(e, t); }
+          if (pos === 4 || pos === 12) snareGated(e, t, drop ? 0.55 : 0.45);
+          if (pos % 2 === 0) bass(e, t, F(e.roots[bar % 4]), e.spb * 1.7, 420, 0.4);
+          if (pos % 4 === 2) hat(e, t, drop, drop ? 0.16 : 0.11);
+          const n = e.leadSeq.find((x) => x[0] === p4);
+          if (n) lead(e, t, F(n[1] + (drop ? 12 : 0)), e.spb * 7, drop ? 0.11 : 0.085, "triangle");
+        }
+      },
+    },
+    {
+      id: "berlin",
+      name: "Berlin School",
+      bpm: 112,
+      tagline: "Ein hypnotisches 16tel-Arpeggio wandert durch ein resonantes Filter. Tangerine Dream, ins Jetzt geholt.",
+      listen: "Verdichtung statt Drop: Der Sprint macht das Arpeggio dunkler und lässt dann eine Motorik-Kick einsteigen. Cruise-Charakter.",
+      init(e) {
+        e.seq = [45, 52, 57, 60, 64, 60, 57, 52];
+      },
+      step(e, s, t, ph) {
+        const pos = s % 16, p2 = s % 32;
+        const drop = ph === "drop";
+        const cut = ph === "tension" ? 260 : 620 + 480 * Math.sin(t * 0.22) + (drop ? 700 : 0);
+        const m = e.seq[pos % 8];
+        seqNote(e, t, F(m), e.spb * 0.9, Math.max(200, cut), 8, pos % 8 === 0 ? 0.22 : 0.16);
+        if (drop) seqNote(e, t, F(m + 12), e.spb * 0.9, Math.max(300, cut * 1.3), 6, 0.08);
+        if (ph !== "tension" && pos === 0) bass(e, t, F(33), e.spb * 15, 300, 0.3);
+        if (p2 === 0) pad(e, t, (Math.floor(s / 32) % 2 === 0 ? AM : [43, 50, 55, 62]).map(F), e.spb * 32, 0.05);
+        if (drop) {
+          if (pos % 4 === 0) { kick(e, t, 0.85); duckAt(e, t); }
+          if (pos % 2 === 1) hat(e, t, false, 0.07);
+        }
+      },
+    },
+    {
+      id: "hybrid",
+      name: "Hybrid — Techno-Skelett, Synthwave-Farben",
+      bpm: 118,
+      tagline: "Die Empfehlung: Techno-Grammatik (Kick, rollender Bass, Drop-Dramaturgie) mit breiten Retro-Flächen und Gated Snare obendrauf.",
+      listen: "Ob die Mischung beides kann: Sprint mit Zähnen und ein Cruisen, das nach Nachtfahrt aussieht.",
+      init(e) {
+        e.leadSeq = [[0, 69], [6, 72], [12, 71], [16, 67], [24, 64], [28, 67]];
+      },
+      step(e, s, t, ph) {
+        const pos = s % 16, p2 = s % 32;
+        const drop = ph === "drop";
+        if (p2 === 0) pad(e, t, (Math.floor(s / 32) % 2 === 0 ? AM : FM).map(F), e.spb * 32, 0.075, 12);
+        if (ph === "tension") {
+          if (pos === 0) kick(e, t, 0.8);
+          if (pos % 2 === 1) hat(e, t, false, 0.05);
+        } else {
+          if (pos % 4 === 0) { kick(e, t, 1); duckAt(e, t); }
+          if (pos % 4 !== 0) bass(e, t, F(33), e.spb * 0.9, drop ? 900 : 540, pos % 4 === 2 ? 0.48 : 0.34);
+          if (drop && (pos === 4 || pos === 12)) snareGated(e, t, 0.5);
+          if (pos % 4 === 2) hat(e, t, drop, drop ? 0.18 : 0.13);
+          const n = e.leadSeq.find((x) => x[0] === p2);
+          if (n) lead(e, t, F(n[1] + (drop ? 12 : 0)), e.spb * 5, drop ? 0.1 : 0.08, "triangle");
+        }
+      },
+    },
+  ];
+
+  // ---- UI ------------------------------------------------------------------
+
+  const cardsEl = document.getElementById("cards");
+  const engines = new Map();
+
+  const PHASE_LABEL = { cruise: "Cruise", tension: "Ampel — Spannung", drop: "Drop", idle: "—" };
+
+  for (const spec of SPECS) {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+      <div class="card-head">
+        <h2>${spec.name}</h2>
+        <span class="bpm">${spec.bpm} BPM</span>
+        <span class="phase" data-role="phase">—</span>
+      </div>
+      <p class="tagline">${spec.tagline}</p>
+      <p class="listen"><strong>Hör auf:</strong> ${spec.listen}</p>
+      <div class="controls">
+        <button class="btn-play" data-role="play">Play</button>
+        <button class="btn-sprint" data-role="sprint" disabled>Ampelsprint</button>
+      </div>
+      <div class="leds" data-role="leds">${'<span></span>'.repeat(16)}</div>
+    `;
+    cardsEl.appendChild(card);
+
+    const playBtn = card.querySelector('[data-role="play"]');
+    const sprintBtn = card.querySelector('[data-role="sprint"]');
+    const phaseEl = card.querySelector('[data-role="phase"]');
+    const leds = card.querySelectorAll('[data-role="leds"] span');
+
+    const ui = {
+      phase(p) {
+        if (!p) {
+          phaseEl.textContent = "—";
+          phaseEl.className = "phase";
+          card.classList.remove("playing", "tension");
+          leds.forEach((l) => l.classList.remove("on"));
+          return;
+        }
+        phaseEl.textContent = PHASE_LABEL[p];
+        phaseEl.className = "phase " + p;
+        card.classList.toggle("tension", p === "tension");
+        card.classList.add("playing");
+      },
+      led(pos) {
+        leds.forEach((l, i) => l.classList.toggle("on", i === pos));
+      },
+    };
+
+    playBtn.addEventListener("click", () => {
+      const running = engines.get(spec.id)?.running;
+      // stop everything first
+      for (const [, e] of engines) e.stop();
+      document.querySelectorAll(".btn-play").forEach((b) => { b.textContent = "Play"; b.classList.remove("on"); });
+      document.querySelectorAll(".btn-sprint").forEach((b) => (b.disabled = true));
+      if (running) return;
+      const engine = new Engine(spec, ui);
+      engines.set(spec.id, engine);
+      engine.start();
+      playBtn.textContent = "Stop";
+      playBtn.classList.add("on");
+      sprintBtn.disabled = false;
+    });
+
+    sprintBtn.addEventListener("click", () => {
+      engines.get(spec.id)?.sprint();
+    });
+  }
+})();
+</script>
+</body>
+</html>

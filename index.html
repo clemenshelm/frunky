@@ -1,0 +1,927 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Drive Sound Lab — Trance-Fahrsimulator</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --surface: #12161f;
+    --line: #232a38;
+    --text: #e9ecf2;
+    --muted: #8b94a6;
+    --cyan: #46d4e0;
+    --amber: #f2a65a;
+    --hot: #f2f2f2;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: var(--bg); }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    line-height: 1.55;
+    padding: 3rem 1.25rem 4rem;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--cyan);
+    margin-bottom: 0.75rem;
+  }
+  h1 {
+    font-family: Futura, "Century Gothic", "Trebuchet MS", sans-serif;
+    font-weight: 500;
+    font-size: clamp(1.6rem, 4vw, 2.2rem);
+    text-wrap: balance;
+    margin-bottom: 0.9rem;
+  }
+  .intro { color: var(--muted); max-width: 62ch; margin-bottom: 2rem; }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1.4rem 1.5rem;
+    margin-bottom: 1.25rem;
+  }
+  .row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+  button {
+    font-family: inherit;
+    font-size: 0.92rem;
+    font-weight: 600;
+    border-radius: 7px;
+    padding: 0.55rem 1.1rem;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: filter 0.15s, opacity 0.15s;
+    background: var(--line);
+    color: var(--text);
+  }
+  button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+  button:hover:not(:disabled) { filter: brightness(1.2); }
+  button:disabled { opacity: 0.35; cursor: default; }
+  .btn-play { background: var(--cyan); color: #06282c; }
+  .btn-play.on { background: transparent; color: var(--cyan); border-color: var(--cyan); }
+  .btn-launch { background: var(--amber); color: #2b1a05; }
+  .status {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-left: auto;
+  }
+  .status.launch { color: var(--amber); }
+  .status.high { color: var(--hot); }
+  .status.cruise { color: var(--cyan); }
+  .meters { display: flex; flex-direction: column; gap: 0.9rem; margin: 1.25rem 0 0.5rem; }
+  .meter label {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 0.8rem; color: var(--muted); margin-bottom: 0.3rem;
+  }
+  .meter .val {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+  }
+  .bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0%; border-radius: 4px; background: var(--cyan); }
+  .bar.engine i { background: var(--amber); }
+  .bar.energy i { background: linear-gradient(90deg, var(--cyan), var(--hot)); }
+  input[type="range"] {
+    width: 100%; margin: 1rem 0 0.25rem;
+    accent-color: var(--cyan);
+    height: 2.2rem;
+  }
+  .slider-caption { font-size: 0.8rem; color: var(--muted); margin-bottom: 1rem; }
+  .scenarios { margin-top: 0.5rem; }
+  .mode { display: flex; gap: 0; margin-top: 1.25rem; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; width: fit-content; }
+  .mode button { border-radius: 0; background: transparent; color: var(--muted); font-weight: 500; }
+  .mode button.on { background: var(--line); color: var(--text); font-weight: 600; }
+  .mode-caption { font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; max-width: 60ch; }
+  .hint {
+    color: var(--muted); font-size: 0.85rem;
+    border-left: 2px solid var(--amber);
+    padding-left: 0.75rem; margin: 1.75rem 0; max-width: 62ch;
+  }
+  .hint strong { color: var(--text); }
+  .foot { color: var(--muted); font-size: 0.82rem; margin-top: 2rem; max-width: 62ch; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <p class="eyebrow">Drive Sound Lab · Prototyp 1</p>
+  <h1>Trance-Fahrsimulator mit echter GPS-Latenz</h1>
+  <p class="intro">
+    Der Slider ist dein Gaspedal. Die Musik-Engine sieht aber nicht den Slider,
+    sondern das, was ein Tesla-Browser sehen würde: ein GPS-Sample pro Sekunde,
+    knapp eine Sekunde verspätet. Der Schalter unten schaltet auf ideale Messung
+    um — so hörst du direkt, ob die Latenz stört.
+  </p>
+
+  <div class="panel">
+    <div class="row">
+      <button class="btn-play" id="play">Play</button>
+      <button class="btn-launch" id="launch" disabled>Ampelsprint</button>
+      <span class="status" id="status">—</span>
+    </div>
+
+    <div class="meters">
+      <div class="meter">
+        <label><span>Echte Geschwindigkeit</span><span class="val" id="trueVal">0 km/h</span></label>
+        <div class="bar"><i id="trueBar"></i></div>
+      </div>
+      <div class="meter">
+        <label><span>Was die Engine sieht (GPS)</span><span class="val" id="estVal">0 km/h</span></label>
+        <div class="bar engine"><i id="estBar"></i></div>
+      </div>
+      <div class="meter">
+        <label><span>Kraft (Schub / Bremse)</span><span class="val" id="energyVal">0 %</span></label>
+        <div class="bar energy"><i id="energyBar"></i></div>
+      </div>
+    </div>
+
+    <input type="range" id="speed" min="0" max="150" value="0" step="1" aria-label="Geschwindigkeit in km/h" />
+    <p class="slider-caption">Gaspedal — ziehen oder Szenarien nutzen</p>
+
+    <div class="row scenarios">
+      <button id="city" disabled>Stadt (45)</button>
+      <button id="autobahn" disabled>Autobahn (130)</button>
+      <button id="brake" disabled>Bremsen (0)</button>
+      <button id="curveL" disabled>Kurve links</button>
+      <button id="curveR" disabled>Kurve rechts</button>
+    </div>
+
+    <div class="mode" role="group" aria-label="Messmodus">
+      <button id="modeGps" class="on">GPS-Realität (1 Hz + Latenz)</button>
+      <button id="modeDirect">Ideale Messung</button>
+    </div>
+    <p class="mode-caption" id="modeCaption">
+      Engine-Input: 1 Sample/Sekunde, ~0,8 s alt, mit Extrapolation geglättet.
+    </p>
+  </div>
+
+  <p class="hint">
+    <strong>Probier diese vier Dinge:</strong> ① Auf 0 bremsen — beim Bremsen schließt
+    sich ein Filter über der ganzen Mischung und eine dunkle Druck-Textur lehnt sich
+    rein: Die Energie wird hörbar abgedreht. Im Stand übernimmt der Herzschlag.
+    Dann <strong>Ampelsprint</strong>: Ein Tom-Fill führt den Beat ein, ein verzerrter
+    Growl-Bass rollt auf den Offbeats und die Mischung pumpt tiefer — die Kraft
+    sitzt im Bass. Die Hintergrund-Percussion schwillt mit der Beschleunigung an
+    und tritt beim Cruisen zurück. ② Stadt (45) — synkopierter Percussion-Groove,
+    urbanes Flirren. ③ Autobahn (130) — Details verschwinden, ein liegender Bass
+    trägt, die Fläche öffnet sich: Flow statt Hämmern. ④ Bei Tempo eine
+    <strong>Kurve</strong> — die Musik legt sich rein, ein Dehnungston biegt sich
+    mit der G-Kraft hoch. Und dann: alles nochmal mit „Ideale Messung" — hörst du
+    einen Unterschied?
+  </p>
+
+  <p class="foot">
+    Trance, 132 BPM, A-Moll. Alles live synthetisiert, mit Langzeit-Dramaturgie:
+    Alle 16 Takte wechseln Akkordfolge und Arpeggio-Figur, jede achte Phrase endet
+    mit einem Turnaround, alle ~90 Sekunden treten Kick und Bass für vier Takte
+    beiseite (nur beim Cruisen), und Percussion wie Arpeggio sind humanisiert
+    (Swing, Timing- und Velocity-Streuung) und hängen in einem generierten Raumhall. Kraft — Schub, Bremse,
+    Quer-G — treibt die Intensität; die Geschwindigkeit wählt nur die Szene
+    (Stadt-Percussion vs. Autobahn-Flow). Alle Kraft-Texturen arbeiten mit
+    Verzerrung, Körnung und Reibung statt Tonhöhe und sind kontinuierlich, also
+    latenzimmun. Der Ampelsprint ist das eine diskrete Event, abgesichert über
+    den Stillstand-als-Zustand-Trick (Herzschlag = geladener Puls).
+  </p>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const F = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const AC = window.AudioContext || window.webkitAudioContext;
+  let ctx = null, noiseBuf = null;
+
+  function ensureCtx() {
+    if (!ctx) {
+      ctx = new AC();
+      noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    if (ctx.state === "suspended") ctx.resume();
+    return ctx;
+  }
+  function noiseSrc(t, dur) {
+    const s = ctx.createBufferSource();
+    s.buffer = noiseBuf; s.loop = true;
+    s.start(t); s.stop(t + dur + 0.1);
+    return s;
+  }
+
+  // ---- driving simulation --------------------------------------------------
+
+  const sim = {
+    trueSpeed: 0,          // km/h, ground truth
+    targetSpeed: 0,
+    accel: 20,             // km/h per second toward target
+    trueG: 0,              // lateral, -1..1
+    curve: null,           // {dir, t0}
+    history: [],           // [tMs, speed, g]
+    // what the engine sees:
+    gpsMode: true,
+    lastSample: { t: 0, speed: 0, g: 0, slope: 0 },
+    est: 0,                // smoothed engine-side estimate km/h
+    estG: 0,
+  };
+
+  const GPS_INTERVAL = 1000;  // ms between samples
+  const GPS_AGE = 800;        // ms: how old each sample's value is
+  let lastSampleAt = 0;
+
+  function historyAt(ageMs) {
+    const t = performance.now() - ageMs;
+    const h = sim.history;
+    for (let i = h.length - 1; i >= 0; i--) {
+      if (h[i][0] <= t) return { speed: h[i][1], g: h[i][2] };
+    }
+    return { speed: 0, g: 0 };
+  }
+
+  function advanceSim(dt, now) {
+    // speed toward target
+    const d = sim.targetSpeed - sim.trueSpeed;
+    const step = sim.accel * dt;
+    sim.trueSpeed = Math.abs(d) <= step ? sim.targetSpeed : sim.trueSpeed + Math.sign(d) * step;
+    // curve profile: ramp 1s, hold 2.5s, release 1s
+    if (sim.curve) {
+      const e = (now - sim.curve.t0) / 1000;
+      const mag = e < 1 ? e : e < 3.5 ? 1 : e < 4.5 ? 1 - (e - 3.5) : 0;
+      sim.trueG = sim.curve.dir * 0.8 * mag * clamp(sim.trueSpeed / 60, 0, 1);
+      if (e >= 4.5) { sim.curve = null; sim.trueG = 0; }
+    }
+    sim.history.push([now, sim.trueSpeed, sim.trueG]);
+    if (sim.history.length > 600) sim.history.splice(0, 200);
+
+    // engine-side input
+    let base, baseG;
+    if (sim.gpsMode) {
+      if (now - lastSampleAt >= GPS_INTERVAL) {
+        lastSampleAt = now;
+        const h = historyAt(GPS_AGE);
+        const prev = sim.lastSample;
+        const slope = (h.speed - prev.speed) / ((now - prev.t) / 1000 || 1);
+        sim.lastSample = { t: now, speed: h.speed, g: h.g, slope };
+      }
+      const s = sim.lastSample;
+      const dtSample = (now - s.t) / 1000;
+      base = clamp(s.speed + s.slope * dtSample, 0, 200); // dead reckoning
+      baseG = s.g;
+    } else {
+      base = sim.trueSpeed;
+      baseG = sim.trueG;
+    }
+    // one-pole smoothing (feels like a needle, not a step)
+    const k = 1 - Math.exp(-dt / 0.35);
+    sim.est += (base - sim.est) * k;
+    sim.estG += (baseG - sim.estG) * (1 - Math.exp(-dt / 0.45));
+  }
+
+  // ---- audio engine --------------------------------------------------------
+
+  const BPM = 132;
+  const SPB = 60 / BPM / 4;
+
+  const engine = {
+    running: false,
+    energy: 0,
+    launchBoost: 0,
+    prevEst: 0,
+    accelEst: 0,
+    thrust: 0,
+    brake: 0,
+    urban: 0,
+    fillAt: -1,
+    prog: null,   // the section object: rolled ONCE per boundary, only read in steps
+    roots: null,
+    bassPat: null,
+    arpSeq: null,
+    arpOct: 0,
+    hr: "bar",
+    fill: "toms",
+    ghosts: false,
+    motif: false,
+    standstillSince: null,
+    armed: false,
+  };
+
+  let master, comp, pan, tensionLp, duck, dry, send, delay, revSend, convolver;
+  let growlBus, thrustLp, thrustShape, thrustSub, thrustSubGain;
+  let brakeOsc, brakeOscGain, brakeNoise, brakeLp, brakeGain;
+  let stretchNoise, stretchBp, stretchGain;
+  let shimmerGain;
+  let stepIdx = 0, nextT = 0, timer = null;
+
+  function buildGraph() {
+    master = ctx.createGain(); master.gain.value = 0.0001;
+    master.gain.setTargetAtTime(0.9, ctx.currentTime, 0.1);
+    comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -16; comp.ratio.value = 4;
+    pan = ctx.createStereoPanner ? ctx.createStereoPanner() : ctx.createGain();
+    duck = ctx.createGain();
+    dry = ctx.createGain();
+    dry.connect(pan); duck.connect(pan);
+    // master tension filter: closes under braking, drains the whole mix
+    tensionLp = ctx.createBiquadFilter();
+    tensionLp.type = "lowpass"; tensionLp.frequency.value = 18000; tensionLp.Q.value = 0.6;
+    pan.connect(tensionLp).connect(comp).connect(master).connect(ctx.destination);
+
+    send = ctx.createGain(); send.gain.value = 0.2;
+    delay = ctx.createDelay(2);
+    delay.delayTime.value = SPB * 6;
+    const fb = ctx.createGain(); fb.gain.value = 0.38;
+    const dlp = ctx.createBiquadFilter();
+    dlp.type = "lowpass"; dlp.frequency.value = 3600;
+    send.connect(delay);
+    delay.connect(dlp).connect(fb).connect(delay);
+    shimmerGain = ctx.createGain(); shimmerGain.gain.value = 0.6;
+    delay.connect(shimmerGain).connect(duck);
+
+    // space: generated-impulse reverb, returned through the duck so it pumps
+    convolver = ctx.createConvolver();
+    const irLen = Math.floor(ctx.sampleRate * 2.2);
+    const ir = ctx.createBuffer(2, irLen, ctx.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const d = ir.getChannelData(c);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / irLen, 2.6);
+    }
+    convolver.buffer = ir;
+    revSend = ctx.createGain(); revSend.gain.value = 0.4;
+    const revRet = ctx.createGain(); revRet.gain.value = 0.5;
+    revSend.connect(convolver).connect(revRet).connect(duck);
+
+    // thrust: distorted growl-bass bus — power from harmonics + pump, not noise
+    growlBus = ctx.createGain(); growlBus.gain.value = 1;
+    thrustShape = ctx.createWaveShaper();
+    const curve = new Float32Array(257);
+    for (let i = 0; i < 257; i++) { const x = i / 128 - 1; curve[i] = Math.tanh(4 * x); }
+    thrustShape.curve = curve;
+    thrustLp = ctx.createBiquadFilter();
+    thrustLp.type = "lowpass"; thrustLp.frequency.value = 160; thrustLp.Q.value = 1;
+    growlBus.connect(thrustShape).connect(thrustLp).connect(duck);
+    thrustSub = ctx.createOscillator();
+    thrustSub.type = "sine"; thrustSub.frequency.value = 55; // A1: weight under the growl
+    thrustSubGain = ctx.createGain(); thrustSubGain.gain.value = 0;
+    thrustSub.connect(thrustSubGain).connect(growlBus);
+    thrustSub.start();
+
+    // brake: dark pressure that leans on the mix while decelerating
+    brakeNoise = ctx.createBufferSource();
+    brakeNoise.buffer = noiseBuf; brakeNoise.loop = true;
+    brakeLp = ctx.createBiquadFilter();
+    brakeLp.type = "lowpass"; brakeLp.frequency.value = 240; brakeLp.Q.value = 2;
+    brakeGain = ctx.createGain(); brakeGain.gain.value = 0;
+    brakeNoise.connect(brakeLp).connect(brakeGain).connect(duck);
+    brakeOsc = ctx.createOscillator();
+    brakeOsc.type = "sine"; brakeOsc.frequency.value = 88;
+    brakeOscGain = ctx.createGain(); brakeOscGain.gain.value = 0;
+    brakeOsc.connect(brakeOscGain).connect(duck);
+    brakeNoise.start(); brakeOsc.start();
+
+    // curve stretch: abstract tire-tension, bends up with lateral g
+    stretchNoise = ctx.createBufferSource();
+    stretchNoise.buffer = noiseBuf; stretchNoise.loop = true;
+    stretchBp = ctx.createBiquadFilter();
+    stretchBp.type = "bandpass"; stretchBp.frequency.value = 2100; stretchBp.Q.value = 14;
+    stretchGain = ctx.createGain(); stretchGain.gain.value = 0;
+    stretchNoise.connect(stretchBp).connect(stretchGain).connect(dry);
+    stretchNoise.start();
+  }
+
+  function duckAt(t, depth) {
+    const g = duck.gain;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(1 - depth, t);
+    g.linearRampToValueAtTime(1, t + 0.28);
+  }
+  function kick(t, vol, click = 0) {
+    const o = ctx.createOscillator(); const g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(155, t);
+    o.frequency.exponentialRampToValueAtTime(45, t + 0.11);
+    g.gain.setValueAtTime(0.9 * vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.26);
+    o.connect(g).connect(dry);
+    o.start(t); o.stop(t + 0.3);
+    if (click > 0.02) { // transient attack only under force
+      const n = noiseSrc(t, 0.02);
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass"; hp.frequency.value = 1400;
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(click * vol, t);
+      ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.018);
+      n.connect(hp).connect(ng).connect(dry);
+    }
+  }
+  function hat(t, open, vol) {
+    const n = noiseSrc(t, open ? 0.3 : 0.05);
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass"; hp.frequency.value = 8500;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + (open ? 0.26 : 0.04));
+    n.connect(hp).connect(g).connect(dry);
+  }
+  function bassNote(t, freq, cut, vol, dur = SPB) {
+    const o = ctx.createOscillator();
+    o.type = "sawtooth"; o.frequency.value = freq;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass"; lp.frequency.value = cut; lp.Q.value = 1.4;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.setValueAtTime(vol, t + dur * 0.55);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.95);
+    o.connect(lp).connect(g).connect(duck);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+  function arpNote(t, freq, cut, vol, dur = SPB) {
+    const o = ctx.createOscillator();
+    o.type = "sawtooth"; o.frequency.value = freq;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass"; lp.frequency.value = cut; lp.Q.value = 4;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.9);
+    o.connect(lp).connect(g).connect(duck);
+    g.connect(send);
+    g.connect(revSend);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+  function heartbeat(t, vol, f0) {
+    const o = ctx.createOscillator(); const g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(38, t + 0.18);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
+    o.connect(g).connect(dry);
+    o.start(t); o.stop(t + 0.35);
+  }
+  function stabChord(t, midis, vol) {
+    for (const m of midis) {
+      for (const det of [-7, 7]) {
+        const o = ctx.createOscillator();
+        o.type = "sawtooth"; o.frequency.value = F(m); o.detune.value = det;
+        const lp = ctx.createBiquadFilter();
+        lp.type = "lowpass"; lp.Q.value = 1;
+        lp.frequency.setValueAtTime(2400, t);
+        lp.frequency.exponentialRampToValueAtTime(500, t + 0.16);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(vol / midis.length / 2, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+        o.connect(lp).connect(g).connect(duck);
+        g.connect(send);
+        g.connect(revSend);
+        o.start(t); o.stop(t + 0.22);
+      }
+    }
+  }
+  function pad(t, midis, dur, vol, cut = 1100) {
+    // airy pad: two barely-detuned saws + a triangle an octave up,
+    // breathing filter envelope, chorus LFO, highpassed out of the mud
+    const lfo = ctx.createOscillator();
+    const lfoG = ctx.createGain();
+    lfo.frequency.value = 0.35; lfoG.gain.value = 3.5;
+    lfo.connect(lfoG);
+    lfo.start(t); lfo.stop(t + dur + 0.6);
+    for (const m of midis) {
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass"; hp.frequency.value = 160;
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass"; lp.Q.value = 0.4;
+      lp.frequency.setValueAtTime(cut * 0.45, t);
+      lp.frequency.linearRampToValueAtTime(cut * 1.25, t + dur * 0.45);
+      lp.frequency.linearRampToValueAtTime(cut * 0.6, t + dur);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(vol / midis.length / 2.4, t + dur * 0.3);
+      g.gain.setValueAtTime(vol / midis.length / 2.4, t + dur * 0.85);
+      g.gain.linearRampToValueAtTime(0.0001, t + dur + 0.4);
+      hp.connect(lp).connect(g).connect(duck);
+      g.connect(revSend);
+      for (const [type, mm, det, lv] of [
+        ["sawtooth", m, -5, 1], ["sawtooth", m, 5, 1], ["triangle", m + 12, 0, 0.55],
+      ]) {
+        const o = ctx.createOscillator();
+        o.type = type; o.frequency.value = F(mm); o.detune.value = det;
+        lfoG.connect(o.detune);
+        const og = ctx.createGain(); og.gain.value = lv;
+        o.connect(og).connect(hp);
+        o.start(t); o.stop(t + dur + 0.5);
+      }
+    }
+  }
+  function growlNote(t, vol, dur) {
+    for (const det of [-12, 0, 12]) {
+      const o = ctx.createOscillator();
+      o.type = "sawtooth"; o.frequency.value = F(33); o.detune.value = det;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(vol / 3, t + 0.01);
+      g.gain.setValueAtTime(vol / 3, t + dur * 0.6);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g).connect(growlBus);
+      o.start(t); o.stop(t + dur + 0.05);
+    }
+  }
+  function perc(t, vol) {
+    const n = noiseSrc(t, 0.03);
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass"; bp.frequency.value = 2600; bp.Q.value = 5;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.03);
+    n.connect(bp).connect(g).connect(dry);
+  }
+  function tom(t, f0, vol) {
+    const o = ctx.createOscillator(); const g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(f0 * 0.45, t + 0.12);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    o.connect(g).connect(dry);
+    o.start(t); o.stop(t + 0.2);
+  }
+  function fillSwell(t, dur) {
+    const n = noiseSrc(t, dur);
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass"; bp.Q.value = 1.2;
+    bp.frequency.setValueAtTime(400, t);
+    bp.frequency.exponentialRampToValueAtTime(2200, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.11, t + dur);
+    g.gain.setValueAtTime(0.0001, t + dur + 0.01);
+    n.connect(bp).connect(g).connect(dry);
+  }
+  function shaker(t, vol) {
+    const n = noiseSrc(t, 0.05);
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass"; hp.frequency.value = 6200;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+    n.connect(hp).connect(g).connect(dry);
+  }
+  function impact(t) {
+    const o = ctx.createOscillator();
+    o.type = "sine";
+    o.frequency.setValueAtTime(85, t);
+    o.frequency.exponentialRampToValueAtTime(33, t + 0.4);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.85, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+    o.connect(g).connect(dry);
+    o.start(t); o.stop(t + 0.6);
+    const n = noiseSrc(t, 0.25);
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass"; lp.frequency.value = 600;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.45, t);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+    n.connect(lp).connect(ng).connect(dry);
+  }
+
+  // pattern pools — sections rotate through these every 16 bars.
+  // modal harmony, no dominant tension: open voicings, thirds kept high,
+  // the bass owns the low register alone (ROOTS runs parallel to PROGS)
+  const PROGS = [
+    [[57, 64, 67, 71], [53, 60, 64, 67], [55, 59, 62, 69], [57, 64, 67, 71]], // Am9 Fmaj9 Gadd9 Am9
+    [[57, 64, 67, 71], [50, 57, 62, 66], [57, 64, 67, 72], [55, 62, 64, 71]], // Am9 Dadd9 Am7 G6/9 — dorian lift
+    [[57, 64, 67, 71], [52, 59, 62, 67], [53, 60, 64, 67], [55, 59, 62, 69]], // Am9 Em7 Fmaj9 Gadd9
+  ];
+  const ROOTS = [
+    [33, 29, 31, 33],
+    [33, 38, 33, 31],
+    [33, 28, 29, 31],
+  ];
+  const BASSPATS = [
+    [2, 6, 10, 14], // straight offbeats
+    [2, 6, 11, 14], // funk push on the and-of-three
+    [2, 10, 13],    // laid back, with holes
+  ];
+  const HRS = ["bar", "twobar", "push"]; // harmonic rhythm: per bar / held / anticipated
+  const FILLS = ["toms", "sweep", "swell"];
+  const MOTIF = [69, 72, 76, 71, 69]; // the app's own 5-note ident — rare on purpose
+  // A-minor-pentatonic arps: consonant over every chord in the pools
+  const ARPS = [
+    [57, 60, 62, 64, 67, 64, 62, 60],
+    [57, 62, 64, 67, 69, 67, 64, 62],
+    [64, 62, 60, 57, 60, 62, 64, 67],
+  ];
+  // humanize: swing on the off-16ths, micro-jitter, velocity spread
+  function hum(t, pos) { return t + (pos % 2 === 1 ? 0.018 : 0) + (Math.random() - 0.5) * 0.006; }
+  function vel(v) { return v * (0.85 + Math.random() * 0.3); }
+
+  let pendingLaunchAt = -1; // step index at which to fire launch accents
+
+  function onStep(s, t) {
+    const pos = s % 16, bar = Math.floor(s / 16);
+    const e = clamp(engine.energy + engine.launchBoost * 0.3, 0, 1);
+    const still = e < 0.06;
+    const push = engine.thrust;
+    const u = engine.urban;
+    const flowHigh = clamp((e - 0.5) / 0.35, 0, 1); // highway = flow, not max energy
+    // the ONE dice roll: section traits every 16 bars, fill choice per phrase.
+    // steps only read these — no scattered randomness in the sequencer
+    if (pos === 0 && bar % 16 === 0) {
+      const pi = Math.floor(Math.random() * PROGS.length);
+      engine.prog = PROGS[pi];
+      engine.roots = ROOTS[pi];
+      engine.bassPat = BASSPATS[Math.floor(Math.random() * BASSPATS.length)];
+      engine.arpSeq = ARPS[Math.floor(Math.random() * ARPS.length)];
+      engine.arpOct = Math.random() < 0.25 ? 12 : 0;
+      engine.hr = HRS[Math.floor(Math.random() * HRS.length)];
+      engine.ghosts = Math.random() < 0.5;
+      engine.motif = Math.random() < 0.25;
+    }
+    if (pos === 0 && bar % 8 === 7) engine.fill = FILLS[Math.floor(Math.random() * FILLS.length)];
+    // breather: every 48 bars the kick and bass step aside for 4 bars —
+    // only while cruising, so it never fights a driving event
+    const breather = bar % 48 >= 44 && push < 0.15 && engine.brake < 0.2;
+    const turnaround = bar % 8 === 7; // phrase ends earn a variation
+
+    if (still) {
+      // the beat pulls back — a heartbeat keeps subtle tension alive
+      const hb = engine.armed ? 0.62 : 0.42;
+      if (pos % 8 === 0) heartbeat(t, hb, 110);
+      if (pos % 8 === 2) heartbeat(t, hb * 0.6, 132);
+    } else {
+      // pump stays gentle at cruise, deepens only under force
+      if (pos % 4 === 0 && !breather) {
+        kick(t, (0.85 + 0.1 * e) * (1 - 0.18 * flowHigh), 0.05 + 0.3 * push);
+        duckAt(t, 0.3 * (1 - 0.3 * flowHigh) + 0.28 * push);
+      }
+      // bass follows the chord roots and a groove pattern with holes in it
+      const fat = clamp(e / 0.6, 0, 1);
+      const drain = 1 - 0.5 * engine.brake; // braking audibly drains the drive
+      const ci = engine.hr === "twobar" ? Math.floor(bar / 2) % 4 : bar % 4;
+      const rootF = F(engine.roots[ci]);
+      if (!breather && engine.bassPat.includes(pos)) {
+        bassNote(hum(t, pos), rootF, 330 + 700 * fat,
+          vel((0.12 + 0.27 * fat) * (1 - 0.45 * flowHigh) * drain), SPB * 1.7);
+      }
+      // funk vocabulary: quiet ghost notes between the hits — felt, not heard
+      if (engine.ghosts && pos % 8 === 5 && !breather) {
+        bassNote(hum(t, pos), rootF, 500, vel(0.05 * drain), SPB * 0.5);
+      }
+      if (pos === 0 && flowHigh > 0.3 && !breather) bassNote(t, rootF, 420, 0.3 * flowHigh * drain, SPB * 15);
+      // thrust: growl-bass eases in and out with force — no hard gate
+      if (push > 0.04 && pos % 4 === 2) growlNote(t, 0.62 * Math.pow(push, 1.3), SPB * 1.6);
+      if (push > 0.55 && (pos % 4 === 1 || pos % 4 === 3)) growlNote(t, 0.3 * push, SPB * 0.8);
+      if (push > 0.06 && pos % 4 === 2) stabChord(t, [57, 60, 64], 0.12 * Math.pow(push, 1.3));
+      if (pos % 4 === 2) hat(hum(t, pos), false, vel((0.03 + 0.05 * u) * (1 - 0.55 * flowHigh)));
+      // accel percussion: shaker/toms in the background, swelling with force
+      if (pos % 2 === 1) shaker(hum(t, pos), vel(0.015 + 0.1 * push));
+      if ((pos === 5 || pos === 13) && push > 0.05) tom(t, pos === 5 ? 150 : 120, 0.03 + 0.15 * push);
+      // urban detail: a real syncopated groove, gone on the open road
+      if (u > 0.05) {
+        if (pos === 3) perc(hum(t, pos), vel(0.16 * u));
+        if (pos === 6) perc(hum(t, pos), vel(0.1 * u));
+        if (pos === 10) perc(hum(t, pos), vel(0.13 * u));
+        if (pos === 14) perc(hum(t, pos), vel(0.08 * u));
+        if (pos % 4 === 3) shaker(hum(t, pos), vel(0.05 * u));
+      }
+      // phrase-end fill, drawn from the pool once per phrase
+      if (turnaround) {
+        if (engine.fill === "toms" && (pos === 11 || pos === 14)) tom(t, pos === 11 ? 170 : 135, 0.07);
+        if (engine.fill === "sweep" && pos >= 12) {
+          arpNote(t, F(engine.arpSeq[(pos - 12) * 2 % 8] + 12), 2400, vel(0.055), SPB * 0.9);
+        }
+        if (engine.fill === "swell" && pos === 8) fillSwell(t, SPB * 8);
+        if (pos === 14) hat(t, true, 0.09); // open hat breathes the phrase out
+      }
+    }
+    // launch fill: a quick descending tom run introduces the beat
+    if (engine.fillAt >= 0) {
+      const k = s - engine.fillAt;
+      if (k >= 0 && k < 8) tom(t, 230 - k * 16, 0.09 + 0.025 * k);
+      if (k >= 8) engine.fillAt = -1;
+    }
+    // arp: relaxed 8ths in town, hypnotic long notes on the highway;
+    // phrase ends run the figure backwards, sections shift its octave
+    const arpHit = flowHigh > 0.6 ? pos % 4 === 0 : pos % 2 === 0;
+    if (arpHit) {
+      const seq = turnaround ? engine.arpSeq.slice().reverse() : engine.arpSeq;
+      arpNote(t, F(seq[Math.floor(s / 2) % 8] + engine.arpOct),
+        340 + 2000 * clamp(e, 0, 0.8) * (0.75 + 0.25 * Math.sin(t * 0.3)) + 700 * push,
+        vel(0.07), flowHigh > 0.6 ? SPB * 3.6 : SPB * 1.8);
+    }
+    // harmonic rhythm: per bar, held two bars, or pushed in ahead of the one
+    const padVol = (0.16 + 0.2 * flowHigh) * (breather ? 1.5 : 1);
+    const padCut = 950 + 350 * Math.sin(bar * 0.37);
+    if (engine.hr === "twobar") {
+      if (pos === 0 && bar % 2 === 0) pad(t, engine.prog[Math.floor(bar / 2) % 4], SPB * 32, padVol, padCut);
+    } else if (engine.hr === "push") {
+      if (pos === 0 && bar % 16 === 0) pad(t, engine.prog[bar % 4], SPB * 14, padVol, padCut);
+      if (pos === 14) pad(t, engine.prog[(bar + 1) % 4], SPB * 16, padVol, padCut);
+    } else {
+      if (pos === 0) pad(t, engine.prog[bar % 4], SPB * 16, padVol, padCut);
+    }
+    // the ident: five high notes in the reverb, at most once per section
+    if (engine.motif && bar % 16 === 0 && pos % 2 === 0 && pos < 10) {
+      arpNote(t, F(MOTIF[pos / 2]), 2600, 0.05, SPB * 3);
+    }
+    if (s === pendingLaunchAt) {
+      impact(t);
+      pendingLaunchAt = -1;
+    }
+  }
+
+  function tick() {
+    while (nextT < ctx.currentTime + 0.15) {
+      onStep(stepIdx, nextT);
+      nextT += SPB;
+      stepIdx++;
+    }
+  }
+
+  // ---- per-frame control (continuous mappings) -----------------------------
+
+  const ui = {
+    trueBar: document.getElementById("trueBar"),
+    estBar: document.getElementById("estBar"),
+    energyBar: document.getElementById("energyBar"),
+    trueVal: document.getElementById("trueVal"),
+    estVal: document.getElementById("estVal"),
+    energyVal: document.getElementById("energyVal"),
+    status: document.getElementById("status"),
+    slider: document.getElementById("speed"),
+  };
+
+  let lastFrame = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.1, (now - lastFrame) / 1000);
+    lastFrame = now;
+    advanceSim(dt, now);
+
+    if (engine.running) {
+      // energy follows estimate, slowly; launch boost decays over ~4 bars
+      const target = clamp(sim.est / 110, 0, 1);
+      engine.energy += (target - engine.energy) * (1 - Math.exp(-dt / 1.4));
+      engine.launchBoost = Math.max(0, engine.launchBoost - dt / (SPB * 64));
+
+      // launch detection: standstill -> first movement the engine can see
+      if (sim.est < 2.5) {
+        if (engine.standstillSince == null) engine.standstillSince = now;
+        if (now - engine.standstillSince > 1500) engine.armed = true;
+      } else {
+        engine.standstillSince = null;
+      }
+      if (engine.armed && sim.est > 6 && engine.prevEst <= 6) {
+        engine.armed = false;
+        engine.launchBoost = 1;
+        // fire on next 8th note; a tom fill introduces the beat
+        const stepsAhead = 2 - (stepIdx % 2);
+        pendingLaunchAt = stepIdx + stepsAhead;
+        engine.fillAt = pendingLaunchAt;
+      }
+      // thrust follows ACCELERATION, not speed — asymmetric: swells in, ebbs out
+      const accelRaw = dt > 0 ? (sim.est - engine.prevEst) / dt : 0; // km/h per s
+      engine.prevEst = sim.est;
+      engine.accelEst += (accelRaw - engine.accelEst) * (1 - Math.exp(-dt / 0.5));
+      const thrustTarget = clamp(engine.accelEst / 20, 0, 1);
+      engine.thrust += (thrustTarget - engine.thrust) *
+        (1 - Math.exp(-dt / (thrustTarget > engine.thrust ? 0.7 : 1.6)));
+      const thrust = engine.thrust;
+      thrustSubGain.gain.setTargetAtTime(thrust * 0.3, ctx.currentTime, 0.15);
+      thrustLp.frequency.setTargetAtTime(160 + 1000 * thrust, ctx.currentTime, 0.2);
+      // braking = force too: pressure plus the master filter closing over the mix
+      const brakeTarget = clamp(-engine.accelEst / 16, 0, 1);
+      engine.brake += (brakeTarget - engine.brake) *
+        (1 - Math.exp(-dt / (brakeTarget > engine.brake ? 0.4 : 1.1)));
+      const brake = engine.brake;
+      brakeGain.gain.setTargetAtTime(brake * 0.85, ctx.currentTime, 0.15);
+      brakeOscGain.gain.setTargetAtTime(brake * 0.32, ctx.currentTime, 0.15);
+      brakeOsc.frequency.setTargetAtTime(88 - 46 * brake, ctx.currentTime, 0.5);
+      tensionLp.frequency.setTargetAtTime(
+        1200 + 16800 * Math.pow(1 - brake, 2), ctx.currentTime, 0.25);
+      // curve tension: stretch tone bends up with lateral g
+      const gAbs = Math.abs(sim.estG);
+      stretchGain.gain.setTargetAtTime(gAbs * 0.16 * clamp(sim.est / 50, 0, 1), ctx.currentTime, 0.2);
+      stretchBp.frequency.setTargetAtTime(2100 + 1900 * gAbs, ctx.currentTime, 0.25);
+      // urban weight: city speed band, fades out toward the highway
+      engine.urban = clamp((sim.est - 12) / 12, 0, 1) * (1 - clamp((sim.est - 65) / 30, 0, 1));
+      const e = clamp(engine.energy + engine.launchBoost * 0.3, 0, 1);
+
+      // curve lean: whole mix pans, shimmer opens
+      if (pan.pan) pan.pan.setTargetAtTime(sim.estG * 0.45, ctx.currentTime, 0.15);
+      shimmerGain.gain.setTargetAtTime(0.6 + Math.abs(sim.estG) * 0.9, ctx.currentTime, 0.2);
+
+      // status chip
+      const st = engine.launchBoost > 0.5 ? ["LAUNCH", "launch"]
+        : thrust > 0.4 ? ["Schub", "launch"]
+        : brake > 0.45 ? ["Bremsen", "launch"]
+        : e < 0.06 ? [engine.armed ? "Stand — geladen" : "Stand", ""]
+        : e > 0.75 ? ["Autobahn-Flow", "high"]
+        : engine.urban > 0.6 ? ["Stadt", "cruise"]
+        : ["Cruise", "cruise"];
+      ui.status.textContent = st[0];
+      ui.status.className = "status " + st[1];
+    }
+
+    ui.trueBar.style.width = (sim.trueSpeed / 150) * 100 + "%";
+    ui.estBar.style.width = (clamp(sim.est, 0, 150) / 150) * 100 + "%";
+    ui.energyBar.style.width = Math.max(engine.thrust, engine.brake) * 100 + "%";
+    ui.trueVal.textContent = Math.round(sim.trueSpeed) + " km/h";
+    ui.estVal.textContent = Math.round(sim.est) + " km/h";
+    ui.energyVal.textContent = Math.round(Math.max(engine.thrust, engine.brake) * 100) + " %";
+    if (document.activeElement !== ui.slider) ui.slider.value = Math.round(sim.trueSpeed);
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ---- controls ------------------------------------------------------------
+
+  const btns = ["launch", "city", "autobahn", "brake", "curveL", "curveR"]
+    .map((id) => document.getElementById(id));
+  const playBtn = document.getElementById("play");
+
+  playBtn.addEventListener("click", () => {
+    if (engine.running) {
+      engine.running = false;
+      clearInterval(timer);
+      const m = master;
+      m.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.08);
+      setTimeout(() => m.disconnect(), 600);
+      thrustSub.stop(ctx.currentTime + 0.6);
+      brakeNoise.stop(ctx.currentTime + 0.6);
+      brakeOsc.stop(ctx.currentTime + 0.6);
+      stretchNoise.stop(ctx.currentTime + 0.6);
+      playBtn.textContent = "Play";
+      playBtn.classList.remove("on");
+      btns.forEach((b) => (b.disabled = true));
+      ui.status.textContent = "—";
+      ui.status.className = "status";
+      return;
+    }
+    ensureCtx();
+    buildGraph();
+    engine.energy = 0; engine.launchBoost = 0;
+    engine.armed = false; engine.standstillSince = null; engine.prevEst = 0;
+    engine.accelEst = 0; engine.thrust = 0;
+    engine.brake = 0; engine.urban = 0; engine.fillAt = -1;
+    engine.prog = PROGS[0]; engine.roots = ROOTS[0]; engine.bassPat = BASSPATS[0];
+    engine.arpSeq = ARPS[0]; engine.arpOct = 0;
+    engine.hr = "bar"; engine.fill = "toms"; engine.ghosts = false; engine.motif = false;
+    stepIdx = 0; nextT = ctx.currentTime + 0.08;
+    timer = setInterval(tick, 25);
+    engine.running = true;
+    playBtn.textContent = "Stop";
+    playBtn.classList.add("on");
+    btns.forEach((b) => (b.disabled = false));
+  });
+
+  ui.slider.addEventListener("input", () => {
+    sim.targetSpeed = Number(ui.slider.value);
+    sim.accel = 40; // manual drag: follow quickly
+  });
+  document.getElementById("launch").addEventListener("click", () => {
+    // brake to standstill, wait, then Tesla-style sprint to 80
+    sim.targetSpeed = 0; sim.accel = 35;
+    const wait = setInterval(() => {
+      if (sim.trueSpeed < 0.5) {
+        clearInterval(wait);
+        setTimeout(() => { sim.targetSpeed = 80; sim.accel = 26; }, 2200);
+      }
+    }, 100);
+  });
+  document.getElementById("city").addEventListener("click", () => { sim.targetSpeed = 45; sim.accel = 14; });
+  document.getElementById("autobahn").addEventListener("click", () => { sim.targetSpeed = 130; sim.accel = 15; });
+  document.getElementById("brake").addEventListener("click", () => { sim.targetSpeed = 0; sim.accel = 28; });
+  document.getElementById("curveL").addEventListener("click", () => { sim.curve = { dir: -1, t0: performance.now() }; });
+  document.getElementById("curveR").addEventListener("click", () => { sim.curve = { dir: 1, t0: performance.now() }; });
+
+  const modeGps = document.getElementById("modeGps");
+  const modeDirect = document.getElementById("modeDirect");
+  const modeCaption = document.getElementById("modeCaption");
+  function setMode(gps) {
+    sim.gpsMode = gps;
+    modeGps.classList.toggle("on", gps);
+    modeDirect.classList.toggle("on", !gps);
+    modeCaption.textContent = gps
+      ? "Engine-Input: 1 Sample/Sekunde, ~0,8 s alt, mit Extrapolation geglättet."
+      : "Engine-Input: perfekte Echtzeit-Messung (zum Vergleich).";
+    if (gps) { lastSampleAt = 0; }
+  }
+  modeGps.addEventListener("click", () => setMode(true));
+  modeDirect.addEventListener("click", () => setMode(false));
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "frunky",
+  "version": "0.1.0",
+  "description": "Adaptive generative driving music for the car browser — the drive composes, you just listen.",
+  "type": "module",
+  "scripts": {
+    "test": "node test/smoke.test.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clemenshelm/frunky.git"
+  },
+  "author": "Clemens Helm",
+  "license": "MIT"
+}
