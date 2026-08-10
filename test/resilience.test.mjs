@@ -65,6 +65,33 @@ fakeCtx.state = "running";
 for (let i = 0; i < 200; i++) Frunky.log("test", "entry " + i);
 ok("the event ring does not grow without bound", Frunky.health().events.length <= 40);
 
+// ---- graceful degradation ---------------------------------------------------
+// At the limit the arrangement must thin out rather than stop. The device that
+// cannot keep up is the one that most needs the beat to survive.
+{
+  // make every step expensive enough to trip the strain detector
+  const realNow = performance.now.bind(performance);
+  let fake = 0;
+  performance.now = () => (fake += 60); // ~60 ms of "work" per call pair
+  for (let i = 0; i < 60; i++) {
+    Frunky.update(1 / 60, { speed: 60, lateralG: 0 });
+    transport.cb(1000 + i * SPB);
+  }
+  performance.now = realNow;
+  const h = Frunky.health();
+  ok("overload is detected", h.strain > 0.5);
+  ok("and reported as a share of the run", h.strainPct > 0);
+  ok("and said out loud", h.events.some((e) => e.kind === "strain"));
+  ok("the engine is still running", h.running === true);
+
+  // and it recovers on its own once the device catches up
+  for (let i = 0; i < 200; i++) {
+    Frunky.update(1 / 60, { speed: 60, lateralG: 0 });
+    transport.cb(2000 + i * SPB);
+  }
+  ok("it recovers when the load goes away", Frunky.health().strain <= 0.5);
+}
+
 Frunky.stop();
 transport.clear();
 

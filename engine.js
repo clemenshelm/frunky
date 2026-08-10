@@ -315,6 +315,7 @@
     brokenPat: null,
     gatePat: null,
     barInPart: 0,
+    lean: false,     // the device is overloaded: play less, not nothing
     hookLift: false,
     pullChorus: false, // a launch pulls the chorus forward at the next boundary
     dropAt: -1,        // step index of a scheduled drop-gap release
@@ -399,6 +400,12 @@
   // device that cannot keep up, and it is the only number a field test can
   // bring home
   let stepCost = 0, peakCost = 0;
+  // Graceful degradation. At 87 % of a step's budget the scheduler is one
+  // spike away from falling behind, and falling behind is heard as the music
+  // stopping. Rather than die, the arrangement thins itself: the ornaments go
+  // first, then the chord figures collapse to a plain pad. Simpler music beats
+  // no music, and it recovers on its own when the device catches up
+  let strain = 0, strainSteps = 0, totalSteps = 0;
   // A ring of what actually went wrong, on the device it went wrong on. There
   // is no console to read in a car, so the engine keeps its own short record
   const events = [];
@@ -855,7 +862,9 @@
     rhodes.triggerAttackRelease(midis.map(F), SPB * 6, at("rhodes", t), vv(vol, 0.25));
   }
   function chordVoice(t, midis, dur, vol, cut) {
-    const style = engine.flowOn ? "wash" : engine.padStyle; // the highway carries
+    // the highway carries, and so does a device at its limit: the wash is a
+    // single trigger per chord where the figures are eight or more
+    const style = engine.flowOn || engine.lean ? "wash" : engine.padStyle;
     if (style === "broken") return; // that one lives per step
     // the gate keeps a quiet bed underneath — a pulse ON something, never a
     // hole between hits. This is the single biggest reason a gated section
@@ -899,6 +908,8 @@
 
   function onStep(s, t) {
     const pos = s % 16, bar = Math.floor(s / 16);
+    const lean = strain > 0.5; // the device is at its limit — shed ornaments
+    engine.lean = lean;
     const e = clamp(engine.energy + engine.launchBoost * 0.3, 0, 1);
     const still = e < 0.06;
     const push = engine.thrust;
@@ -1014,7 +1025,7 @@
       const ciNext = hrEff === "twobar" ? Math.floor((bar + 1) / 2) % 4 : (bar + 1) % 4;
       const rootF = F(rootsEff[ci]);
       // once per 8-bar phrase a lick takes over the bar's second half
-      const lickBar = engine.lick && bar % 8 === 3 && !breather && !bridgeDown;
+      const lickBar = engine.lick && bar % 8 === 3 && !breather && !bridgeDown && !lean;
       if (!breather && !bridgeDown && engine.bassPat.includes(pos) && !(lickBar && pos >= 10)) {
         // melodic sections walk root/fifth/octave/seventh instead of pedaling
         const mi = engine.bassMel && !flowMode
@@ -1037,7 +1048,7 @@
         }
       }
       // funk vocabulary: quiet ghost notes between the hits — felt, not heard
-      if (engine.ghosts && pos % 8 === 5 && !breather && !bridgeDown) {
+      if (engine.ghosts && pos % 8 === 5 && !breather && !bridgeDown && !lean) {
         bassNote(hum(t, pos), rootF, 420, vel(0.05 * drain), SPB * 0.5);
       }
       // approach note: walk into the next chord instead of just switching
@@ -1061,15 +1072,15 @@
         if (pos === 7 || pos === 10 || pos === 15) snare(hum(t, pos), vel(0.035 + 0.025 * u), true);
       }
       // accel percussion: shaker/toms in the background, swelling with force
-      if (pos % 2 === 1) shaker(hum(t, pos), vel(0.015 + 0.1 * push));
+      if (pos % 2 === 1 && (!lean || pos % 4 === 1)) shaker(hum(t, pos), vel(0.015 + 0.1 * push));
       if ((pos === 5 || pos === 13) && push > 0.05) tom(t, pos === 5 ? 150 : 120, 0.03 + 0.15 * push);
       // Daði charm: the blip voice answers the arp — one bar in four, quiet
-      if (engine.blips && bar % 4 === 2) {
+      if (engine.blips && bar % 4 === 2 && !lean) {
         const bmap = { 6: 0, 10: 1, 13: 2 };
         if (pos in bmap) blip(hum(t, pos), F(engine.blipSeq[bmap[pos]]), vel(0.07));
       }
       // Parov seasoning: brass stab anticipates the one — every 4th bar, a spice
-      if (engine.brassy && pos === 14 && bar % 4 === 1 && !breather && !flowMode) {
+      if (engine.brassy && pos === 14 && bar % 4 === 1 && !breather && !flowMode && !lean) {
         brassHit(t, progEff[ciNext], vel(0.09 + 0.07 * e));
       }
       // bridge rebuild: after the breakdown the drums return, and a long riser
@@ -1089,7 +1100,7 @@
         rhodesChord(hum(t, pos), progEff[ci], vel(0.05 + 0.08 * u));
       }
       // urban detail: a real syncopated groove, gone on the open road
-      if (u > 0.05 && !bridgeDown) {
+      if (u > 0.05 && !bridgeDown && !lean) {
         if (pos === 3) perc(hum(t, pos), vel(0.16 * u));
         if (pos === 6) perc(hum(t, pos), vel(0.1 * u));
         if (pos === 10) perc(hum(t, pos), vel(0.13 * u));
@@ -1114,7 +1125,7 @@
     }
     // arp: relaxed 8ths in town, hypnotic long notes on the highway;
     // phrase ends run the figure backwards, sections shift its octave
-    const arpHit = flowHigh > 0.6 ? pos % 4 === 0 : pos % 2 === 0;
+    const arpHit = (flowHigh > 0.6 || lean) ? pos % 4 === 0 : pos % 2 === 0;
     if (arpHit) {
       const seq = turnaround ? engine.arpSeq.slice().reverse() : engine.arpSeq;
       // accent contour: downbeats lean forward, offbeats sit back — not uniform
@@ -1152,7 +1163,7 @@
       if (pos === 0) chordVoice(t, progEff[bar % 4], SPB * 16, padVol, padCut);
     }
     // broken/gate styles: the chords live as figures, not as a carpet
-    if (!engine.flowOn && !still) {
+    if (!engine.flowOn && !still && !lean) {
       const ciPad = hrEff === "twobar" ? Math.floor(bar / 2) % 4 : bar % 4;
       const chordNow = progEff[ciPad];
       if (engine.padStyle === "broken" && pos % 2 === 0) {
@@ -1171,7 +1182,7 @@
     // gated section or not, so the automation can never be left half-open when
     // a section changes underneath it
     if (gateAmp) {
-      const gateOn = engine.padStyle === "gate" && !engine.flowOn && !still && !bridgeDown;
+      const gateOn = engine.padStyle === "gate" && !engine.flowOn && !still && !bridgeDown && !lean;
       if (gateOn) {
         const ciPad = hrEff === "twobar" ? Math.floor(bar / 2) % 4 : bar % 4;
         // re-voice only when the harmony actually moves — the gate's whole
@@ -1422,6 +1433,7 @@
     stepIdx = 0; pendingLaunchAt = -1; tp = 0; clock = 0;
     sched.clear(); ctlLast.clear(); stepCost = 0; peakCost = 0;
     events.length = 0; errCount = 0; resumes = 0; lastResumeAt = 0;
+    strain = 0; strainSteps = 0; totalSteps = 0;
     transport = Tone.getTransport();
     transport.bpm.value = BPM;
     transport.swing = 0.22; // light 16th shuffle — the pulse stays straight
@@ -1440,7 +1452,18 @@
       }
       const cost = (nowMs() - t0) / (SPB * 1000);
       stepCost += (cost - stepCost) * 0.05;
-      peakCost = Math.max(peakCost, cost);
+      // the first steps carry graph warm-up and first-piece setup; counting
+      // them as the peak would make every device look overloaded
+      if (stepIdx > 32) peakCost = Math.max(peakCost, cost);
+      const was = strain > 0.5;
+      if (cost > 0.45) strain = Math.min(1, strain + 0.15);
+      else if (cost < 0.3) strain = Math.max(0, strain - 0.02);
+      totalSteps++;
+      if (strain > 0.5) strainSteps++;
+      if (was !== strain > 0.5) {
+        note("strain", (was ? "recovered at " : "thinning out at ") +
+          Math.round(stepCost * 100) + "% load");
+      }
     }, "16n");
     transport.start("+0.05");
     engine.running = true;
@@ -1478,6 +1501,7 @@
     return {
       running: engine.running, step: stepIdx, audio: state,
       errors: errCount, resumes, load: stepCost, peakLoad: peakCost,
+      strain, strainPct: totalSteps ? (strainSteps / totalSteps) * 100 : 0,
       events: events.slice(),
     };
   }

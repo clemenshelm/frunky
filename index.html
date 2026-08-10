@@ -26,8 +26,11 @@
     -webkit-user-select: none; user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
-  main { flex: 1; display: flex; flex-direction: column;
+  main { flex: 1; min-height: 0; display: flex; flex-direction: column;
          align-items: center; justify-content: center; gap: 1rem; text-align: center; }
+  /* the diagnostics and the footer must never be squeezed out by the drive
+     screen — a log you cannot reach during the drive is not a log */
+  #diag, #diagOpts, footer { flex: 0 0 auto; }
 
   /* the start screen is one enormous target — it is pressed before driving */
   #startScreen { gap: 2rem; }
@@ -191,7 +194,7 @@
     startedAt: 0, fixes: 0, fromCoords: 0, coarse: 0, rejected: 0,
     intervals: [], accuracies: [],
     maxSpeed: 0, maxForce: 0, maxLat: 0, staleMs: 0, lastSampleAt: 0,
-    clockFallback: 0, errors: 0, lastError: "",
+    clockFallback: 0, errors: 0, lastError: "", skipped: 0,
   };
   const median = (a) => {
     if (!a.length) return null;
@@ -226,6 +229,7 @@
       "steps      " + h.step,
       "fehler     " + h.errors + " · resumes " + h.resumes,
       "last       " + Math.round(h.load * 100) + "% · spitze " + Math.round(h.peakLoad * 100) + "%",
+      "vereinfacht " + (h.strain > 0.5 ? "JETZT" : "nein") + " · " + Math.round(h.strainPct) + "% der zeit",
       "sparmodus  " + (Frunky.options().lite ? "an" : "aus"),
       "",
       "gps fixes  " + d.fixes + " · verworfen " + d.rejected,
@@ -234,7 +238,8 @@
       "gps genau  " + (d.accuracy == null ? "—" : Math.round(d.accuracy) + " m"),
       "gps quelle " + d.speedSource + "/" + d.headingSource +
         " · uhr " + (trip.clockFallback ? "ankunft" : "gerät"),
-      "gps fehler " + trip.errors + (trip.lastError ? " (" + trip.lastError + ")" : ""),
+      "gps fehler " + trip.errors + (trip.lastError ? " (" + trip.lastError + ")" : "") +
+        " · übersprungen " + trip.skipped,
       "",
       "ereignisse:",
     ];
@@ -300,8 +305,16 @@
     }
   });
 
+  // The Tesla delivers about ten fixes a second. One or two is all the music can
+  // use — it smooths and dead-reckons between them anyway — and every extra one
+  // is main-thread work on a device that has none to spare
+  const MIN_FIX_GAP_MS = 180;
+  let lastFixAccepted = 0;
   function onFix(pos) {
     gotFix = true;
+    const arrivedNow = Date.now();
+    if (arrivedNow - lastFixAccepted < MIN_FIX_GAP_MS) { trip.skipped++; return; }
+    lastFixAccepted = arrivedNow;
     const c = pos.coords;
     const before = reader.diagnostics(Date.now());
     trip.fixes++;
@@ -384,7 +397,11 @@
       ["Ohne Signal", (trip.staleMs / 1000).toFixed(0) + " s"],
       ["Standort-Fehler", trip.errors ? trip.errors + " (" + trip.lastError + ")" : "0"],
       ["Zeitstempel", trip.clockFallback ? "Ankunftszeit (Gerät unbrauchbar)" : "vom Gerät"],
+      ["Audio-Last (Schnitt)", Math.round(Frunky.load() * 100) + " %"],
       ["Audio-Last (Spitze)", Math.round(Frunky.peakLoad() * 100) + " %"],
+      ["Sparmodus", Frunky.options().lite ? "an" : "aus"],
+      ["Vereinfacht", Math.round(Frunky.health().strainPct) + " % der Zeit"],
+      ["Fixes verworfen (zu dicht)", String(trip.skipped)],
       ["Höchsttempo", Math.round(trip.maxSpeed) + " km/h"],
       ["Stärkste Kraft", Math.round(trip.maxForce * 100) + " %"],
       ["Stärkste Querkraft", trip.maxLat.toFixed(2)],
@@ -411,7 +428,7 @@
     Object.assign(trip, { startedAt: 0, fixes: 0, fromCoords: 0, coarse: 0,
       rejected: 0, intervals: [], accuracies: [], maxSpeed: 0, maxForce: 0,
       maxLat: 0, staleMs: 0, lastSampleAt: 0, clockFallback: 0, errors: 0,
-      lastError: "" });
+      lastError: "", skipped: 0 });
     start();
   }
   startBtn.addEventListener("click", beginTrip);
@@ -469,7 +486,8 @@
           " · uhr " + (trip.clockFallback ? "ankunft" : "gerät") +
           " · fehler " + (trip.errors ? trip.errors + " (" + trip.lastError + ")" : "0") +
           " · g " + input.lateralG.toFixed(2) +
-          " · last " + Math.round(Frunky.load() * 100) + "%";
+          " · last " + Math.round(Frunky.load() * 100) + "%" +
+          (Frunky.health().strain > 0.5 ? " · VEREINFACHT" : "");
       }
     }
     requestAnimationFrame(frame);
