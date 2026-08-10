@@ -556,6 +556,7 @@
     engine.partLabel = label;
     engine.brokenPat = BROKENPATS[Math.floor(Math.random() * BROKENPATS.length)];
     engine.gatePat = GATEPATS[Math.floor(Math.random() * GATEPATS.length)];
+    engine.hookLift = Math.random() < 0.35;
     if (Math.random() < 0.3) engine.ghosts = !engine.ghosts;
     // lingering pads must not carry old harmony into the new part
     padS.releaseAll(t); padTri.releaseAll(t);
@@ -597,6 +598,7 @@
     brokenPat: null,
     gatePat: null,
     barInPart: 0,
+    hookLift: false,
     voice: false,     // the singer: rule-based phrases with breaths
     voiceEv: {},
     voiceForm: "",
@@ -625,9 +627,13 @@
   let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS, gateS;
   // sampled instruments persist across play cycles — buffers load once.
   // The voice is 'oohs' (soft, close) — samples/choir stays for future voice types
-  let rhodes = null, vox = null;
+  let rhodes = null, vox = null, hookGit = null;
   function ensureSamplers() {
     if (rhodes) return;
+    hookGit = new Tone.Sampler({
+      urls: { A3: "A3.mp3", C4: "C4.mp3", Eb4: "Eb4.mp3", Gb4: "Gb4.mp3", A4: "A4.mp3", C5: "C5.mp3" },
+      baseUrl: "samples/guitar/",
+    });
     rhodes = new Tone.Sampler({
       urls: { A2: "A2.mp3", C3: "C3.mp3", Eb3: "Eb3.mp3", Gb3: "Gb3.mp3", A3: "A3.mp3",
         C4: "C4.mp3", Eb4: "Eb4.mp3", Gb4: "Gb4.mp3", A4: "A4.mp3", C5: "C5.mp3" },
@@ -770,6 +776,9 @@
     }));
     hookS.volume.value = db(0.35);
     hookS.connect(hookLp);
+    // the sampled muted guitar shares the hook chain — square is the fallback
+    hookGit.disconnect(); hookGit.volume.value = db(0.6);
+    hookGit.connect(hookLp);
     hookLp.connect(duck); hookLp.connect(delaySend); hookLp.connect(revSend);
 
     // Parov seasoning: brass-like stab — filter snaps open and shuts
@@ -937,7 +946,8 @@
     blipS.triggerAttackRelease(freq, 0.1, t, vv(vol, 0.09));
   }
   function hookNote(t, freq, dur, vol) {
-    hookS.triggerAttackRelease(freq, dur, t, vv(vol, 0.2));
+    if (hookGit && hookGit.loaded) hookGit.triggerAttackRelease(freq, dur, t, vv(vol, 0.16));
+    else hookS.triggerAttackRelease(freq, dur, t, vv(vol, 0.2));
   }
   function gateChord(t, midis, vol) {
     gateS.triggerAttackRelease(midis.map(F), SPB * 0.85, t, vv(vol, 0.14));
@@ -1231,13 +1241,29 @@
     if (engine.motif && bar % 16 === 0 && pos % 2 === 0 && pos < 10) {
       arpNote(t, F(MOTIF[pos / 2]), 2600, 0.05, SPB * 3);
     }
-    // the hook riff: the piece's identity — chorus only, every time the same,
-    // call on even bars, the response answers on odd ones
-    if (engine.partLabel === "B" && !still && !breather && engine.piece) {
+    // the hook riff: the piece's identity — chorus only. Same-same-DIFFERENT:
+    // exact repeats teach it first, then it earns play — an octave pop the
+    // second time around, a tail flourish into turnarounds, one dropout bar
+    // (the listener sings it), and sometimes an octave lift for the back half
+    if (engine.partLabel === "B" && !still && !breather && engine.piece && bar % 16 !== 13) {
+      const hb = bar % 16;
       const line = bar % 2 === 0 ? engine.piece.hook.call : engine.piece.hook.resp;
+      const lift = engine.hookLift && hb >= 8 ? 12 : 0;
       const n = line.find((x) => x.p === pos);
-      if (n && (!flowMode || PENTA.includes((57 + n.s) % 12))) {
-        hookNote(hum(t, pos), F(57 + n.s), SPB * n.d * 0.9, vel(0.16 * n.a));
+      if (n) {
+        const isLast = n === line[line.length - 1];
+        let sN = n.s + lift;
+        if (isLast && hb === 5) sN += 12; // octave pop, second time around
+        const fr = 57 + sN;
+        if (!flowMode || PENTA.includes(fr % 12)) {
+          if (isLast && (hb === 7 || hb === 15)) {
+            // tail flourish: the ending splits and falls into the turnaround
+            hookNote(hum(t, pos), F(Math.min(fr + 12, 81)), SPB * 0.9, vel(0.13 * n.a));
+            hookNote(hum(t, pos) + SPB, F(fr), SPB * Math.max(n.d - 1, 1) * 0.9, vel(0.16 * n.a));
+          } else {
+            hookNote(hum(t, pos), F(fr), SPB * n.d * 0.9, vel(0.16 * n.a));
+          }
+        }
       }
     }
     // the voice sings only in calm moments — never against thrust or braking.
@@ -1349,7 +1375,7 @@
             + (engine.bassMel ? "·Mel" : "") + (engine.bassFill ? "·Pops" : "")
             + (engine.ghosts ? "·Ghosts" : "")],
           engine.snare ? ["Drums", "Snare"] : null,
-          engine.partLabel === "B" ? ["Hook", "an"] : null,
+          engine.partLabel === "B" ? ["Hook", engine.hookLift ? "an·8va" : "an"] : null,
           engine.lick ? ["Lick", String(LICKS.indexOf(engine.lick) + 1)] : null,
           engine.blips ? ["Blips", "an"] : null,
           engine.brassy ? ["Brass", "an"] : null,
