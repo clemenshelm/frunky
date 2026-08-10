@@ -25,7 +25,9 @@ Serve the repo root with any static server (or open the GitHub Pages deployment)
 npx serve .
 ```
 
-`npm test` runs three checks: a wiring guard across the two pages and the engine's public API, the GPS reader's maths (heading wrap-around, derived speed, standstill noise), and a headless smoke test that drives a full synthetic trip through the real engine.
+`npm test` runs the whole suite: a wiring guard across the pages and the engine's public API, the GPS reader's maths (heading wrap-around, derived speed, standstill noise), the tracing privacy boundary and its collector, and a headless smoke test that drives a full synthetic trip through the real engine.
+
+`npm run collector` starts the trace collector locally on port 8099.
 
 `prototypes/genre-lab.html` is the earlier genre exploration (melodic techno / synthwave / Berlin school / hybrid) that led here — kept for reference.
 
@@ -91,6 +93,64 @@ Repetition doesn't fatigue; missing change *underneath* the repetition does. The
 - **Humanization**: swing on the off-16ths, micro-timing jitter, velocity spread — on percussion and arps only; kick, bass and growl stay machine-tight.
 - Modal harmony without dominant tension (A aeolian / dorian, add9 and 7th colors, open voicings), pentatonic arps that stay consonant over every pooled chord, and a generated-impulse convolution reverb.
 - All variation is rolled **once** per section/phrase boundary into a plain data object; the sequencer only reads it. Pools are data, not code branches.
+
+### Traces without a person in them
+
+The field test outgrew what a photograph of a screen can carry. The log on the
+driver page has found real bugs, and it stops working the moment somebody else
+drives: a stranger will not photograph a diagnostics screen, and the drive that
+ends in a freeze is exactly the one nobody thinks to. So a drive can now send
+home a technical picture of itself — under an ask, and under rules that came
+first.
+
+**Minimisation happens in the browser, not on the server.** Every value is
+bucketed, classified or dropped before it goes on the wire, so the collector
+never receives the thing it would then have to promise not to keep. A
+server-side filter is a promise; not transmitting is a fact.
+
+What that means concretely, and each of these cost something:
+
+- **No coordinates.** The engine never wanted a position, only a speed. And a
+  speed timeline accurate to the metre *is* a route, so speed travels as one of
+  fourteen buckets. That answers the only question we ask of it — "was the car
+  moving when the sound stopped?" — and does not reconstruct a journey.
+- **No wall-clock time.** Samples carry milliseconds since the drive began; the
+  collector stamps arrival to the hour. Enough to find a report again, not
+  enough to time somebody's commute.
+- **No agent string**, only one of five device classes, decided in the browser.
+- **No persistent identifier at all.** The trace id is random, lives for one
+  drive and is forgotten. Two drives by the same car cannot be joined — which
+  also means "does this one Tesla always fail?" is a question the data cannot
+  answer. That is the price, and it is paid on purpose.
+
+[`trace-schema.js`](trace-schema.js) is the whole boundary, and it is one file
+loaded by the browser as a script *and* by the collector as the same bytes —
+because two lists drift, and a drifted server-side filter passes exactly the
+fields the client stopped sending. Redaction walks the **spec**, never the
+input: a value reaches the output only if a field of that name and type is
+declared, so "somebody added a field that forwards its input" has to be written
+down in the open.
+
+The tests are built so a green run is evidence rather than a ritual. The privacy
+sweep builds its input from the exported spec and poisons every declared leaf,
+so a field added next month is covered without anyone remembering to extend a
+list — and it is verified by canary, because the first version of that sweep
+passed the canary while only poisoning fields written into the sample by hand.
+The collector's promises are checked against the bytes on disk rather than the
+handler's intent: post a trace carrying coordinates, a stack trace, an agent
+string, a cookie and two forwarded addresses, then grep the files for all of
+them.
+
+Consent is an act. Both answers are the same size on the start screen, the music
+is identical either way, and withdrawal reaches what was already sent — the
+device keeps the ids of its last twenty drives, locally and never transmitted as
+a set, for the one reason that they are the only handle anyone has on those
+records. Without them, "delete my data" is a sentence rather than a button.
+Retention is an `unlink` of a day-file after 30 days, not a filter somebody has
+to remember to apply.
+
+Details, operations and the deploy in [`collector/README.md`](collector/README.md);
+the notice the driver actually reads is [`privacy.html`](privacy.html).
 
 ## Roadmap
 

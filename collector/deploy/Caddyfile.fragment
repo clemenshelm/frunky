@@ -1,0 +1,30 @@
+# --- frunky.clemenshelm.com (Trace-Collector) -------------------------------
+# To be merged into /opt/web-infra/Caddyfile.
+#
+# Two deliberate differences from the other vhosts on this box:
+#
+# 1. It does NOT `import security_headers`. That snippet SETS X-Frame-Options to
+#    SAMEORIGIN, and a header set by the proxy replaces the one the application
+#    sent — so importing it would silently downgrade the viewer's own DENY. The
+#    headers below are the same list minus that one, and the app keeps the say
+#    over framing. (The general trap: assert what a concrete URL resolves to,
+#    not what the handler asked for.)
+#
+# 2. `log { output discard }` is explicit rather than relied upon. Caddy writes
+#    no access log unless asked, so this changes nothing today — it is here so
+#    that a future global `log` directive on this box cannot quietly start
+#    writing the one identifier this whole service is built not to keep.
+frunky.clemenshelm.com {
+	log {
+		output discard
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+	reverse_proxy frunky-trace:8099
+}

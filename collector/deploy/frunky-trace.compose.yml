@@ -1,0 +1,40 @@
+# The collector as it runs on the Helmcraft web box, to be merged into
+# /opt/web-infra/docker-compose.yml.
+#
+# No image build and no registry, on purpose. The collector is dependency-free
+# Node — the same "no build step" the rest of Frunky is written to — so the
+# source is bind-mounted read-only into a stock node image and updating is an
+# rsync plus a restart. There is nothing to publish, nothing to version-skew,
+# and the code running in production is byte-identical to the repository.
+services:
+  frunky-trace:
+    image: node:22-alpine
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "collector/server.mjs"]
+    # read-only: the collector writes to /data and must never be able to write
+    # to its own source
+    volumes:
+      - /opt/frunky-trace:/app:ro
+      - frunky_traces:/data
+    environment:
+      TRACE_PORT: "8099"
+      TRACE_DIR: /data
+      TRACE_RETENTION_DAYS: "30"
+      # the GitHub Pages origin the driver page is served from; a browser
+      # elsewhere is refused rather than answered
+      TRACE_ORIGINS: "https://clemenshelm.github.io"
+      TRACE_VIEW_USER: "${FRUNKY_VIEW_USER}"
+      TRACE_VIEW_PASS: "${FRUNKY_VIEW_PASS}"
+    # it needs no network access of its own and no privileges; the only thing
+    # that reaches it is Caddy, on the compose network
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8099/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  frunky_traces:
