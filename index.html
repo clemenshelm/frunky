@@ -299,6 +299,14 @@
   const MOTIF = [69, 72, 76, 71, 69]; // the app's own 5-note ident — rare on purpose
   // call-and-response answers for the square-wave blip voice (pentatonic, high)
   const BLIPS = [[76, 74, 72], [72, 76, 79], [74, 72, 69]];
+  // one-bar bass licks as [pos, semitones-from-root] — rare on purpose
+  const LICKS = [
+    [[10, 0], [11, 3], [12, 5], [14, 7]],    // pentatonic run-up
+    [[10, 12], [12, 0], [13, 10], [14, 12]], // octave bounce
+    [[12, 5], [13, 3], [14, 0], [15, -2]],   // walk-down into the next root
+  ];
+  // the bass sits in the pocket: consistently a touch behind the beat
+  function bassT(t) { return t + 0.008 + (Math.random() - 0.5) * 0.006; }
   // A-minor-pentatonic arps: consonant over every chord in the pools
   const ARPS = [
     [57, 60, 62, 64, 67, 64, 62, 60],
@@ -332,6 +340,7 @@
     blips: false,     // Daði: square-wave answers to the arp
     blipSeq: null,
     brassy: false,    // Parov: anticipated brass stab on the and-of-four
+    lick: null,       // playful bass figure, once per 8-bar phrase
     standstillSince: null,
     armed: false,
   };
@@ -635,6 +644,7 @@
       engine.blips = Math.random() < 0.35;
       engine.blipSeq = BLIPS[Math.floor(Math.random() * BLIPS.length)];
       engine.brassy = Math.random() < 0.35;
+      engine.lick = Math.random() < 0.35 ? LICKS[Math.floor(Math.random() * LICKS.length)] : null;
     }
     if (pos === 0 && bar % 8 === 7) engine.fill = FILLS[Math.floor(Math.random() * FILLS.length)];
     // breather: every 48 bars the kick and bass step aside for 4 bars —
@@ -659,20 +669,31 @@
       const ci = engine.hr === "twobar" ? Math.floor(bar / 2) % 4 : bar % 4;
       const ciNext = engine.hr === "twobar" ? Math.floor((bar + 1) / 2) % 4 : (bar + 1) % 4;
       const rootF = F(engine.roots[ci]);
-      if (!breather && engine.bassPat.includes(pos)) {
+      // once per 8-bar phrase a lick takes over the bar's second half
+      const lickBar = engine.lick && bar % 8 === 3 && !breather;
+      if (!breather && engine.bassPat.includes(pos) && !(lickBar && pos >= 10)) {
         // Daði pop: one hit per bar jumps up an octave when the section is playful
         const oct = engine.bassFill && pos === 10 ? 2 : 1;
-        bassNote(hum(t, pos), rootF * oct, 300 + 520 * fat,
-          vel((0.1 + 0.22 * fat) * (1 - 0.45 * flowHigh) * drain), SPB * 1.7);
+        // natural correlation: louder notes ring brighter, lengths breathe
+        const v = vel((0.1 + 0.22 * fat) * (1 - 0.45 * flowHigh) * drain);
+        bassNote(bassT(t), rootF * oct, 300 + 520 * fat + v * 350, v,
+          SPB * (1.5 + Math.random() * 0.4));
+      }
+      if (lickBar) {
+        const hit = engine.lick.find((x) => x[0] === pos);
+        if (hit) {
+          bassNote(bassT(t), F(engine.roots[ci] + hit[1]), 420 + 300 * fat,
+            vel(0.13 * drain), SPB * 0.9);
+        }
       }
       // funk vocabulary: quiet ghost notes between the hits — felt, not heard
       if (engine.ghosts && pos % 8 === 5 && !breather) {
         bassNote(hum(t, pos), rootF, 420, vel(0.05 * drain), SPB * 0.5);
       }
       // approach note: walk into the next chord instead of just switching
-      if (engine.bassFill && pos === 15 && bar % 2 === 1 && !breather &&
+      if (engine.bassFill && pos === 15 && bar % 2 === 1 && !breather && !lickBar &&
           engine.roots[ciNext] !== engine.roots[ci]) {
-        bassNote(hum(t, pos), F(engine.roots[ciNext] - 2), 380,
+        bassNote(bassT(t), F(engine.roots[ciNext] - 2), 380,
           vel(0.09 * drain), SPB * 0.8);
       }
       if (pos === 0 && flowHigh > 0.3 && !breather) bassNote(t, rootF, 380, 0.26 * flowHigh * drain, SPB * 15);
@@ -722,9 +743,11 @@
     const arpHit = flowHigh > 0.6 ? pos % 4 === 0 : pos % 2 === 0;
     if (arpHit) {
       const seq = turnaround ? engine.arpSeq.slice().reverse() : engine.arpSeq;
+      // accent contour: downbeats lean forward, offbeats sit back — not uniform
+      const accent = pos % 4 === 0 ? 1.15 : 0.9;
       arpNote(t, F(seq[Math.floor(s / 2) % 8] + engine.arpOct),
         340 + 2000 * clamp(e, 0, 0.8) * (0.75 + 0.25 * Math.sin(t * 0.3)) + 700 * push,
-        vel(0.07), flowHigh > 0.6 ? SPB * 3.6 : SPB * 1.8);
+        vel(0.07 * accent), flowHigh > 0.6 ? SPB * 3.6 : SPB * 1.8);
     }
     // harmonic rhythm: per bar, held two bars, or pushed in ahead of the one
     const padVol = (0.16 + 0.2 * flowHigh) * (breather ? 1.5 : 1);
@@ -881,10 +904,11 @@
     engine.arpSeq = ARPS[0]; engine.arpOct = 0;
     engine.hr = "bar"; engine.fill = "toms"; engine.ghosts = false; engine.motif = false;
     engine.bassFill = false; engine.blips = false; engine.blipSeq = BLIPS[0]; engine.brassy = false;
+    engine.lick = null;
     stepIdx = 0; pendingLaunchAt = -1;
     transport = Tone.getTransport();
     transport.bpm.value = BPM;
-    transport.swing = 0.16;
+    transport.swing = 0.22; // light 16th shuffle — the trance pulse stays straight
     transport.swingSubdivision = "16n";
     repeatId = transport.scheduleRepeat((time) => onStep(stepIdx++, time), "16n");
     transport.start("+0.05");
