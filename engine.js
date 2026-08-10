@@ -414,6 +414,10 @@
   // no music, and it recovers on its own when the device catches up
   let strain = 0, strainSteps = 0, totalSteps = 0;
   let lateSteps = 0, worstLate = 0;
+  // "it stopped" and "I cannot hear it" are different faults. If notes are
+  // still being triggered while nothing is audible, the sequencer is fine and
+  // the problem is downstream — no report could tell those apart before
+  let notes = 0, idleCut = 0;
   // A ring of what actually went wrong, on the device it went wrong on. There
   // is no console to read in a car, so the engine keeps its own short record
   const events = [];
@@ -774,7 +778,7 @@
 
   // ---- voices --------------------------------------------------------------
 
-  const vv = (vol, ref) => clamp(vol / ref, 0, 1);
+  const vv = (vol, ref) => { notes++; return clamp(vol / ref, 0, 1); };
 
   // Tone REFUSES a voice triggered at or before its own previous start time,
   // and the refusal is thrown inside the transport callback — so every voice
@@ -1161,10 +1165,15 @@
     const arpHit = pos % 2 === 0 && (onBeat || offbeatLevel > 0.02);
     if (arpHit) {
       const seq = turnaround ? engine.arpSeq.slice().reverse() : engine.arpSeq;
+      // At rest the cutoff used to fall to 340 Hz — on a car stereo that is
+      // indistinguishable from silence, and a standstill that sounds like a
+      // crash is a crash as far as the listener is concerned. The idle floor
+      // is now high enough to be clearly present, just soft
+      idleCut = 900 + 1600 * clamp(e, 0, 0.8);
       // accent contour: downbeats lean forward, offbeats sit back — not uniform
       const accent = (onBeat ? 1.15 : 0.9) * (onBeat ? 1 : offbeatLevel);
       arpNote(t, F(seq[Math.floor(s / 2) % 8] + (liftPhase ? 12 : engine.arpOct)),
-        340 + 2000 * clamp(e, 0, 0.8) * (0.75 + 0.25 * Math.sin(t * 0.3)) + 700 * push,
+        idleCut * (0.8 + 0.2 * Math.sin(t * 0.3)) + 700 * push,
         vel(0.07 * accent), flowHigh > 0.6 ? SPB * 3.6 : SPB * 1.8);
     }
     // harmonic rhythm: per bar, held two bars, or pushed in ahead of the one.
@@ -1661,7 +1670,7 @@
     } catch (err) { void err; }
     return {
       running: engine.running, step: stepIdx, audio: state,
-      errors: errCount, resumes, stalls, lateSteps, worstLate,
+      errors: errCount, resumes, stalls, lateSteps, worstLate, notes, idleCut,
       load: stepCost, peakLoad: peakCost,
       strain, strainPct: totalSteps ? (strainSteps / totalSteps) * 100 : 0,
       lean: engine.lean,

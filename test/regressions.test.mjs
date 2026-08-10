@@ -237,6 +237,39 @@ await Frunky.start();
 Frunky.stop();
 transport.clear();
 
+// ---- 9. is it actually playing? --------------------------------------------
+// "It stopped" and "I cannot hear it" are different faults with different
+// fixes, and no report so far could tell them apart. If notes are still being
+// triggered while nothing is audible, the sequencer is fine and the problem is
+// downstream; if they stop, it is the sequencer.
+await Frunky.start();
+{
+  let t = 0;
+  const run = (n, speed) => {
+    for (let i = 0; i < n; i++) {
+      Frunky.update(1 / 60, { speed, lateralG: 0 });
+      if (i % 7 === 0) { transport.cb(t); t += SPB; }
+    }
+  };
+  const before = Frunky.health().notes;
+  run(420, 50);
+  const moving = Frunky.health().notes;
+  ok("a moving drive triggers notes: " + (moving - before), moving - before > 40);
+
+  // ---- 10. standing still must still be AUDIBLE ---------------------------
+  // At a red light the arrangement pulls back on purpose — but pulled back to
+  // almost nothing reads as a crash, and that is how it read in the car.
+  for (let i = 0; i < 900; i++) Frunky.update(1 / 60, { speed: 0, lateralG: 0 });
+  const restStart = Frunky.health().notes;
+  run(420, 0);
+  const rest = Frunky.health().notes - restStart;
+  ok("standing still is not silence: " + rest + " notes in a few bars", rest > 20);
+  ok("and the idle texture is not filtered into inaudibility: " +
+    Math.round(Frunky.health().idleCut) + " Hz", Frunky.health().idleCut > 700);
+}
+Frunky.stop();
+transport.clear();
+
 if (failures.length) {
   console.error("FAILURES:");
   for (const f of failures) console.error("  -", f);

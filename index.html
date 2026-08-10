@@ -177,9 +177,9 @@
 </footer>
 
 <script src="vendor/Tone.js"></script>
-<script src="engine.js?v=16"></script>
-<script src="geo.js?v=16"></script>
-<script src="diagnose.js?v=16"></script>
+<script src="engine.js?v=17"></script>
+<script src="geo.js?v=17"></script>
+<script src="diagnose.js?v=17"></script>
 <script>
 (() => {
   "use strict";
@@ -187,7 +187,7 @@
   // to know whether a trip tested the code we shipped is to read it back —
   // three reports in a row turned out to be the same stale build.
   // (Loading the page as ?v=<something-new> is what forces a fresh copy.)
-  const BUILD = "16";
+  const BUILD = "17";
   const el = (id) => document.getElementById(id);
   const startBtn = el("start"), stopBtn = el("stop");
   const speedEl = el("speed"), stateEl = el("state"), forceEl = el("forceBar");
@@ -207,6 +207,7 @@
     intervals: [], accuracies: [],
     maxSpeed: 0, maxForce: 0, maxLat: 0, staleMs: 0, lastSampleAt: 0,
     clockFallback: 0, errors: 0, lastError: "", skipped: 0,
+    minNotes: 9999, maxNotes: 0,
   };
   const median = (a) => {
     if (!a.length) return null;
@@ -290,8 +291,16 @@
     optLite.classList.toggle("on", o.lite);
   }
   optLite.addEventListener("click", () => {
-    Frunky.setOption("lite", !Frunky.options().lite); paintOpts();
+    const next = !Frunky.options().lite;
+    Frunky.setOption("lite", next); paintOpts();
+    try { localStorage.setItem("frunky.lite", next ? "1" : "0"); } catch (err) { void err; }
   });
+  // The Tesla is not detected as a weak device, so the choice has to survive a
+  // reload — a setting you must re-enable every time is a setting never tested
+  try {
+    const saved = localStorage.getItem("frunky.lite");
+    if (saved !== null) { Frunky.setOption("lite", saved === "1"); paintOpts(); }
+  } catch (err) { void err; }
   optCurve.addEventListener("click", () => {
     Frunky.setOption("curveOutward", !Frunky.options().curveOutward); paintOpts();
   });
@@ -412,6 +421,7 @@
       ["Ohne Signal", (trip.staleMs / 1000).toFixed(0) + " s"],
       ["Standort-Fehler", trip.errors ? trip.errors + " (" + trip.lastError + ")" : "0"],
       ["Zeitstempel", trip.clockFallback ? "Ankunftszeit (Gerät unbrauchbar)" : "vom Gerät"],
+      ["Noten/s (min–max)", (trip.minNotes === 9999 ? "—" : trip.minNotes) + "–" + trip.maxNotes],
       ["Audio-Last (Schnitt)", Math.round(Frunky.load() * 100) + " %"],
       ["Audio-Last (Spitze)", Math.round(Frunky.peakLoad() * 100) + " %"],
       ["Sparmodus", Frunky.options().lite ? "an" : "aus"],
@@ -459,7 +469,7 @@
     Object.assign(trip, { startedAt: 0, fixes: 0, fromCoords: 0, coarse: 0,
       rejected: 0, intervals: [], accuracies: [], maxSpeed: 0, maxForce: 0,
       maxLat: 0, staleMs: 0, lastSampleAt: 0, clockFallback: 0, errors: 0,
-      lastError: "", skipped: 0 });
+      lastError: "", skipped: 0, minNotes: 9999, maxNotes: 0 });
     freezes = 0; worstFreeze = 0; wasStale = false; shownParked = false;
     start();
   }
@@ -474,6 +484,7 @@
   let shownSpeed = -1, shownState = "", shownForce = -1, ltAtLastFrame = 0;
   let lastFrame = performance.now();
   let lastDiagAt = 0, wasStale = false, freezes = 0, worstFreeze = 0, shownParked = false;
+  let notesPerSec = 0, noteWindowAt = 0, noteWindowStart = 0;
 
   // ---- why does the page stop? ----------------------------------------------
   // Four measurements, because they are what separates the possible causes.
@@ -569,6 +580,15 @@
       const f = Math.round(Frunky.force() * 50) * 2; // 2 % steps
       if (f !== shownForce) { shownForce = f; forceEl.style.width = f + "%"; }
 
+      // notes actually triggered, per second: the one number that separates
+      // "the engine stopped" from "the engine plays and I hear nothing"
+      const nowN = Frunky.health().notes;
+      if (now - noteWindowAt > 1000) {
+        notesPerSec = Math.round((nowN - noteWindowStart) * 1000 / (now - noteWindowAt));
+        noteWindowAt = now; noteWindowStart = nowN;
+        trip.minNotes = Math.min(trip.minNotes, notesPerSec);
+        trip.maxNotes = Math.max(trip.maxNotes, notesPerSec);
+      }
       trip.maxSpeed = Math.max(trip.maxSpeed, input.speed);
       trip.maxForce = Math.max(trip.maxForce, Frunky.force());
       trip.maxLat = Math.max(trip.maxLat, Math.abs(input.lateralG));
@@ -592,6 +612,7 @@
           " · uhr " + (trip.clockFallback ? "ankunft" : "gerät") +
           " · fehler " + (trip.errors ? trip.errors + " (" + trip.lastError + ")" : "0") +
           " · g " + input.lateralG.toFixed(2) +
+          " · noten/s " + notesPerSec +
           " · last " + Math.round(Frunky.load() * 100) + "%" +
           (Frunky.health().strain > 0.5 ? " · VEREINFACHT" : "");
       }
