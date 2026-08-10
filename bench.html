@@ -187,6 +187,16 @@
       <button id="modeGps" class="on">GPS-Realität (1 Hz + Latenz)</button>
       <button id="modeDirect">Ideale Messung</button>
     </div>
+    <div class="mode" role="group" aria-label="Räumliches Modell">
+      <button id="optCurve" class="on">Kurve: aussen</button>
+      <button id="optDepth" class="on">Trägheits-Tiefe: an</button>
+    </div>
+    <p class="mode-caption">
+      Trägheits-Modell: In der Kurve rutscht die Mischung nach aussen, so wie du
+      gedrückt wirst; unter Schub tritt die Band zurück (mehr Raum, weniger
+      Höhen), beim Bremsen kommt sie trocken nach vorn. Zum Vergleichen
+      umschaltbar — mit Kopfhörern am deutlichsten.
+    </p>
     <p class="mode-caption" id="modeCaption">
       Engine-Input: 1 Sample/Sekunde, ~0,8 s alt, mit Extrapolation geglättet.
     </p>
@@ -418,6 +428,25 @@
   }
   modeGps.addEventListener("click", () => setMode(true));
   modeDirect.addEventListener("click", () => setMode(false));
+
+  // the spatial A/B: whether the inertial direction feels right is a question
+  // about the body, and a question needs two answers to compare
+  const optCurve = document.getElementById("optCurve");
+  const optDepth = document.getElementById("optDepth");
+  function paintOpts() {
+    const o = Frunky.options();
+    optCurve.textContent = "Kurve: " + (o.curveOutward ? "aussen" : "innen");
+    optCurve.classList.toggle("on", o.curveOutward);
+    optDepth.textContent = "Trägheits-Tiefe: " + (o.inertiaDepth ? "an" : "aus");
+    optDepth.classList.toggle("on", o.inertiaDepth);
+  }
+  optCurve.addEventListener("click", () => {
+    Frunky.setOption("curveOutward", !Frunky.options().curveOutward); paintOpts();
+  });
+  optDepth.addEventListener("click", () => {
+    Frunky.setOption("inertiaDepth", !Frunky.options().inertiaDepth); paintOpts();
+  });
+  paintOpts();
 
   // guard against reviewing a stale copy: show when THIS page file was built
   const bi = document.getElementById("buildInfo");

@@ -340,8 +340,13 @@
   const poly = (p, n) => { try { p.maxPolyphony = n; } catch (err) { void err; } return p; };
 
   let master, comp, limiter, makeup, tensionLp, masterHp, panner, duck, dry;
+  let depthLp, depthGain;
   let busDrums, busBass, busHarm, busLead, busFx;
   let revSend, delaySend, delayRet, chorus;
+  // Spatial behaviour is a QUESTION, not a setting: whether the inertial
+  // direction feels right can only be answered in a moving car, and an answer
+  // needs an A and a B. Both default to the congruent reading
+  const opts = { curveOutward: true, inertiaDepth: true };
   let kickS, heartS, tomS, hatC, hatO, shakerS, percS;
   let bassS, bassLp, growlS, growlLp, thrustSub, thrustSubGain;
   let brakeNoise, brakeLp, brakeGain, brakeOsc, brakeOscGain;
@@ -397,7 +402,17 @@
     duck = reg(new Tone.Gain(1));
     dry = reg(new Tone.Gain(1));
     dry.connect(panner); duck.connect(panner);
-    panner.chain(tensionLp, masterHp, makeup, comp, master, limiter, Tone.getDestination());
+    // Inertial DEPTH. The car browser gives us stereo and no access to the
+    // fader, so a literal rearward shift is impossible — but distance is not
+    // primarily a direction, it is a set of cues: more room relative to direct
+    // sound, air absorption taking the top off, and a little less level. Under
+    // acceleration the band recedes; under braking it comes forward, expressed
+    // as DRYNESS alone, because the brake filter already owns brightness and two
+    // gestures pulling the same parameter opposite ways cancel out
+    depthLp = reg(new Tone.Filter(18000, "lowpass"));
+    depthGain = reg(new Tone.Gain(1));
+    panner.chain(depthLp, depthGain, tensionLp, masterHp, makeup, comp, master,
+      limiter, Tone.getDestination());
     master.gain.rampTo(0.9, 0.1);
 
     // ---- submix buses ------------------------------------------------------
@@ -1234,8 +1249,11 @@
     brakeOscGain.gain.value = brake * 0.32;
     brakeOsc.frequency.value = 88 - 46 * brake;
     tensionLp.frequency.value = 1200 + 16800 * Math.pow(1 - brake, 2);
-    // curve lean: whole mix pans, delay shimmer opens, stretch tone bends up
-    panner.pan.value = lat * 0.45;
+    // Curve: the mix slides OUTWARD, the way you are pushed. Leaning into the
+    // turn was the intuitive reading and the wrong one — the pseudo-force in a
+    // right-hand bend points left, so audio that moves right contradicts what
+    // the body feels, and sensory conflict is the motion-sickness mechanism
+    panner.pan.value = (opts.curveOutward ? -lat : lat) * 0.45;
     delayRet.gain.value = 0.6 + Math.abs(lat) * 0.9;
     const gAbs = Math.abs(lat);
     stretchGain.gain.value = gAbs * 0.16 * clamp(speed / 50, 0, 1);
@@ -1249,6 +1267,12 @@
     // heard as a mix that stops working rather than as a scene that opens up.
     // The city is the opposite case: its percussion groove adds a whole layer,
     // so the drum family steps back a touch to make room for it
+    // depth: positive = receding under thrust, negative = coming forward
+    const depth = opts.inertiaDepth ? clamp(thrust - brake, -1, 1) : 0;
+    revSend.gain.value = 0.4 + (depth > 0 ? 0.35 * depth : 0.12 * depth);
+    depthLp.frequency.value = 18000 - 13000 * Math.max(depth, 0);
+    depthGain.gain.value = 1 - 0.12 * Math.max(depth, 0) + 0.06 * Math.max(-depth, 0);
+
     const eNow = clamp(engine.energy + engine.launchBoost * 0.3, 0, 1);
     const flowHigh = clamp((eNow - 0.5) / 0.35, 0, 1);
     makeup.gain.value = 1 + 0.16 * flowHigh;
@@ -1359,13 +1383,28 @@
       master: master ? master.gain.value : 0,
       duck: duck ? duck.gain.value : 0,
       harm: busHarm ? busHarm.gain.value : 0,
+      pan: panner ? panner.pan.value : 0,
+      room: revSend ? revSend.gain.value : 0,
+      air: depthLp ? depthLp.frequency.value : 0,
       drums: busDrums ? busDrums.gain.value : 0,
       makeup: makeup ? makeup.gain.value : 0,
     };
   }
 
+  // A car browser may suspend audio when the page goes to the background or the
+  // screen sleeps, and it does not always come back on its own
+  async function resume() {
+    try { await Tone.getContext().resume(); } catch (err) { void err; }
+  }
+
+  function setOption(key, value) {
+    if (Object.prototype.hasOwnProperty.call(opts, key)) opts[key] = !!value;
+    return { ...opts };
+  }
+  const options = () => ({ ...opts });
+
   window.Frunky = {
-    start, stop, update, status, describe, force, levels,
+    start, stop, update, status, describe, force, levels, setOption, options, resume,
     isRunning: () => engine.running,
     isBuilding: () => building,
   };

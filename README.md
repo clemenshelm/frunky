@@ -59,6 +59,15 @@ Vertical layering means the arrangement's density is decided at runtime, so **a 
 
 Still open, and deliberately not guessed at from a desk: **road-noise compensation**. At 130 km/h the loudest thing in the car is broadband noise centred where the bass lives, and no amount of studio balance survives that. It needs the field test ([#1](https://github.com/clemenshelm/frunky/issues/1)).
 
+### Spatial inertia
+
+The music behaves like a mass. Two of the three axes are in:
+
+- **Curves**: the mix slides **outward**, the way the passenger is pushed. Leaning *into* the bend was the intuitive reading and the wrong one — the pseudo-force in a right-hander points left, so audio moving right contradicts what the body feels, and sensory conflict is the motion-sickness mechanism.
+- **Fore/aft**: the car browser gives us stereo and no access to the fader, so a literal rearward shift is impossible. Distance is not primarily a direction though, it's a set of cues — room relative to direct sound, air absorption, level — so under acceleration the band recedes (more reverb, top end rolled off, slightly quieter) and under braking it comes forward. Braking expresses that as **dryness alone**, because the brake filter already owns brightness and two gestures pulling one parameter opposite ways cancel out.
+
+Both are switchable at runtime (`Frunky.setOption`), on the bench and behind the driver page's diagnostics tap. That isn't a preference — whether the inertial reading feels right is a question about the body, and a question needs an A and a B. `test/spatial.test.mjs` pins the directions and that the switch really switches.
+
 ### Latency doctrine
 
 A car browser delivers GPS at ~1 Hz with ~1 s of lag. The engine is designed so that never matters:

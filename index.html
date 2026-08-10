@@ -94,6 +94,30 @@
           font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.7rem;
           line-height: 1.7; word-spacing: 0.4em; }
   body.diag #diag { display: block; }
+  #diagOpts { display: none; gap: 0.4rem; padding: 0.4rem 1.1rem 0; flex-wrap: wrap; }
+  body.diag #diagOpts { display: flex; }
+  #diagOpts button {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.7rem;
+    color: var(--muted); background: transparent;
+    border: 1px solid #232a38; border-radius: 5px;
+    padding: 0.3rem 0.6rem; cursor: pointer;
+  }
+  #diagOpts button.on { color: var(--cyan); border-color: var(--cyan); }
+  /* the trip summary is the point of a field test: an impression is not a
+     result, and nobody can read a diagnostics line at 130 km/h */
+  #trip { display: none; padding: 1.2rem 1.1rem; max-width: 46ch; margin: 0 auto; }
+  body.done #trip { display: block; }
+  body.done #startScreen, body.done #driveScreen { display: none; }
+  #trip h2 { font-size: 1rem; font-weight: 600; margin-bottom: 0.7rem; }
+  #trip dl { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 1rem;
+             font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.78rem; }
+  #trip dt { color: var(--muted); }
+  #trip dd { color: var(--text); }
+  #again {
+    margin-top: 1.2rem; font-family: inherit; font-size: 0.95rem; font-weight: 600;
+    color: #06282c; background: var(--cyan);
+    border: none; border-radius: 999px; padding: 0.7rem 1.8rem; cursor: pointer;
+  }
 </style>
 </head>
 <body>
@@ -113,7 +137,17 @@
   <div class="force"><i id="forceBar"></i></div>
 </main>
 
+<main id="trip">
+  <h2>Fahrt ausgewertet</h2>
+  <dl id="tripBody"></dl>
+  <button id="again">Neue Fahrt</button>
+</main>
+
 <p id="diag"></p>
+<div id="diagOpts">
+  <button id="optCurve">Kurve: aussen</button>
+  <button id="optDepth">Trägheits-Tiefe: an</button>
+</div>
 <footer>
   <span id="foot">Frunky</span>
   <button id="stop">Beenden</button>
@@ -134,10 +168,44 @@
   const reader = FrunkyGeo.createReader();
   let watchId = null, wakeLock = null, gotFix = false;
 
+  // ---- trip recording ------------------------------------------------------
+  // What a field test has to answer is factual — does this browser report a
+  // speed, how often does a fix arrive, how accurate is it — and none of it can
+  // be read off the screen while driving. So the drive records itself and the
+  // numbers are shown once it is over.
+  const trip = {
+    startedAt: 0, fixes: 0, fromCoords: 0, coarse: 0, rejected: 0,
+    intervals: [], accuracies: [],
+    maxSpeed: 0, maxForce: 0, maxLat: 0, staleMs: 0, lastSampleAt: 0,
+  };
+  const median = (a) => {
+    if (!a.length) return null;
+    const v = a.slice().sort((x, y) => x - y);
+    return v[Math.floor(v.length / 2)];
+  };
+
   // tap the footer to reveal what the receiver is actually delivering. The
   // in-car test's real question is whether this browser reports coords.speed
   // and coords.heading at all — everything else can be tuned afterwards
   el("foot").addEventListener("click", () => document.body.classList.toggle("diag"));
+
+  // the A/B a field test needs: whether the inertial reading feels right is a
+  // question about the body, and a question needs two answers to compare
+  const optCurve = el("optCurve"), optDepth = el("optDepth");
+  function paintOpts() {
+    const o = Frunky.options();
+    optCurve.textContent = "Kurve: " + (o.curveOutward ? "aussen" : "innen");
+    optCurve.classList.toggle("on", o.curveOutward);
+    optDepth.textContent = "Trägheits-Tiefe: " + (o.inertiaDepth ? "an" : "aus");
+    optDepth.classList.toggle("on", o.inertiaDepth);
+  }
+  optCurve.addEventListener("click", () => {
+    Frunky.setOption("curveOutward", !Frunky.options().curveOutward); paintOpts();
+  });
+  optDepth.addEventListener("click", () => {
+    Frunky.setOption("inertiaDepth", !Frunky.options().inertiaDepth); paintOpts();
+  });
+  paintOpts();
 
   function note(text, isError) {
     noteEl.textContent = text;
@@ -154,17 +222,26 @@
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && document.body.classList.contains("driving")) {
       keepAwake();
+      Frunky.resume(); // a backgrounded car browser may suspend the audio clock
     }
   });
 
   function onFix(pos) {
     gotFix = true;
     const c = pos.coords;
+    const before = reader.diagnostics(Date.now());
+    trip.fixes++;
+    if (Number.isFinite(c.speed) && c.speed >= 0) trip.fromCoords++;
+    if (Number.isFinite(c.accuracy)) trip.accuracies.push(c.accuracy);
     reader.push({
       lat: c.latitude, lon: c.longitude,
       speed: c.speed, heading: c.heading, accuracy: c.accuracy,
       t: pos.timestamp || Date.now(),
     });
+    const after = reader.diagnostics(Date.now());
+    if (after.intervalMs != null) trip.intervals.push(after.intervalMs);
+    if (after.speedSource === "grob") trip.coarse++;
+    if (after.rejected > before.rejected) trip.rejected++;
   }
   function onGeoError(err) {
     const msg = err.code === 1
@@ -195,8 +272,34 @@
       enableHighAccuracy: true, maximumAge: 0, timeout: 15000,
     });
     keepAwake();
+    trip.startedAt = Date.now();
+    trip.lastSampleAt = 0;
+    document.body.classList.remove("done");
     document.body.classList.add("driving");
     startBtn.disabled = false;
+  }
+
+  function showTrip() {
+    const mins = (Date.now() - trip.startedAt) / 60000;
+    const iv = median(trip.intervals), acc = median(trip.accuracies);
+    const rows = [
+      ["Dauer", mins.toFixed(1) + " min"],
+      ["GPS-Fixes", String(trip.fixes)],
+      ["Takt (Median)", iv == null ? "—" : Math.round(iv) + " ms"],
+      ["Genauigkeit (Median)", acc == null ? "—" : Math.round(acc) + " m"],
+      ["Tempo vom Browser", trip.fixes ? Math.round((trip.fromCoords / trip.fixes) * 100) + " %" : "—"],
+      ["Fixes zu ungenau", String(trip.coarse)],
+      ["Sprünge verworfen", String(trip.rejected)],
+      ["Ohne Signal", (trip.staleMs / 1000).toFixed(0) + " s"],
+      ["Höchsttempo", Math.round(trip.maxSpeed) + " km/h"],
+      ["Stärkste Kraft", Math.round(trip.maxForce * 100) + " %"],
+      ["Stärkste Querkraft", trip.maxLat.toFixed(2)],
+      ["Kurve", Frunky.options().curveOutward ? "aussen" : "innen"],
+      ["Trägheits-Tiefe", Frunky.options().inertiaDepth ? "an" : "aus"],
+    ];
+    el("tripBody").innerHTML = rows
+      .map(([k, v]) => "<dt>" + k + "</dt><dd>" + v + "</dd>").join("");
+    document.body.classList.add("done");
   }
 
   function stop() {
@@ -204,11 +307,20 @@
     if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
     if (wakeLock) { try { wakeLock.release(); } catch (err) { void err; } wakeLock = null; }
     document.body.classList.remove("driving");
+    if (trip.startedAt) showTrip();
     note("Braucht Standortfreigabe — die Musik folgt Beschleunigung, Bremsen und Kurven."
       + " Vor der Fahrt starten.", false);
   }
 
-  startBtn.addEventListener("click", start);
+  function beginTrip() {
+    document.body.classList.remove("done");
+    Object.assign(trip, { startedAt: 0, fixes: 0, fromCoords: 0, coarse: 0,
+      rejected: 0, intervals: [], accuracies: [], maxSpeed: 0, maxForce: 0,
+      maxLat: 0, staleMs: 0, lastSampleAt: 0 });
+    start();
+  }
+  startBtn.addEventListener("click", beginTrip);
+  el("again").addEventListener("click", beginTrip);
   stopBtn.addEventListener("click", stop);
 
   // Writing the readouts every frame means a layout pass every frame, and the
@@ -238,6 +350,13 @@
       }
       const f = Math.round(Frunky.force() * 50) * 2; // 2 % steps
       if (f !== shownForce) { shownForce = f; forceEl.style.width = f + "%"; }
+
+      trip.maxSpeed = Math.max(trip.maxSpeed, input.speed);
+      trip.maxForce = Math.max(trip.maxForce, Frunky.force());
+      trip.maxLat = Math.max(trip.maxLat, Math.abs(input.lateralG));
+      const nowMs = Date.now();
+      if (stale && trip.lastSampleAt) trip.staleMs += nowMs - trip.lastSampleAt;
+      trip.lastSampleAt = nowMs;
 
       if (document.body.classList.contains("diag")) {
         const d = reader.diagnostics(Date.now());
