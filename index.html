@@ -300,11 +300,12 @@
   const MOTIF = [69, 72, 76, 71, 69]; // the app's own 5-note ident — rare on purpose
   // call-and-response answers for the square-wave blip voice (pentatonic, high)
   const BLIPS = [[76, 74, 72], [72, 76, 79], [74, 72, 69]];
-  // one-bar bass licks as [pos, semitones-from-root] — rare on purpose
+  // bass licks as [pos, semitones-from-root]: pickups into the next ONE,
+  // pitched an octave-plus up — melody doesn't read in the sub register
   const LICKS = [
-    [[10, 0], [11, 3], [12, 5], [14, 7]],    // pentatonic run-up
-    [[10, 12], [12, 0], [13, 10], [14, 12]], // octave bounce
-    [[12, 5], [13, 3], [14, 0], [15, -2]],   // walk-down into the next root
+    [[12, 12], [13, 15], [14, 17], [15, 19]], // run-up: A2 C3 D3 E3 → lands on the one
+    [[10, 24], [11, 12], [13, 24], [15, 22]], // octave bounce with a high pop
+    [[11, 19], [12, 17], [13, 15], [15, 14]], // walk-down, hangs a step above the root
   ];
   // the bass sits in the pocket: consistently a touch behind the beat
   function bassT(t) { return t + 0.008 + (Math.random() - 0.5) * 0.006; }
@@ -342,6 +343,7 @@
     blipSeq: null,
     brassy: false,    // Parov: anticipated brass stab on the and-of-four
     lick: null,       // playful bass figure, once per 8-bar phrase
+    lickFlashUntil: 0,
     traitsText: "",   // human-readable section readout for the UI
     standstillSince: null,
     armed: false,
@@ -701,10 +703,11 @@
           SPB * (1.5 + Math.random() * 0.4));
       }
       if (lickBar) {
+        if (pos === 10) engine.lickFlashUntil = Date.now() + 2200;
         const hit = engine.lick.find((x) => x[0] === pos);
         if (hit) {
-          bassNote(bassT(t), F(engine.roots[ci] + hit[1]), 650 + 300 * fat,
-            vel(0.2 * drain), SPB * 0.9);
+          bassNote(bassT(t), F(engine.roots[ci] + hit[1]), 900 + 500 * fat,
+            vel(0.26 * drain), SPB * 0.85);
         }
       }
       // funk vocabulary: quiet ghost notes between the hits — felt, not heard
@@ -873,7 +876,8 @@
         : ["Cruise", "cruise"];
       ui.status.textContent = st[0];
       ui.status.className = "status " + st[1];
-      ui.traits.textContent = engine.traitsText ? "Sektion: " + engine.traitsText : "";
+      ui.traits.textContent = (engine.traitsText ? "Sektion: " + engine.traitsText : "")
+        + (Date.now() < engine.lickFlashUntil ? "  ▶ LICK" : "");
     }
 
     ui.trueBar.style.width = (sim.trueSpeed / 150) * 100 + "%";
