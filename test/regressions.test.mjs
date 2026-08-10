@@ -115,6 +115,71 @@ await Frunky.start();
 Frunky.stop();
 transport.clear();
 
+// ---- 5. thinning out must not flicker --------------------------------------
+// A section that drops and restores its layers mid-bar is heard as the band
+// falling out of sync with itself — instruments appearing and vanishing, the
+// arp changing rate under a held note. Whatever the load is doing, the
+// ARRANGEMENT may only change at a bar line, and only with hysteresis.
+await Frunky.start();
+{
+  let t = 0, changes = [], lastLean = null;
+  const stepOnce = (expensive) => {
+    Frunky.update(1 / 60, { speed: 45, lateralG: 0 });
+    const realNow = performance.now.bind(performance);
+    if (expensive) { let f = 0; performance.now = () => (f += 70); }
+    transport.cb(t);
+    performance.now = realNow;
+    const h = Frunky.health();
+    if (h.lean !== lastLean) { changes.push({ step: Math.round(t / SPB), lean: h.lean }); lastLean = h.lean; }
+    t += SPB;
+  };
+  for (let i = 0; i < 64; i++) stepOnce(false);          // settle
+  // alternate cheap and expensive steps: strain oscillates around its threshold
+  for (let i = 0; i < 256; i++) stepOnce(i % 3 === 0);
+  for (let i = 0; i < 64; i++) stepOnce(false);          // and calm again
+
+  const midBar = changes.filter((c) => c.step % 16 !== 0);
+  ok("the arrangement never changes mid-bar: " + JSON.stringify(midBar.slice(0, 3)),
+    midBar.length === 0);
+  ok("and it does not flicker bar to bar: " + changes.length + " changes",
+    changes.length <= 4);
+}
+Frunky.stop();
+transport.clear();
+
+// ---- 6. layers that arrive at a speed must fade in --------------------------
+// The highway elements were gated by a threshold: cross it and a sustained bass
+// appears, the arp changes rate, the harmony switches source — all at once and
+// at full strength. A layer that switches on is heard as a mistake; a layer
+// that grows is heard as the scene opening.
+await Frunky.start();
+{
+  // the motorway latch lives in the sequencer, so the transport has to run:
+  // roughly one sixteenth every seven frames at 132 BPM
+  let ft = 0;
+  const hold = (speed, frames) => {
+    for (let i = 0; i < frames; i++) {
+      Frunky.update(1 / 60, { speed, lateralG: 0 });
+      if (i % 7 === 0) { transport.cb(ft); ft += SPB; }
+    }
+  };
+  hold(45, 600);                                   // town: the flow layer is out
+  ok("the flow layer starts closed: " + Frunky.health().flowFade.toFixed(2),
+    Frunky.health().flowFade < 0.05);
+
+  hold(130, 60);                                   // one second on the motorway
+  const early = Frunky.health().flowFade;
+  ok("a second in it has only begun: " + early.toFixed(2), early < 0.45);
+  hold(130, 400);
+  ok("several seconds later it is there: " + Frunky.health().flowFade.toFixed(2),
+    Frunky.health().flowFade > 0.75);
+
+  hold(40, 500);                                   // and it leaves the same way
+  ok("it closes again", Frunky.health().flowFade < 0.3);
+}
+Frunky.stop();
+transport.clear();
+
 if (failures.length) {
   console.error("FAILURES:");
   for (const f of failures) console.error("  -", f);

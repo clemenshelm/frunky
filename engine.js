@@ -294,6 +294,7 @@
     brake: 0,
     urban: 0,
     wake: 0,          // how far the rhythm section has faded in, 0..1
+    flowFade: 0,      // how far the motorway layer has faded in, 0..1
     fillAt: -1,
     prog: null,   // the section object: rolled ONCE per boundary, only read in steps
     roots: null,
@@ -923,9 +924,18 @@
 
   function onStep(s, t) {
     const pos = s % 16, bar = Math.floor(s / 16);
-    const lean = strain > 0.5; // the device is at its limit — shed ornaments
+    // Thinning LATCHES at a bar line, with hysteresis. Deciding it per step
+    // means layers appear and vanish mid-bar and the arp changes rate under a
+    // held note — heard not as "simpler" but as a band falling out of sync
+    // with itself. Whatever the load does, the arrangement changes on the one
+    // or not at all
+    if (pos === 0) {
+      if (!engine.lean && strain > 0.6) engine.lean = true;
+      else if (engine.lean && strain < 0.3) engine.lean = false;
+    }
+    const lean = engine.lean; // the device is at its limit — shed ornaments
     const wake = clamp(engine.wake, 0, 1); // the rhythm section fading in
-    engine.lean = lean;
+    const ff = clamp(engine.flowFade, 0, 1); // the motorway layer fading in
     const e = clamp(engine.energy + engine.launchBoost * 0.3, 0, 1);
     const still = e < 0.06;
     const push = engine.thrust;
@@ -1075,7 +1085,9 @@
       }
       // sustained highway root lives on its own synth — the mono bass would
       // otherwise retrigger and choke it on every offbeat hit
-      if (pos === 0 && flowHigh > 0.3 && !breather && !bridgeDown) bassSubNote(t, rootF, 0.26 * flowHigh * drain, SPB * 15);
+      if (pos === 0 && ff > 0.02 && !breather && !bridgeDown) {
+        bassSubNote(t, rootF, 0.26 * flowHigh * drain * ff, SPB * 15);
+      }
       // thrust: growl-bass eases in and out with force — no hard gate
       if (push > 0.04 && pos % 4 === 2) growlNote(t, 0.62 * Math.pow(push, 1.3), SPB * 1.6);
       if (push > 0.55 && (pos % 4 === 1 || pos % 4 === 3)) growlNote(t, 0.3 * push, SPB * 0.8);
@@ -1142,11 +1154,15 @@
     }
     // arp: relaxed 8ths in town, hypnotic long notes on the highway;
     // phrase ends run the figure backwards, sections shift its octave
-    const arpHit = (flowHigh > 0.6 || lean) ? pos % 4 === 0 : pos % 2 === 0;
+    const onBeat = pos % 4 === 0;
+    // the motorway thins the arp by letting its offbeats recede, not by
+    // switching rate: a rate change under a held note is heard as a stumble
+    const offbeatLevel = lean ? 0 : 1 - ff;
+    const arpHit = pos % 2 === 0 && (onBeat || offbeatLevel > 0.02);
     if (arpHit) {
       const seq = turnaround ? engine.arpSeq.slice().reverse() : engine.arpSeq;
       // accent contour: downbeats lean forward, offbeats sit back — not uniform
-      const accent = pos % 4 === 0 ? 1.15 : 0.9;
+      const accent = (onBeat ? 1.15 : 0.9) * (onBeat ? 1 : offbeatLevel);
       arpNote(t, F(seq[Math.floor(s / 2) % 8] + (liftPhase ? 12 : engine.arpOct)),
         340 + 2000 * clamp(e, 0, 0.8) * (0.75 + 0.25 * Math.sin(t * 0.3)) + 700 * push,
         vel(0.07 * accent), flowHigh > 0.6 ? SPB * 3.6 : SPB * 1.8);
@@ -1304,6 +1320,13 @@
     // it is the one moment the whole design exists for, and making it wait for
     // the same fade turns the launch into a slow swell — the exact fault the
     // fade was added to remove, moved to the other end
+    // Scene layers must GROW, not switch on. The motorway used to arrive as a
+    // threshold: cross it and a sustained bass appears, the arp changes rate and
+    // the harmony changes source, all at once and at full strength. A layer that
+    // switches on is heard as a mistake; a layer that grows is the scene opening
+    const flowTarget = engine.flowOn ? 1 : 0;
+    engine.flowFade += (flowTarget - engine.flowFade) * (1 - Math.exp(-dt / 2.6));
+
     const launching = engine.launchBoost > 0.2;
     const awake = engine.energy > 0.055 || launching ? 1 : 0;
     const wakeTau = awake > engine.wake ? (launching ? 0.12 : 2.2) : 0.9;
@@ -1500,7 +1523,8 @@
     engine.energy = 0; engine.launchBoost = 0;
     engine.armed = false; engine.standstillSince = null; engine.prevEst = 0;
     engine.accelEst = 0; engine.thrust = 0;
-    engine.brake = 0; engine.urban = 0; engine.wake = 0; engine.fillAt = -1;
+    engine.brake = 0; engine.urban = 0; engine.wake = 0; engine.flowFade = 0;
+    engine.fillAt = -1;
     engine.prog = PROGS[0]; engine.roots = ROOTS[0]; engine.bassPat = BASSPATS[0];
     engine.arpSeq = ARPS[0]; engine.arpOct = 0;
     engine.hr = "bar"; engine.fill = "toms"; engine.ghosts = false;
@@ -1508,6 +1532,7 @@
     engine.lick = null; engine.bassMel = null;
     engine.syncPos = 12; engine.snare = false; engine.padStyle = "wash";
     engine.liftActive = false; engine.pullChorus = false; engine.dropAt = -1;
+    engine.lean = false;
     engine.flowOn = false; engine.progIdx = 0; engine.piece = null; engine.partLabel = "";
     stepIdx = 0; pendingLaunchAt = -1; tp = 0; clock = 0;
     sched.clear(); ctlLast.clear(); stepCost = 0; peakCost = 0;
@@ -1609,6 +1634,8 @@
       errors: errCount, resumes, stalls, lateSteps, worstLate,
       load: stepCost, peakLoad: peakCost,
       strain, strainPct: totalSteps ? (strainSteps / totalSteps) * 100 : 0,
+      lean: engine.lean,
+      flowFade: engine.flowFade,
       wake: engine.wake,
       events: events.slice(),
     };

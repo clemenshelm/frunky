@@ -43,10 +43,11 @@ for (const [name, src] of [["index.html", drive], ["bench.html", bench]]) {
 
 // a page that forgets a <script> fails with a bare ReferenceError in the car
 ok("driver page loads Tone", drive.includes('src="vendor/Tone.js"'));
-ok("driver page loads the engine", drive.includes('src="engine.js"'));
-ok("driver page loads the GPS reader", drive.includes('src="geo.js"'));
+// the version query is how a car browser with no hard reload gets fresh code
+ok("driver page loads the engine", /src="engine\.js(\?v=\d+)?"/.test(drive));
+ok("driver page loads the GPS reader", /src="geo\.js(\?v=\d+)?"/.test(drive));
 ok("bench loads Tone", bench.includes('src="vendor/Tone.js"'));
-ok("bench loads the engine", bench.includes('src="engine.js"'));
+ok("bench loads the engine", /src="engine\.js(\?v=\d+)?"/.test(bench));
 
 // the two pages must stay distinct in role: only the driver page reads real
 // GPS, only the bench simulates one. Mixing them up is how a "fixed" bug turns
@@ -63,6 +64,11 @@ ok("engine.js touches no DOM", !/\bdocument\.|getElementById|requestAnimationFra
 // both pages carry a build stamp: reviewing a stale cached copy has cost this
 // project two full feedback rounds already
 ok("driver page stamps its build", drive.includes("lastModified"));
+// the build number must reach the report, or a stale run is indistinguishable
+// from a fresh one — which cost three field tests
+ok("the driver page reports its build number", /const BUILD = "\d+"/.test(drive));
+ok("and the script query matches it",
+  (drive.match(/const BUILD = "(\d+)"/) || [])[1] === (drive.match(/engine\.js\?v=(\d+)/) || [])[1]);
 ok("bench stamps its build", bench.includes("lastModified"));
 
 if (failures.length) {

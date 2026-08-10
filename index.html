@@ -171,11 +171,16 @@
 </footer>
 
 <script src="vendor/Tone.js"></script>
-<script src="engine.js"></script>
-<script src="geo.js"></script>
+<script src="engine.js?v=12"></script>
+<script src="geo.js?v=12"></script>
 <script>
 (() => {
   "use strict";
+  // Bumped on every deploy. A car browser has no hard reload, so the only way
+  // to know whether a trip tested the code we shipped is to read it back —
+  // three reports in a row turned out to be the same stale build.
+  // (Loading the page as ?v=<something-new> is what forces a fresh copy.)
+  const BUILD = "12";
   const el = (id) => document.getElementById(id);
   const startBtn = el("start"), stopBtn = el("stop");
   const speedEl = el("speed"), stateEl = el("state"), forceEl = el("forceBar");
@@ -223,7 +228,7 @@
     const h = Frunky.health();
     const d = reader.diagnostics(Date.now());
     const lines = [
-      "FRUNKY " + document.lastModified,
+      "FRUNKY build " + BUILD + " · " + document.lastModified,
       "",
       "audio      " + h.audio + (h.running ? " · läuft" : " · gestoppt"),
       "steps      " + h.step,
@@ -389,6 +394,7 @@
     const mins = (Date.now() - trip.startedAt) / 60000;
     const iv = median(trip.intervals), acc = median(trip.accuracies);
     const rows = [
+      ["Version", BUILD],
       ["Dauer", mins.toFixed(1) + " min"],
       ["GPS-Fixes", String(trip.fixes)],
       ["Takt (Median)", iv == null ? "—" : Math.round(iv) + " ms"],
