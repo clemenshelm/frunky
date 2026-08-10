@@ -175,6 +175,7 @@ if (!seen.has("Stadt")) failures.push("urban state never reached");
 if (!seen.has("Autobahn-Flow")) failures.push("highway flow state never reached");
 if (estShown === "0 km/h") failures.push("engine estimate never moved");
 if (!traitsShown.includes("Akkorde:")) failures.push("section trait readout never rendered");
+if (!traitsShown.includes("Stück")) failures.push("song-form part label never rendered");
 
 if (failures.length) {
   console.error("FAILURES:", failures);

@@ -427,6 +427,93 @@
     [57, 62, 64, 67, 69, 67, 64, 62],
     [64, 62, 60, 57, 60, 62, 64, 67],
   ];
+  // ---- song form ----------------------------------------------------------
+  // A piece = a script of parts. Verse delivers, chorus pays off (the SAME
+  // hook every time), the bridge disrupts so the last chorus feels like release.
+  const FORMS = [
+    ["A", "A", "B", "A", "B", "C", "B"],
+    ["A", "B", "A", "B", "C", "B", "B"],
+    ["A", "A", "B", "C", "A", "B", "B"],
+  ];
+  const PART_NAMES = { A: "Strophe", B: "Refrain", C: "Bridge" };
+  function rollBundle(role, progIdx) {
+    const b = {
+      progIdx,
+      hr: HRS[Math.floor(Math.random() * HRS.length)],
+      bassPat: BASSPATS[Math.floor(Math.random() * BASSPATS.length)],
+      bassMel: Math.random() < (role === "chorus" ? 0.5 : 0.3)
+        ? BASSMELS[Math.floor(Math.random() * BASSMELS.length)] : null,
+      arpSeq: ARPS[Math.floor(Math.random() * ARPS.length)],
+      arpOct: role === "bridge" ? 12 : Math.random() < 0.2 ? 12 : 0,
+      ghosts: Math.random() < 0.5,
+      bassFill: Math.random() < 0.5,
+      blips: Math.random() < (role === "verse" ? 0.4 : 0.2),
+      brassy: role === "chorus" && Math.random() < 0.5,
+      snare: role === "chorus" || Math.random() < 0.4,
+      padStyle: role === "chorus"
+        ? (Math.random() < 0.5 ? "wash" : "keys")
+        : PADSTYLES[Math.floor(Math.random() * PADSTYLES.length)],
+      voice: role === "chorus" || (role === "verse" && Math.random() < 0.25),
+      voiceEv: {}, voiceForm: "",
+    };
+    if (b.voice) {
+      const g = genVoice(PROGS[progIdx]); // the hook: fixed per piece, returns as-is
+      b.voiceEv = g.ev; b.voiceForm = g.form;
+    }
+    return b;
+  }
+  function newPiece() {
+    // harmonic anchors walk the progression graph: verse where we are,
+    // chorus and bridge on neighbours
+    const pA = engine.progIdx;
+    const nA = PROG_NEXT[pA];
+    const pB = nA[Math.floor(Math.random() * nA.length)];
+    const nB = PROG_NEXT[pB];
+    const pC = nB[Math.floor(Math.random() * nB.length)];
+    engine.piece = {
+      num: engine.piece ? engine.piece.num + 1 : 1,
+      form: FORMS[Math.floor(Math.random() * FORMS.length)],
+      idx: 0,
+      parts: { A: rollBundle("verse", pA), B: rollBundle("chorus", pB), C: rollBundle("bridge", pC) },
+    };
+  }
+  function loadPart(t) {
+    const piece = engine.piece;
+    const label = piece.form[piece.idx];
+    const b = piece.parts[label];
+    Object.assign(engine, {
+      progIdx: b.progIdx, prog: PROGS[b.progIdx], roots: ROOTS[b.progIdx],
+      hr: b.hr, bassPat: b.bassPat, bassMel: b.bassMel,
+      arpSeq: b.arpSeq, arpOct: b.arpOct, ghosts: b.ghosts, bassFill: b.bassFill,
+      blips: b.blips, brassy: b.brassy, snare: b.snare, padStyle: b.padStyle,
+      voice: b.voice, voiceEv: b.voiceEv, voiceForm: b.voiceForm,
+    });
+    // per-occurrence freshness: ornaments re-roll, one trait may flip
+    engine.lick = Math.random() < 0.4 ? LICKS[Math.floor(Math.random() * LICKS.length)] : null;
+    engine.blipSeq = BLIPS[Math.floor(Math.random() * BLIPS.length)];
+    engine.syncPos = SYNCPOS[Math.floor(Math.random() * SYNCPOS.length)];
+    engine.motif = Math.random() < 0.15;
+    if (Math.random() < 0.3) engine.ghosts = !engine.ghosts;
+    // lingering pads must not carry old harmony into the new part
+    padS.releaseAll(t); padTri.releaseAll(t);
+    engine.traitsText = [
+      "Stück " + piece.num + " · " + label + " (" + PART_NAMES[label] + " " +
+        (piece.idx + 1) + "/" + piece.form.length + ")",
+      "Akkorde: " + (engine.hr === "sync" ? "sync·" + (engine.syncPos === 12 ? "Vier" : "3und") : engine.hr),
+      "Chords·" + engine.padStyle,
+      engine.snare && "Snare",
+      engine.voice && "Voice·" + engine.voiceForm,
+      "Bass-Pattern " + (BASSPATS.indexOf(engine.bassPat) + 1),
+      engine.bassMel && "Bass-Melodie",
+      engine.bassFill && "Pops",
+      engine.ghosts && "Ghosts",
+      engine.lick && "Lick " + (LICKS.indexOf(engine.lick) + 1),
+      engine.blips && "Blips",
+      engine.brassy && "Brass",
+      engine.arpOct ? "Arp oktaviert" : null,
+    ].filter(Boolean).join(" · ");
+  }
+
   // swing lives in the Tone.js Transport now — hum() only adds micro-jitter
   function hum(t, pos) { void pos; return t + (Math.random() - 0.5) * 0.006; }
   function vel(v) { return v * (0.85 + Math.random() * 0.3); }
@@ -466,6 +553,7 @@
     liftActive: false,
     flowOn: false,    // latched highway-harmony switch (hysteresis, barline only)
     progIdx: 0,       // position in the progression graph
+    piece: null,      // the current piece: form script + part bundles
     traitsText: "",   // human-readable section readout for the UI
     standstillSince: null,
     armed: false,
@@ -853,55 +941,13 @@
     const push = engine.thrust;
     const u = engine.urban;
     const flowHigh = clamp((e - 0.5) / 0.35, 0, 1); // highway = flow, not max energy
-    // the ONE dice roll: section traits every 16 bars, fill choice per phrase.
-    // steps only read these — no scattered randomness in the sequencer
+    // song form: a PIECE is a fixed script of named parts (Strophe/Refrain/
+    // Bridge) whose materials are rolled once and RETURN — repetition builds
+    // familiarity, small per-occurrence variation keeps attention
     if (pos === 0 && bar % 16 === 0) {
-      // 45% stay, otherwise a related progression from the graph
-      if (Math.random() >= 0.45) {
-        const succ = PROG_NEXT[engine.progIdx];
-        engine.progIdx = succ[Math.floor(Math.random() * succ.length)];
-      }
-      engine.prog = PROGS[engine.progIdx];
-      engine.roots = ROOTS[engine.progIdx];
-      // lingering pads must not carry old harmony into the new section
-      padS.releaseAll(t); padTri.releaseAll(t);
-      engine.bassPat = BASSPATS[Math.floor(Math.random() * BASSPATS.length)];
-      engine.arpSeq = ARPS[Math.floor(Math.random() * ARPS.length)];
-      engine.arpOct = Math.random() < 0.25 ? 12 : 0;
-      engine.hr = HRS[Math.floor(Math.random() * HRS.length)];
-      engine.ghosts = Math.random() < 0.5;
-      engine.motif = Math.random() < 0.25;
-      engine.bassFill = Math.random() < 0.5;
-      engine.blips = Math.random() < 0.35;
-      engine.blipSeq = BLIPS[Math.floor(Math.random() * BLIPS.length)];
-      engine.brassy = Math.random() < 0.35;
-      engine.lick = Math.random() < 0.5 ? LICKS[Math.floor(Math.random() * LICKS.length)] : null;
-      engine.bassMel = Math.random() < 0.4 ? BASSMELS[Math.floor(Math.random() * BASSMELS.length)] : null;
-      engine.syncPos = SYNCPOS[Math.floor(Math.random() * SYNCPOS.length)];
-      engine.snare = Math.random() < 0.5;
-      engine.padStyle = PADSTYLES[Math.floor(Math.random() * PADSTYLES.length)];
-      engine.voice = Math.random() < 0.45;
-      if (engine.voice) {
-        const g = genVoice(engine.prog);
-        engine.voiceEv = g.ev;
-        engine.voiceForm = g.form;
-      } else {
-        engine.voiceEv = {};
-      }
-      engine.traitsText = [
-        "Akkorde: " + (engine.hr === "sync" ? "sync·" + (engine.syncPos === 12 ? "Vier" : "3und") : engine.hr),
-        "Chords·" + engine.padStyle,
-        engine.snare && "Snare",
-        engine.voice && "Voice·" + engine.voiceForm,
-        "Bass-Pattern " + (BASSPATS.indexOf(engine.bassPat) + 1),
-        engine.bassMel && "Bass-Melodie",
-        engine.bassFill && "Pops",
-        engine.ghosts && "Ghosts",
-        engine.lick && "Lick " + (LICKS.indexOf(engine.lick) + 1),
-        engine.blips && "Blips",
-        engine.brassy && "Brass",
-        engine.arpOct ? "Arp oktaviert" : null,
-      ].filter(Boolean).join(" · ");
+      if (!engine.piece || engine.piece.idx >= engine.piece.form.length) newPiece();
+      loadPart(t);
+      engine.piece.idx++;
     }
     if (pos === 0 && bar % 8 === 7) engine.fill = FILLS[Math.floor(Math.random() * FILLS.length)];
     // DJ turnover: the last bar of a section pulls the lows out of the whole
@@ -912,6 +958,10 @@
       if (bar % 16 === 15 && !still) {
         masterHp.frequency.setValueAtTime(30, t);
         masterHp.frequency.exponentialRampToValueAtTime(240, t + SPB * 15);
+        // a piece ends here: a long swell carries into the next piece's one
+        if (engine.piece && engine.piece.idx >= engine.piece.form.length) {
+          fillSwell(t, SPB * 14);
+        }
       }
     }
     // breather: every 48 bars the kick and bass step aside for 4 bars —
@@ -1249,7 +1299,7 @@
     engine.lick = null; engine.bassMel = null; engine.traitsText = "";
     engine.syncPos = 12; engine.snare = false; engine.padStyle = "wash";
     engine.voice = false; engine.voiceEv = {}; engine.liftActive = false;
-    engine.flowOn = false; engine.progIdx = 0;
+    engine.flowOn = false; engine.progIdx = 0; engine.piece = null;
     stepIdx = 0; pendingLaunchAt = -1;
     transport = Tone.getTransport();
     transport.bpm.value = BPM;
