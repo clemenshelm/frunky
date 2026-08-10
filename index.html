@@ -103,6 +103,25 @@
   .mode button { border-radius: 0; background: transparent; color: var(--muted); font-weight: 500; }
   .mode button.on { background: var(--line); color: var(--text); font-weight: 600; }
   .mode-caption { font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; max-width: 60ch; }
+  .dash { margin-top: 0.9rem; display: flex; flex-direction: column; gap: 0.5rem; }
+  .dash-form {
+    display: flex; gap: 4px; align-items: center; flex-wrap: wrap;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.72rem; color: var(--muted);
+  }
+  .dash-form .blk { padding: 0.12rem 0.5rem; border: 1px solid var(--line); border-radius: 4px; }
+  .dash-form .blk.on { background: var(--cyan); color: #06282c; border-color: var(--cyan); font-weight: 700; }
+  .dash-form .plabel { margin-left: 0.4rem; color: var(--text); }
+  .dash-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .chip {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.68rem; letter-spacing: 0.04em;
+    border: 1px solid var(--line); border-radius: 4px;
+    padding: 0.12rem 0.45rem; color: var(--muted);
+  }
+  .chip b { color: var(--text); font-weight: 600; }
+  .chip.hot { border-color: var(--amber); color: var(--amber); }
+  .chip.hot b { color: var(--amber); }
   .hint {
     color: var(--muted); font-size: 0.85rem;
     border-left: 2px solid var(--amber);
@@ -145,7 +164,10 @@
         <div class="bar energy"><i id="energyBar"></i></div>
       </div>
     </div>
-    <p class="mode-caption" id="traits"></p>
+    <div class="dash" id="dash" hidden>
+      <div class="dash-form" id="dashForm" aria-label="Song-Struktur"></div>
+      <div class="dash-chips" id="dashChips"></div>
+    </div>
 
     <input type="range" id="speed" min="0" max="150" value="0" step="1" aria-label="Geschwindigkeit in km/h" />
     <p class="slider-caption">Gaspedal — ziehen oder Szenarien nutzen</p>
@@ -308,8 +330,19 @@
   const SYNCPOS = [10, 12]; // and-of-three / beat four
   // chord instrumentation pool — the cure for "waaah, waaah, waaah":
   // wash = the sustained pad, keys = rolled Rhodes with a whisper of pad,
-  // pluck = rhythmic comping stabs, no sustained chord at all
-  const PADSTYLES = ["wash", "keys", "pluck"];
+  // broken = the chord flows as an 8th-note figure on the Rhodes,
+  // gate = the classic trance gate: chord chopped by a rhythm mask
+  const PADSTYLES = ["wash", "keys", "broken", "gate"];
+  const BROKENPATS = [
+    [0, 1, 2, 3, 2, 1, 3, 2],
+    [0, 2, 1, 3, 0, 2, 3, 1],
+    [0, 3, 1, 2, 1, 3, 2, 1],
+  ]; // chord-tone indices, one per 8th
+  const GATEPATS = [
+    [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0],
+    [1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0],
+    [1, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0],
+  ]; // 16th on/off masks
   const FILLS = ["toms", "sweep", "swell"];
   const MOTIF = [69, 72, 76, 71, 69]; // the app's own 5-note ident — rare on purpose
   // call-and-response answers for the square-wave blip voice (pentatonic, high)
@@ -451,7 +484,7 @@
       brassy: role === "chorus" && Math.random() < 0.5,
       snare: role === "chorus" || Math.random() < 0.4,
       padStyle: role === "chorus"
-        ? (Math.random() < 0.5 ? "wash" : "keys")
+        ? ["wash", "keys", "gate"][Math.floor(Math.random() * 3)]
         : PADSTYLES[Math.floor(Math.random() * PADSTYLES.length)],
       // the sung voice is parked: lead melody is the hardest problem in
       // generative music and the GM samples cap it — the hook riff carries
@@ -521,26 +554,11 @@
     engine.syncPos = SYNCPOS[Math.floor(Math.random() * SYNCPOS.length)];
     engine.motif = Math.random() < 0.15;
     engine.partLabel = label;
+    engine.brokenPat = BROKENPATS[Math.floor(Math.random() * BROKENPATS.length)];
+    engine.gatePat = GATEPATS[Math.floor(Math.random() * GATEPATS.length)];
     if (Math.random() < 0.3) engine.ghosts = !engine.ghosts;
     // lingering pads must not carry old harmony into the new part
     padS.releaseAll(t); padTri.releaseAll(t);
-    engine.traitsText = [
-      "Stück " + piece.num + " · " + label + " (" + PART_NAMES[label] + " " +
-        (piece.idx + 1) + "/" + piece.form.length + ")",
-      "Akkorde: " + (engine.hr === "sync" ? "sync·" + (engine.syncPos === 12 ? "Vier" : "3und") : engine.hr),
-      "Chords·" + engine.padStyle,
-      label === "B" && "Hook",
-      engine.snare && "Snare",
-      engine.voice && "Voice·" + engine.voiceForm,
-      "Bass-Pattern " + (BASSPATS.indexOf(engine.bassPat) + 1),
-      engine.bassMel && "Bass-Melodie",
-      engine.bassFill && "Pops",
-      engine.ghosts && "Ghosts",
-      engine.lick && "Lick " + (LICKS.indexOf(engine.lick) + 1),
-      engine.blips && "Blips",
-      engine.brassy && "Brass",
-      engine.arpOct ? "Arp oktaviert" : null,
-    ].filter(Boolean).join(" · ");
   }
 
   // swing lives in the Tone.js Transport now — hum() only adds micro-jitter
@@ -575,7 +593,10 @@
     bassMel: null,    // the pattern itself turns melodic: root/fifth/octave/seventh
     syncPos: 12,      // where a "sync" section lets the next chord arrive
     snare: false,     // backbeat + ghost-note chatter
-    padStyle: "wash", // chord instrumentation: wash / keys / pluck
+    padStyle: "wash", // chord instrumentation: wash / keys / broken / gate
+    brokenPat: null,
+    gatePat: null,
+    barInPart: 0,
     voice: false,     // the singer: rule-based phrases with breaths
     voiceEv: {},
     voiceForm: "",
@@ -584,7 +605,6 @@
     progIdx: 0,       // position in the progression graph
     piece: null,      // the current piece: form script + part bundles + hook
     partLabel: "",
-    traitsText: "",   // human-readable section readout for the UI
     standstillSince: null,
     armed: false,
   };
@@ -602,7 +622,7 @@
   let brakeNoise, brakeLp, brakeGain, brakeOsc, brakeOscGain;
   let stretchNoise, stretchBp, stretchGain;
   let padS, padTri, padHp, padLp, arpS, arpLp, stabS, stabLp;
-  let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS;
+  let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS, gateS;
   // sampled instruments persist across play cycles — buffers load once.
   // The voice is 'oohs' (soft, close) — samples/choir stays for future voice types
   let rhodes = null, vox = null;
@@ -730,6 +750,17 @@
     voxAir.connect(duck); voxAir.connect(voxSend); voxSend.connect(revSend);
     rhodes.disconnect(); rhodes.volume.value = db(0.5);
     rhodes.connect(duck); rhodes.connect(revSend);
+
+    // the gate voice: soft saw chord chopped by the rhythm mask — trance gate
+    const gateHp = reg(new Tone.Filter({ frequency: 220, type: "highpass" }));
+    const gateLp = reg(new Tone.Filter({ frequency: 1300, type: "lowpass", Q: 0.7 }));
+    gateS = reg(new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: "sawtooth" },
+      envelope: { attack: 0.005, decay: 0.09, sustain: 0.25, release: 0.05 },
+    }));
+    gateS.volume.value = db(0.14);
+    gateS.connect(gateHp); gateHp.connect(gateLp);
+    gateLp.connect(duck); gateLp.connect(delaySend);
 
     // the hook lead: cheeky doubled square, plucky, echoing — Daði's charm
     const hookLp = reg(new Tone.Filter({ frequency: 1900, type: "lowpass", Q: 1.5 }));
@@ -908,6 +939,9 @@
   function hookNote(t, freq, dur, vol) {
     hookS.triggerAttackRelease(freq, dur, t, vv(vol, 0.2));
   }
+  function gateChord(t, midis, vol) {
+    gateS.triggerAttackRelease(midis.map(F), SPB * 0.85, t, vv(vol, 0.14));
+  }
   function breath(t) {
     const n = noiseSrc(t, 0.15);
     const hp = raw.createBiquadFilter();
@@ -943,7 +977,7 @@
   }
   function chordVoice(t, midis, dur, vol, cut) {
     const style = engine.flowOn ? "wash" : engine.padStyle; // the highway carries
-    if (style === "pluck") return; // rhythmic comping happens per step instead
+    if (style === "broken" || style === "gate") return; // those live per step
     if (style === "keys" && rhodes && rhodes.loaded) {
       // rolled Rhodes chord, pad reduced to glue underneath
       midis.forEach((m, i) =>
@@ -992,6 +1026,7 @@
       loadPart(t);
       engine.piece.idx++;
     }
+    if (pos === 0) engine.barInPart = bar % 16;
     if (pos === 0 && bar % 8 === 7) engine.fill = FILLS[Math.floor(Math.random() * FILLS.length)];
     // DJ turnover: the last bar of a section pulls the lows out of the whole
     // mix, and the new downbeat drops them back in
@@ -1174,12 +1209,23 @@
     } else {
       if (pos === 0) chordVoice(t, progEff[bar % 4], SPB * 16, padVol, padCut);
     }
-    // pluck style: the chords live as rhythmic comping, not as a carpet
-    if (!engine.flowOn && engine.padStyle === "pluck" && !still) {
+    // broken/gate styles: the chords live as figures, not as a carpet
+    if (!engine.flowOn && !still) {
       const ciPad = hrEff === "twobar" ? Math.floor(bar / 2) % 4 : bar % 4;
-      if (pos === 0) stabChord(t, progEff[ciPad], vel(0.09));
-      if (pos === 6) stabChord(hum(t, pos), progEff[ciPad], vel(0.07));
-      if (pos === 11) stabChord(hum(t, pos), progEff[ciPad], vel(0.06));
+      const chordNow = progEff[ciPad];
+      if (engine.padStyle === "broken" && pos % 2 === 0) {
+        // the chord flows: Rhodes single notes walking the voicing in 8ths
+        const bi = engine.brokenPat[Math.floor(s / 2) % 8];
+        const m = chordNow[Math.min(bi, chordNow.length - 1)];
+        if (rhodes && rhodes.loaded) {
+          rhodes.triggerAttackRelease(F(m), SPB * 3, hum(t, pos), pos === 0 ? 0.5 : 0.32);
+        } else {
+          blip(hum(t, pos), F(m), vel(0.05));
+        }
+      }
+      if (engine.padStyle === "gate" && engine.gatePat[pos]) {
+        gateChord(hum(t, pos), chordNow, vel(pos % 4 === 0 ? 0.12 : 0.09));
+      }
     }
     // the ident: five high notes in the reverb, at most once per section
     if (engine.motif && bar % 16 === 0 && pos % 2 === 0 && pos < 10) {
@@ -1216,7 +1262,9 @@
     estVal: document.getElementById("estVal"),
     energyVal: document.getElementById("energyVal"),
     status: document.getElementById("status"),
-    traits: document.getElementById("traits"),
+    dash: document.getElementById("dash"),
+    dashForm: document.getElementById("dashForm"),
+    dashChips: document.getElementById("dashChips"),
     slider: document.getElementById("speed"),
   };
 
@@ -1286,9 +1334,35 @@
         : ["Cruise", "cruise"];
       ui.status.textContent = st[0];
       ui.status.className = "status " + st[1];
-      ui.traits.textContent = (engine.traitsText ? "Sektion: " + engine.traitsText : "")
-        + (Date.now() < engine.lickFlashUntil ? "  ▶ LICK" : "")
-        + (engine.liftActive ? "  ▲ LIFT" : "");
+      // dashboard: arrangement view on top, channel chips below
+      if (engine.piece && engine.partLabel) {
+        const p = engine.piece;
+        const formHtml = p.form.map((L, i) =>
+          '<span class="blk' + (i === p.idx - 1 ? " on" : "") + '">' + L + "</span>").join("")
+          + '<span class="plabel">Stück ' + p.num + " · " + PART_NAMES[engine.partLabel]
+          + " · Takt " + (engine.barInPart + 1) + "/16</span>";
+        if (ui.dashForm.innerHTML !== formHtml) ui.dashForm.innerHTML = formHtml;
+        const chips = [
+          ["Akkorde", engine.hr === "sync" ? "sync·" + (engine.syncPos === 12 ? "4" : "3+") : engine.hr],
+          ["Chords", engine.padStyle],
+          ["Bass", "P" + (BASSPATS.indexOf(engine.bassPat) + 1)
+            + (engine.bassMel ? "·Mel" : "") + (engine.bassFill ? "·Pops" : "")
+            + (engine.ghosts ? "·Ghosts" : "")],
+          engine.snare ? ["Drums", "Snare"] : null,
+          engine.partLabel === "B" ? ["Hook", "an"] : null,
+          engine.lick ? ["Lick", String(LICKS.indexOf(engine.lick) + 1)] : null,
+          engine.blips ? ["Blips", "an"] : null,
+          engine.brassy ? ["Brass", "an"] : null,
+          engine.arpOct ? ["Arp", "+8va"] : null,
+        ].filter(Boolean);
+        if (Date.now() < engine.lickFlashUntil) chips.push(["hot", "▶ LICK"]);
+        if (engine.liftActive) chips.push(["hot", "▲ LIFT"]);
+        const chipsHtml = chips.map(([k, v]) => k === "hot"
+          ? '<span class="chip hot"><b>' + v + "</b></span>"
+          : '<span class="chip"><b>' + k + "</b> " + v + "</span>").join("");
+        if (ui.dashChips.innerHTML !== chipsHtml) ui.dashChips.innerHTML = chipsHtml;
+        ui.dash.hidden = false;
+      }
     }
 
     ui.trueBar.style.width = (sim.trueSpeed / 150) * 100 + "%";
@@ -1325,7 +1399,7 @@
       btns.forEach((b) => (b.disabled = true));
       ui.status.textContent = "—";
       ui.status.className = "status";
-      ui.traits.textContent = "";
+      ui.dash.hidden = true;
       return;
     }
     building = true;
@@ -1348,7 +1422,7 @@
     engine.arpSeq = ARPS[0]; engine.arpOct = 0;
     engine.hr = "bar"; engine.fill = "toms"; engine.ghosts = false; engine.motif = false;
     engine.bassFill = false; engine.blips = false; engine.blipSeq = BLIPS[0]; engine.brassy = false;
-    engine.lick = null; engine.bassMel = null; engine.traitsText = "";
+    engine.lick = null; engine.bassMel = null;
     engine.syncPos = 12; engine.snare = false; engine.padStyle = "wash";
     engine.voice = false; engine.voiceEv = {}; engine.liftActive = false;
     engine.flowOn = false; engine.progIdx = 0; engine.piece = null; engine.partLabel = "";
