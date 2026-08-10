@@ -453,14 +453,40 @@
       padStyle: role === "chorus"
         ? (Math.random() < 0.5 ? "wash" : "keys")
         : PADSTYLES[Math.floor(Math.random() * PADSTYLES.length)],
-      voice: role === "chorus" || (role === "verse" && Math.random() < 0.25),
+      // the sung voice is parked: lead melody is the hardest problem in
+      // generative music and the GM samples cap it — the hook riff carries
+      // the chorus identity instead (genVoice stays for a future attempt)
+      voice: false,
       voiceEv: {}, voiceForm: "",
     };
-    if (b.voice) {
-      const g = genVoice(PROGS[progIdx]); // the hook: fixed per piece, returns as-is
-      b.voiceEv = g.ev; b.voiceForm = g.form;
-    }
     return b;
+  }
+  // hook riff: the piece's identity. Earworm research says simple — small
+  // range, plain contour, ONE twist; songwriting craft says rhythm-first,
+  // 3–5 notes, the rests ARE the hook. This is NOT a melody, on purpose.
+  const HOOKCELLS = [
+    [[0, 2, 1], [3, 1, 0.7], [6, 2, 0.9], [10, 2, 0.8], [12, 3, 1]],
+    [[0, 1, 1], [2, 1, 0.7], [4, 2, 0.9], [10, 2, 1], [14, 2, 0.8]],
+    [[0, 3, 1], [4, 1, 0.7], [6, 2, 1], [12, 3, 0.9]],
+  ]; // [pos, dur16, accent]
+  const RIFFSET = [0, 3, 5, 7, 10, 12]; // A minor pentatonic over the root
+  function genHook() {
+    const cell = HOOKCELLS[Math.floor(Math.random() * HOOKCELLS.length)];
+    let pi = 0;
+    const used = new Set([RIFFSET[0]]);
+    const call = cell.map(([p, d, a], i) => {
+      if (i > 0 && Math.random() >= 0.55) { // 55%: repeat the pitch — economy
+        const cand = clamp(pi + (Math.random() < 0.5 ? -1 : 1), 0, RIFFSET.length - 1);
+        // a hook owns at most three pitches in its run — more is a scale, not a hook
+        if (used.size < 3 || used.has(RIFFSET[cand])) { pi = cand; used.add(RIFFSET[pi]); }
+      }
+      if (i === cell.length - 1) pi = Math.random() < 0.6 ? 0 : 4; // land home or b7
+      return { p, d, a, s: RIFFSET[pi] };
+    });
+    // response: identical rhythm, the ending answers
+    const resp = call.map((n, i) => i === call.length - 1
+      ? { ...n, s: RIFFSET[Math.random() < 0.5 ? 3 : 1] } : { ...n });
+    return { call, resp };
   }
   function newPiece() {
     // harmonic anchors walk the progression graph: verse where we are,
@@ -475,6 +501,7 @@
       form: FORMS[Math.floor(Math.random() * FORMS.length)],
       idx: 0,
       parts: { A: rollBundle("verse", pA), B: rollBundle("chorus", pB), C: rollBundle("bridge", pC) },
+      hook: genHook(),
     };
   }
   function loadPart(t) {
@@ -493,6 +520,7 @@
     engine.blipSeq = BLIPS[Math.floor(Math.random() * BLIPS.length)];
     engine.syncPos = SYNCPOS[Math.floor(Math.random() * SYNCPOS.length)];
     engine.motif = Math.random() < 0.15;
+    engine.partLabel = label;
     if (Math.random() < 0.3) engine.ghosts = !engine.ghosts;
     // lingering pads must not carry old harmony into the new part
     padS.releaseAll(t); padTri.releaseAll(t);
@@ -501,6 +529,7 @@
         (piece.idx + 1) + "/" + piece.form.length + ")",
       "Akkorde: " + (engine.hr === "sync" ? "sync·" + (engine.syncPos === 12 ? "Vier" : "3und") : engine.hr),
       "Chords·" + engine.padStyle,
+      label === "B" && "Hook",
       engine.snare && "Snare",
       engine.voice && "Voice·" + engine.voiceForm,
       "Bass-Pattern " + (BASSPATS.indexOf(engine.bassPat) + 1),
@@ -553,7 +582,8 @@
     liftActive: false,
     flowOn: false,    // latched highway-harmony switch (hysteresis, barline only)
     progIdx: 0,       // position in the progression graph
-    piece: null,      // the current piece: form script + part bundles
+    piece: null,      // the current piece: form script + part bundles + hook
+    partLabel: "",
     traitsText: "",   // human-readable section readout for the UI
     standstillSince: null,
     armed: false,
@@ -572,7 +602,7 @@
   let brakeNoise, brakeLp, brakeGain, brakeOsc, brakeOscGain;
   let stretchNoise, stretchBp, stretchGain;
   let padS, padTri, padHp, padLp, arpS, arpLp, stabS, stabLp;
-  let blipS, brassS, brassLp, bassSubS, snareS, snareBody;
+  let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS;
   // sampled instruments persist across play cycles — buffers load once.
   // The voice is 'oohs' (soft, close) — samples/choir stays for future voice types
   let rhodes = null, vox = null;
@@ -700,6 +730,16 @@
     voxAir.connect(duck); voxAir.connect(voxSend); voxSend.connect(revSend);
     rhodes.disconnect(); rhodes.volume.value = db(0.5);
     rhodes.connect(duck); rhodes.connect(revSend);
+
+    // the hook lead: cheeky doubled square, plucky, echoing — Daði's charm
+    const hookLp = reg(new Tone.Filter({ frequency: 1900, type: "lowpass", Q: 1.5 }));
+    hookS = reg(new Tone.Synth({
+      oscillator: { type: "fatsquare", count: 2, spread: 12 },
+      envelope: { attack: 0.004, decay: 0.18, sustain: 0.15, release: 0.08 },
+    }));
+    hookS.volume.value = db(0.35);
+    hookS.connect(hookLp);
+    hookLp.connect(duck); hookLp.connect(delaySend); hookLp.connect(revSend);
 
     // Parov seasoning: brass-like stab — filter snaps open and shuts
     brassLp = reg(new Tone.Filter({ frequency: 900, type: "lowpass", Q: 1.2 }));
@@ -864,6 +904,9 @@
   }
   function blip(t, freq, vol) {
     blipS.triggerAttackRelease(freq, 0.1, t, vv(vol, 0.09));
+  }
+  function hookNote(t, freq, dur, vol) {
+    hookS.triggerAttackRelease(freq, dur, t, vv(vol, 0.2));
   }
   function breath(t) {
     const n = noiseSrc(t, 0.15);
@@ -1142,6 +1185,15 @@
     if (engine.motif && bar % 16 === 0 && pos % 2 === 0 && pos < 10) {
       arpNote(t, F(MOTIF[pos / 2]), 2600, 0.05, SPB * 3);
     }
+    // the hook riff: the piece's identity — chorus only, every time the same,
+    // call on even bars, the response answers on odd ones
+    if (engine.partLabel === "B" && !still && !breather && engine.piece) {
+      const line = bar % 2 === 0 ? engine.piece.hook.call : engine.piece.hook.resp;
+      const n = line.find((x) => x.p === pos);
+      if (n && (!flowMode || PENTA.includes((57 + n.s) % 12))) {
+        hookNote(hum(t, pos), F(57 + n.s), SPB * n.d * 0.9, vel(0.16 * n.a));
+      }
+    }
     // the voice sings only in calm moments — never against thrust or braking.
     // Over the lift cadence only pentatonic-safe notes pass (F/G chords underneath)
     if (engine.voice && !still && push < 0.5 && engine.brake < 0.4) {
@@ -1299,7 +1351,7 @@
     engine.lick = null; engine.bassMel = null; engine.traitsText = "";
     engine.syncPos = 12; engine.snare = false; engine.padStyle = "wash";
     engine.voice = false; engine.voiceEv = {}; engine.liftActive = false;
-    engine.flowOn = false; engine.progIdx = 0; engine.piece = null;
+    engine.flowOn = false; engine.progIdx = 0; engine.piece = null; engine.partLabel = "";
     stepIdx = 0; pendingLaunchAt = -1;
     transport = Tone.getTransport();
     transport.bpm.value = BPM;
