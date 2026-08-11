@@ -151,7 +151,14 @@ ok("nor the code that rendered them",
 ok("the tracing switch survives", /id="optTrace"/.test(drive));
 ok("and something opens the panel it lives in", /classList\.toggle\("settings"\)/.test(drive));
 ok("bench loads Tone", bench.includes('src="vendor/Tone.js"'));
-ok("bench loads the engine", /src="engine\.js(\?v=\d+)?"/.test(bench));
+// The bench MUST version its engine tag like the driver page does: the
+// server marks /engine.js immutable (hosting.test.mjs), so an unversioned
+// request pins the bench to whatever the browser cached a year ago. This
+// shipped once — build 30's bench played build 29's engine.
+ok("bench loads the engine under a version query", /src="engine\.js\?v=\d+"/.test(bench));
+ok("and the bench's version matches the deployed BUILD",
+  (bench.match(/engine\.js\?v=(\d+)/) || [])[1] ===
+  (drive.match(/const BUILD = "(\d+)"/) || [])[1]);
 
 // The car voicing is ON by default everywhere (every target room is a car),
 // so the A/B needs a switch on BOTH pages: the bench for desk listening, the
