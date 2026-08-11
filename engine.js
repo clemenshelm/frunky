@@ -178,17 +178,19 @@
       if (st) st.setItem(SET_KEY, JSON.stringify({ v: 1, num, tp: tpv, progIdx }));
     } catch (err) { void err; }
   }
-  function rollBundle(role, progIdx, mood, notLike) {
+  function rollBundle(role, progIdx, mood, notLike, bassPool) {
     // a sibling part must be tellable apart: never the same chord style or
     // bass pattern as the bundle it plays against (contrast is the form)
     const pick = (pool, avoid) => {
       const p = avoid != null && pool.length > 1 ? pool.filter((x) => x !== avoid) : pool;
       return p[Math.floor(Math.random() * p.length)];
     };
+    // the recipe curates which bass patterns may play under its kick
+    const bassChoices = (bassPool || [0, 1, 2]).map((i) => BASSPATS[i]);
     const b = {
       progIdx,
       hr: HRS[Math.floor(Math.random() * HRS.length)],
-      bassPat: pick(BASSPATS, notLike && notLike.bassPat),
+      bassPat: pick(bassChoices, notLike && notLike.bassPat),
       bassMel: Math.random() < (role === "chorus" ? 0.5 : 0.3)
         ? BASSMELS[Math.floor(Math.random() * BASSMELS.length)] : null,
       arpSeq: ARPS[Math.floor(Math.random() * ARPS.length)],
@@ -220,6 +222,38 @@
     if (b.padStyle === "broken") b.arpOct = 12;
     return b;
   }
+  // ---- album DNA -----------------------------------------------------------
+  // "So far it sounds like variations of the same track." Accurate: pieces
+  // differed in key, mood and hook, but shared the four-on-floor kick, the
+  // hat grid, the swing and the hook's instrument — exactly the dimensions
+  // listeners use to tell one song on an album from the next. So every piece
+  // rolls a RECIPE: a curated frame (groove template, lead instrument, bass
+  // curation) inside which the generative material is rolled as before.
+  // Quality lives in the frame — each recipe is a proven song shape, not a
+  // dice product; variety lives in the filling. Same doctrine as the chord
+  // styles: curation over free combinatorics, pools as data.
+  const GROOVES = {
+    // the founding sound: four-on-floor, offbeat hats, trait-gated backbeat
+    four: { kick: [0, 4, 8, 12], hat: [2, 6, 10, 14], snareAt: [4, 12],
+      ghostAt: [7, 10, 15], coreSnare: false, kickW: 1, swing: 0.22 },
+    // funk strut: broken kick (one, and-of-two, and-of-three), swung harder
+    broken: { kick: [0, 6, 10], hat: [2, 6, 10, 14], snareAt: [4, 12],
+      ghostAt: [7, 15], coreSnare: false, kickW: 1, swing: 0.3 },
+    // halftime dub: half the kicks, twice the weight, the snare owns the
+    // THREE — the backbone, so it plays whatever the mood rolled — and no
+    // ghost chatter, because the space is the point
+    half: { kick: [0, 10], hat: [4, 12], snareAt: [8],
+      ghostAt: [], coreSnare: true, kickW: 1.15, swing: 0.16 },
+  };
+  // bass entries are BASSPATS indices: one rhythmic protagonist per recipe —
+  // a broken kick over a funk-push bass is two soloists fighting (Bregman),
+  // and halftime keeps only the laid-back pattern with the holes in it
+  const RECIPES = [
+    { name: "club", groove: "four", lead: "guitar", bass: [0, 1, 2] },
+    { name: "strut", groove: "broken", lead: "square", bass: [0, 2] },
+    { name: "dub", groove: "half", lead: "warm", bass: [2] },
+  ];
+
   // hook riff: the piece's identity. Earworm research says simple — small
   // range, plain contour, ONE twist; songwriting craft says rhythm-first,
   // 3–5 notes, the rests ARE the hook. This is NOT a melody, on purpose.
@@ -267,11 +301,16 @@
     const num = prev ? prev.num + 1 : 1;
     // the wave, not the dice: the episode number decides the mood
     const mood = SET_WAVE[(num - 1) % SET_WAVE.length];
-    const A = rollBundle("verse", pA, mood);
-    const B = rollBundle("chorus", pB, mood, A); // chorus must contrast the verse
-    const C = rollBundle("bridge", pC, mood, B); // bridge must contrast the chorus
+    // the recipe: the piece's frame. Never the same one twice in a row —
+    // that rotation is what makes consecutive pieces read as different SONGS
+    const recPool = RECIPES.filter((r) => !engine.piece || r.name !== engine.piece.recipe);
+    const recipe = recPool[Math.floor(Math.random() * recPool.length)];
+    const A = rollBundle("verse", pA, mood, null, recipe.bass);
+    const B = rollBundle("chorus", pB, mood, A, recipe.bass); // chorus must contrast the verse
+    const C = rollBundle("bridge", pC, mood, B, recipe.bass); // bridge must contrast the chorus
     engine.piece = {
       num,
+      recipe: recipe.name, groove: recipe.groove, lead: recipe.lead,
       // a COPY: a launch rewrites this piece's script, and mutating the shared
       // pool entry would corrupt the form for every piece that follows
       form: FORMS[Math.floor(Math.random() * FORMS.length)].slice(),
@@ -300,6 +339,13 @@
     // the piece's key: F() reads tp, the thrust drone must follow the tonic
     tp = engine.piece.tp;
     if (thrustSub) thrustSub.frequency.value = F(33);
+    // the piece's frame: groove template, lead voice, and the swing that
+    // belongs to the groove (Transport-level — the step length never moves)
+    engine.recipe = engine.piece.recipe;
+    engine.grooveName = engine.piece.groove;
+    engine.groove = GROOVES[engine.piece.groove];
+    engine.lead = engine.piece.lead;
+    if (transport) transport.swing = engine.groove.swing;
     // per-occurrence freshness: ornaments re-roll, one trait may flip
     engine.lick = Math.random() < 0.4 ? LICKS[Math.floor(Math.random() * LICKS.length)] : null;
     engine.blipSeq = BLIPS[Math.floor(Math.random() * BLIPS.length)];
@@ -479,7 +525,7 @@
   let brakeNoise, brakeLp, brakeGain, brakeOsc, brakeOscGain;
   let stretchNoise, stretchBp, stretchGain;
   let padS, padTri, padHp, padLp, arpS, arpLp, stabS, stabLp;
-  let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS, gateS, gateAmp, gateLp;
+  let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS, leadTri, gateS, gateAmp, gateLp;
   // the rise figure: its own pool of mono voices — overlapping entries on one
   // synth would collide on the per-voice timeline (see the stub's rule)
   let riseS = [], riseLp = [], riseHp;
@@ -833,6 +879,15 @@
     }));
     hookS.volume.value = db(0.42);
     hookS.connect(hookPres);
+    // the third hand for the hook: a warm detuned-triangle pluck — the
+    // counterpart to the square, through the same chain so it stays a lead
+    // and never a new mix problem
+    leadTri = reg(new Tone.Synth({
+      oscillator: opts.lite ? { type: "triangle" } : { type: "fattriangle", count: 2, spread: 14 },
+      envelope: { attack: 0.006, decay: 0.2, sustain: 0.18, release: 0.1 },
+    }));
+    leadTri.volume.value = db(0.5);
+    leadTri.connect(hookPres);
     // the sampled muted guitar shares the hook chain — square is the fallback
     hookGit.disconnect(); hookGit.volume.value = db(0.72);
     hookGit.connect(hookPres);
@@ -1228,8 +1283,13 @@
     blipS.triggerAttackRelease(freq, 0.1, at("blip", t), vv(vol, 0.09));
   }
   function hookNote(t, freq, dur, vol) {
+    // the hook changes hands per piece — the recipe's lead voice carries it.
+    // Same phrase machinery, different instrument: the strongest cheap signal
+    // that a new piece is a new SONG and not a re-roll of the last one
     const tt = at("hook", t);
-    if (hookGit && hookGit.loaded) hookGit.triggerAttackRelease(freq, dur, tt, vv(vol, 0.16));
+    if (engine.lead === "square") hookS.triggerAttackRelease(freq, dur, tt, vv(vol, 0.2));
+    else if (engine.lead === "warm") leadTri.triggerAttackRelease(freq, dur, tt, vv(vol, 0.18));
+    else if (hookGit && hookGit.loaded) hookGit.triggerAttackRelease(freq, dur, tt, vv(vol, 0.16));
     else hookS.triggerAttackRelease(freq, dur, tt, vv(vol, 0.2));
   }
   // the gate's amplitude, one automation point per sixteenth. No
@@ -1422,9 +1482,12 @@
       if (pos % 8 === 0) heartbeat(t, hb, 110);
       if (pos % 8 === 2) heartbeat(t, hb * 0.6, 132);
     } else {
-      // pump stays gentle at cruise, deepens only under force
-      if (pos % 4 === 0 && !breather && !bridgeDown) {
-        kick(t, (0.85 + 0.1 * e) * (1 - 0.18 * flowHigh) * wake, 0.05 + 0.3 * push);
+      // pump stays gentle at cruise, deepens only under force. The kick grid
+      // is the recipe's groove template — four-on-floor is one frame among
+      // several now, and halftime's fewer kicks carry more weight each
+      if (engine.groove.kick.includes(pos) && !breather && !bridgeDown) {
+        kick(t, (0.85 + 0.1 * e) * (1 - 0.18 * flowHigh) * wake * engine.groove.kickW,
+          0.05 + 0.3 * push);
         duckAt(t, 0.3 * (1 - 0.3 * flowHigh) + 0.28 * push);
       }
       // bass follows the chord roots and a groove pattern with holes in it;
@@ -1478,11 +1541,13 @@
       if (push > 0.55 && (pos % 4 === 1 || pos % 4 === 3)) growlNote(t, 0.3 * push, SPB * 0.8);
       // the stab rides the CURRENT chord — a hard-wired Am rubbed against Gadd9
       if (push > 0.06 && pos % 4 === 2) stabChord(t, progEff[ci], 0.12 * Math.pow(push, 1.3));
-      if (pos % 4 === 2) hat(hum(t, pos), false, vel((0.03 + 0.05 * u) * (1 - 0.55 * flowHigh) * wake));
-      // snare sections: soft backbeat on 2 and 4, funk ghost chatter between
-      if (engine.snare && !breather && !bridgeDown) {
-        if (pos === 4 || pos === 12) snare(hum(t, pos), vel((0.12 + 0.05 * e) * wake));
-        if (pos === 7 || pos === 10 || pos === 15) snare(hum(t, pos), vel((0.035 + 0.025 * u) * wake), true);
+      if (engine.groove.hat.includes(pos)) hat(hum(t, pos), false, vel((0.03 + 0.05 * u) * (1 - 0.55 * flowHigh) * wake));
+      // snare: the groove decides WHERE, the trait decides WHETHER — except a
+      // groove whose backbone is the snare (halftime's three), which speaks
+      // regardless. Ghost chatter stays a trait, on the groove's ghost spots.
+      if ((engine.snare || engine.groove.coreSnare) && !breather && !bridgeDown) {
+        if (engine.groove.snareAt.includes(pos)) snare(hum(t, pos), vel((0.12 + 0.05 * e) * wake));
+        if (engine.snare && engine.groove.ghostAt.includes(pos)) snare(hum(t, pos), vel((0.035 + 0.025 * u) * wake), true);
       }
       // accel percussion: shaker/toms in the background, swelling with force
       if (pos % 2 === 1 && (!lean || pos % 4 === 1)) shaker(hum(t, pos), vel((0.015 + 0.1 * push) * wake));
@@ -1893,6 +1958,7 @@
     const p = engine.piece;
     const chips = [
       ["Key", KEYNAMES[String(p.tp)] || "Am"],
+      ["Rezept", engine.recipe],
       p.mood !== "neutral" ? ["Mood", p.mood === "deep" ? "Deep" : "Anthem"] : null,
       ["Akkorde", engine.hr === "sync" ? "sync·" + (engine.syncPos === 12 ? "4" : "3+") : engine.hr],
       ["Chords", engine.padStyle],
@@ -1957,6 +2023,8 @@
     engine.syncPos = 12; engine.snare = false; engine.padStyle = "wash";
     engine.liftActive = false; engine.pullChorus = false; engine.dropAt = -1;
     engine.lean = false;
+    engine.recipe = "club"; engine.grooveName = "four";
+    engine.groove = GROOVES.four; engine.lead = "guitar";
     engine.riseOn = false; riseVoices = []; riseLog = []; riseNextAt = 0;
     risePeak = 0; riseArrivalAt = -1;
     riseHot = 0; riseFull = false; riseLastFullAt = -Infinity;
@@ -2127,6 +2195,19 @@
       ? { chorus: chorus || null, revSend, reverb, padLp, gateLp, busHarm, shed: fxShed,
           masterHp, carLow, carPres, makeup }
       : null),
+    // test seam: the album layer — which recipe frames the current piece and
+    // which nodes its groove and lead actually strike, so a test can measure
+    // the kick thinning and the hook changing hands rather than trust labels
+    __album: () => ({
+      recipe: engine.recipe, groove: engine.grooveName, lead: engine.lead,
+      swing: transport ? transport.swing : 0,
+      bassPatIdx: BASSPATS.indexOf(engine.bassPat),
+      recipes: Object.fromEntries(RECIPES.map((r) =>
+        [r.name, { groove: r.groove, lead: r.lead, bass: r.bass.slice() }])),
+      nodes: kickS
+        ? { kick: kickS, snare: snareS, guitar: hookGit, square: hookS, warm: leadTri }
+        : null,
+    }),
     // test seam: the set arc and the running episode, so a test can assert
     // the dramaturgy (wave, numbering, resume) rather than trust the gesture
     __set: () => ({

@@ -99,6 +99,7 @@ function toneNode() {
   const outs = new Set();
   const n = {
     outs,
+    trigs: 0,
     connect(x) { outs.add(x); return n; },
     chain(...rest) {
       let cur = n;
@@ -120,6 +121,7 @@ function toneNode() {
     triggerAttackRelease(...args) {
       for (const a of args) if (typeof a === "number" && !Number.isFinite(a)) throw new Error("non-finite trigger arg");
       meter.notes++;
+      n.trigs++;
       const t = args.length >= 3 ? args[args.length - 2] : null;
       if (typeof t === "number") {
         if (lastStart !== null && t <= lastStart) {
