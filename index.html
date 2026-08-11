@@ -142,6 +142,14 @@
   }
   #diagOpts button.on { color: var(--cyan); border-color: var(--cyan); }
 </style>
+<script>
+  // The old GitHub Pages address is a signpost now: a bookmark in a car
+  // cannot be edited from here, but it can be redirected. The canonical
+  // host serves the HTML with no-store, which is the actual cache fix.
+  if (location.hostname.endsWith("github.io"))
+    location.replace("https://frunky.clemenshelm.com" +
+      location.pathname.replace(/^\/frunky/, "") + location.search + location.hash);
+</script>
 </head>
 <body>
 
@@ -209,11 +217,12 @@
 </footer>
 
 <script src="vendor/Tone.js"></script>
-<script src="engine.js?v=26"></script>
-<script src="geo.js?v=26"></script>
-<script src="diagnose.js?v=26"></script>
-<script src="trace-schema.js?v=26"></script>
-<script src="trace.js?v=26"></script>
+<script src="engine.js?v=27"></script>
+<script src="geo.js?v=27"></script>
+<script src="diagnose.js?v=27"></script>
+<script src="trace-schema.js?v=27"></script>
+<script src="trace.js?v=27"></script>
+<script src="fresh.js?v=27"></script>
 <script>
 (() => {
   "use strict";
@@ -221,7 +230,7 @@
   // to know whether a trip tested the code we shipped is to read it back —
   // three reports in a row turned out to be the same stale build.
   // (Loading the page as ?v=<something-new> is what forces a fresh copy.)
-  const BUILD = "26";
+  const BUILD = "27";
   const el = (id) => document.getElementById(id);
   const startBtn = el("start"), stopBtn = el("stop");
   const speedEl = el("speed"), stateEl = el("state"), forceEl = el("forceBar");
@@ -753,6 +762,15 @@
   // as ?v=<anything-new> to force a fresh one
   const buildNote = el("buildNote");
   if (buildNote) buildNote.textContent = "Version " + BUILD;
+
+  // And stop RELYING on anyone reading it: a car browser keeps this tab
+  // alive across drives, so a stale build used to stay until someone noticed
+  // the number. The freshness check reloads on its own — parked only, once
+  // per session; the set state survives the reload as the next episode.
+  FrunkyFresh.start({
+    build: BUILD,
+    getState: () => ({ running: Frunky.isRunning(), speed: Math.max(0, shownSpeed) }),
+  });
 
   // The footer is a plain label and the tap target for the settings. The build
   // stamp it used to carry lives on the start screen, where it is read BEFORE a

@@ -130,6 +130,14 @@
   .hint strong { color: var(--text); }
   .foot { color: var(--muted); font-size: 0.82rem; margin-top: 2rem; max-width: 62ch; }
 </style>
+<script>
+  // The old GitHub Pages address is a signpost now: a bookmark in a car
+  // cannot be edited from here, but it can be redirected. The canonical
+  // host serves the HTML with no-store, which is the actual cache fix.
+  if (location.hostname.endsWith("github.io"))
+    location.replace("https://frunky.clemenshelm.com" +
+      location.pathname.replace(/^\/frunky/, "") + location.search + location.hash);
+</script>
 </head>
 <body>
 

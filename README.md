@@ -19,7 +19,9 @@ The driver page gets the short URL on purpose: it is the one you type on a touch
 
 ## Try it
 
-Serve the repo root with any static server (or open the GitHub Pages deployment). The driver page needs location permission and HTTPS — GitHub Pages provides both; over plain `http://` outside `localhost` the browser will refuse to give a position.
+The canonical deployment is **https://frunky.clemenshelm.com** — our own Caddy server, which serves the HTML with `Cache-Control: no-store` and the versioned scripts as immutable (`deploy/frunky-app.Caddyfile`, shipped by `deploy/deploy-app.sh`). That split exists because a car browser caches HTML indefinitely: the Tesla once drove a build five deploys old while every `?v=` bump sat unseen on the server, so the page itself must never be cacheable and `fresh.js` additionally reloads a long-lived tab when `version.json` announces a newer build (parked only, once per session). The GitHub Pages mirror redirects there.
+
+For local development, serve the repo root with any static server. The driver page needs location permission and HTTPS (or `localhost`) — over plain `http://` elsewhere the browser will refuse to give a position.
 
 ```bash
 npx serve .

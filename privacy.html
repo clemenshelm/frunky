@@ -42,6 +42,14 @@
   #eraseNote { margin: .7rem 0 0; color: var(--muted); font-size: .93rem; }
   footer { margin-top: 3rem; color: var(--muted); font-size: .88rem; }
 </style>
+<script>
+  // The old GitHub Pages address is a signpost now: a bookmark in a car
+  // cannot be edited from here, but it can be redirected. The canonical
+  // host serves the HTML with no-store, which is the actual cache fix.
+  if (location.hostname.endsWith("github.io"))
+    location.replace("https://frunky.clemenshelm.com" +
+      location.pathname.replace(/^\/frunky/, "") + location.search + location.hash);
+</script>
 </head>
 <body>
 
@@ -151,7 +159,8 @@
       Filter beim Lesen.</li>
   <li><strong>Verarbeiter / Hosting:</strong> Hetzner Online GmbH, Industriestr. 25,
       91710 Gunzenhausen, Deutschland; Server im EU-Rechenzentrum Helsinki (Finnland).
-      Kein Datentransfer in Drittländer.</li>
+      Kein Datentransfer in Drittländer. Seit August 2026 liefert derselbe Server auch
+      die App selbst aus — auch dafür werden keine Zugriffsprotokolle geschrieben.</li>
 </ul>
 
 <h2>Widerruf und Löschung</h2>
@@ -188,8 +197,8 @@
   <p>Stand dieser Erklärung: August 2026.</p>
 </footer>
 
-<script src="trace-schema.js?v=26"></script>
-<script src="trace.js?v=26"></script>
+<script src="trace-schema.js?v=27"></script>
+<script src="trace.js?v=27"></script>
 <script>
 (() => {
   "use strict";

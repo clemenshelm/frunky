@@ -1,0 +1,65 @@
+# --- frunky.clemenshelm.com (app + trace collector) --------------------------
+# Canonical copy of the vhost on the web box (/opt/web-infra/Caddyfile). The
+# app is served static from /srv/frunky by deploy/deploy-app.sh; the trace
+# collector keeps /api/* and its viewer moved to /traces. test/hosting.test.mjs
+# pins this file's properties; the deploy script verifies the RESOLVED headers
+# with curl after every deploy.
+#
+# Cache doctrine (the Tesla lesson, 2026-08-11: the car drove build 21 on the
+# day build 26 shipped, because GitHub Pages could not stop it caching HTML):
+#   * HTML and version.json: no-store. The page IS the version pointer — a
+#     cached copy pins every ?v= query to the past. Costs a few KB per load.
+#   * Versioned scripts (the ?v= set): immutable for a year. Their URL changes
+#     when their content does, and the deploy script REFUSES to ship changed
+#     files under an unchanged build number — that refusal is what turns
+#     "immutable" from a bet into a promise.
+#   * vendor/ and samples/: one day, then revalidation. Unversioned URLs, so
+#     immutable would be wrong; they change rarely, so a day costs nothing.
+frunky.clemenshelm.com {
+	log {
+		output discard
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		# (self) is load-bearing: the app READS GPS. The box's shared
+		# security_headers snippet blocks geolocation entirely — importing
+		# it, or copying its line, kills the app's one sensor.
+		Permissions-Policy "camera=(), microphone=(), geolocation=(self)"
+		-Server
+	}
+
+	# the collector keeps its API paths — the app now lives on the same
+	# origin, which also makes every trace POST same-origin
+	handle /api/* {
+		reverse_proxy frunky-trace:8099
+	}
+
+	# the trace viewer moved from / to /traces; handle_path strips the
+	# prefix, so the collector still sees "/". Its Basic Auth lives in the
+	# collector itself. No X-Frame-Options here: the viewer sends its own
+	# DENY, and a proxy-set header would override the stricter app choice.
+	handle_path /traces* {
+		header X-Robots-Tag "noindex, nofollow"
+		reverse_proxy frunky-trace:8099
+	}
+
+	# the app: static, compressed, and cached exactly as annotated above
+	handle {
+		root * /srv/frunky
+		encode zstd gzip
+		header X-Frame-Options "SAMEORIGIN"
+
+		@page path / *.html /version.json
+		header @page Cache-Control "no-store"
+
+		@versioned path /engine.js /geo.js /diagnose.js /trace.js /trace-schema.js /fresh.js
+		header @versioned Cache-Control "public, max-age=31536000, immutable"
+
+		@assets path /vendor/* /samples/*
+		header @assets Cache-Control "public, max-age=86400"
+
+		file_server
+	}
+}

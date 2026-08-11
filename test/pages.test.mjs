@@ -285,6 +285,27 @@ const endpoint = (drive.match(/TRACE_ENDPOINT\s*=\s*"([^"]*)"/) || [])[1];
 ok("the endpoint is configured in one named constant", typeof endpoint === "string");
 ok("and it is https", endpoint === "" || endpoint.startsWith("https://"));
 
+// ---- freshness: the deploy must be able to REACH a car ---------------------
+// The Tesla drove build 21 on the day build 26 shipped: its browser neither
+// refetches the HTML nor ever reloads the tab. The server now sends the HTML
+// no-store (hosting.test.mjs pins that), and fresh.js reloads a long-lived
+// tab when version.json says a newer build is live. Both halves need wiring.
+const versionJson = JSON.parse(read("version.json"));
+ok("version.json carries the build as a string", typeof versionJson.build === "string");
+ok("and it matches the driver page's BUILD", versionJson.build === BUILD);
+ok("the driver page loads the freshness check", /src="fresh\.js\?v=\d+"/.test(drive));
+ok("and starts it with its own build", /FrunkyFresh\.start\(\s*\{[^}]*build:\s*BUILD/.test(drive));
+ok("the reload gate reads the real drive state",
+  /FrunkyFresh\.start\([\s\S]{0,400}(speed|running)/.test(drive));
+
+// the old GitHub Pages URL must keep working — as a signpost, not a copy. A
+// bookmark in a car cannot be edited from here; a redirect can reach it.
+for (const [name, src] of [["index.html", drive], ["bench.html", bench], ["privacy.html", privacy]]) {
+  ok(name + " redirects github.io visitors to the canonical host",
+    /github\.io/.test(src) && /frunky\.clemenshelm\.com/.test(src) &&
+    /location\.replace/.test(src));
+}
+
 // ---- the privacy page ------------------------------------------------------
 // A consent that cannot be read before it is given is not informed consent, so
 // the page it links to has to actually answer the questions the law asks.
