@@ -119,6 +119,11 @@
   const RISE_LEN = 6;                      // notes per voice, about an octave of climb
   const RISE_ENV = [0.55, 0.8, 1, 1, 0.8, 0.55]; // Shepard window: in low, out high
   const RISE_ON = 0.15, RISE_OFF = 0.08;   // thrust hysteresis, in engagement order
+  // the full celebration is rationed: it needs a SUSTAINED sprint (hot 8ths
+  // with push > 0.5) and a stretch of restraint since the last one. In town,
+  // every light is a sprint — scarcity is what keeps the parade a payoff.
+  const RISE_FULL_HOT = 24;                // ≈ 3 bars genuinely sprinting
+  const RISE_COOLDOWN = 512;               // steps ≈ 32 bars ≈ 58 s
 
   // ---- song form ----------------------------------------------------------
   // A piece = a script of parts. Verse delivers, chorus pays off (the SAME
@@ -479,6 +484,7 @@
   let riseS = [], riseLp = [], riseHp;
   let riseVoices = [], riseLog = [], riseNextAt = 0;
   let risePeak = 0, riseArrivalAt = -1;
+  let riseHot = 0, riseFull = false, riseLastFullAt = -Infinity;
   // sampled instruments persist across play cycles — buffers load once
   let rhodes = null, hookGit = null;
   function ensureSamplers() {
@@ -1085,6 +1091,13 @@
     }
     return best === null ? from : best;
   }
+  // where a build-up RESOLVES: about an octave under where the voice climbed
+  // to. Energy resolves downward — the field report against the first version
+  // was "lands on a high note, quite often, sometimes off", and the high
+  // register is what turned every harmless color tone into a wrong note
+  function riseResolve(last, rootPc) {
+    return riseLanding(Math.max(60, last - 12), rootPc);
+  }
   // The rise figure's clock, once per 8th. Two rates carry the rev counter:
   // how often a new voice ENTERS (10 → 4 steps as the push grows) and how
   // fast each voice CLIMBS (quarters on a gentle pull, 8ths in a sprint).
@@ -1095,39 +1108,57 @@
       // (re-)engage — a pending arrival is cancelled: the driver is back on
       // the pedal, so the build simply continues
       engine.riseOn = true; riseNextAt = s; risePeak = push; riseArrivalAt = -1;
+      riseHot = 0;
     } else if (engine.riseOn) {
       if (push > risePeak) risePeak = push;
+      if (push > 0.5) riseHot++; // 8th-steps spent genuinely sprinting
       if (push < RISE_OFF) {
         engine.riseOn = false;
-        // A real sprint has EARNED a payoff: the build-up resolves on the
-        // next downbeat, together, at full strength — a riser that merely
-        // fades is a broken promise. A gentle pull made no promise, and an
-        // end under braking is energy being DRAINED, not arrived at; both
-        // take the quiet staggered cadence instead.
+        // A real sprint has EARNED an ending that keeps time: the build-up
+        // resolves on the next downbeat, together — a riser that merely
+        // fades is a broken promise. But the ending comes in TWO sizes,
+        // because the first version threw the full parade (hat, stab, held
+        // chord) at every green light and a drop that always comes is not a
+        // drop: only a SUSTAINED sprint (RISE_FULL_HOT of hot 8ths), outside
+        // the cooldown, gets the full arrival; every other sprint gets the
+        // quiet landing. A gentle pull made no promise, and an end under
+        // braking is energy being DRAINED, not arrived at; both take the
+        // staggered cadence instead.
         if (risePeak > 0.5 && engine.brake < 0.3 && riseVoices.some((v) => v)) {
           const rem = (16 - (s % 16)) % 16;
           riseArrivalAt = s + (rem < 4 ? rem + 16 : rem);
+          riseFull = riseHot >= RISE_FULL_HOT && s - riseLastFullAt >= RISE_COOLDOWN;
         } else {
           for (const v of riseVoices) if (v) v.cadence = true;
         }
       }
     }
-    // the arrival: everyone lands the chord on the one — root and fifth
-    // spread over the registers the voices climbed to — and rings out
+    // the ending: everyone lands the chord on the one — root and fifth about
+    // an octave below where the voices climbed to — and rings out. The full
+    // arrival adds the open hat and the stab body; the quiet landing is the
+    // same resolution without the parade.
     if (s === riseArrivalAt) {
       riseArrivalAt = -1;
       for (let i = 0; i < riseVoices.length; i++) {
         const v = riseVoices[i];
         if (!v) continue;
-        const land = riseLanding(v.last, rootPc);
-        const cut = riseNote(i, t, land, v.vol * 1.2, SPB * 10, true);
-        riseRecord(s, i, land, "arrival", cut, rootPc);
+        const land = riseResolve(v.last, rootPc);
+        // SPB*8 on purpose: the ring ends before a "push"/"sync" section
+        // anticipates the NEXT chord at position 10+, so the landing never
+        // sustains against a harmony that has already moved on
+        const cut = riseFull
+          ? riseNote(i, t, land, v.vol * 1.2, SPB * 8, true)
+          : riseNote(i, t, land, v.vol * 0.9, SPB * 5, true);
+        riseRecord(s, i, land, riseFull ? "arrival" : "landing", cut, rootPc);
         riseVoices[i] = null;
       }
-      hat(t, true, 0.13); // the breath that opens the moment
-      // and a body under the landing: the stab doubles the chord on the one,
-      // so the payoff has more than the (now brighter) climb voices themselves
-      if (chordMidis) stabChord(t, chordMidis, 0.09);
+      if (riseFull) {
+        riseLastFullAt = s;
+        hat(t, true, 0.13); // the breath that opens the moment
+        // and a body under the landing: the stab doubles the chord on the
+        // one, so the payoff has more than the climb voices themselves
+        if (chordMidis) stabChord(t, chordMidis, 0.09);
+      }
       return;
     }
     for (let i = 0; i < riseVoices.length; i++) {
@@ -1141,9 +1172,13 @@
         continue;
       }
       if (riseArrivalAt >= 0) {
-        // run-in: keep climbing toward the landing, clamped at the ladder's
-        // top — the figure pulses on its peak rather than stopping short
-        const midi = RISE_LADDER[Math.min(v.start + v.n, RISE_LADDER.length - 1)];
+        // run-in: keep climbing toward the landing — but a voice that has
+        // reached the ladder's top HOLDS ITS BREATH instead of pulsing the
+        // same high note over changing chords (that pulse was the "sounds
+        // off, as if not tuned" of the field report). The silence up there
+        // is the gap before the drop, which is a feature of drops.
+        if (v.start + v.n >= RISE_LADDER.length) { v.nextAt = s + v.adv; continue; }
+        const midi = RISE_LADDER[v.start + v.n];
         const cut = riseNote(i, t, midi, v.vol * 0.8);
         riseRecord(s, i, midi, "climb", cut);
         v.last = midi; v.n++; v.nextAt = s + v.adv;
@@ -1909,6 +1944,7 @@
     engine.lean = false;
     engine.riseOn = false; riseVoices = []; riseLog = []; riseNextAt = 0;
     risePeak = 0; riseArrivalAt = -1;
+    riseHot = 0; riseFull = false; riseLastFullAt = -Infinity;
     engine.flowOn = false; engine.piece = null; engine.partLabel = "";
     // resume the residency: the saved set decides where the walk starts and
     // which episode plays next. This also runs on a mid-drive rebuild(), so

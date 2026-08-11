@@ -35,6 +35,25 @@ ok("health reports the rise voice count", typeof Frunky.health().rise === "numbe
 // drive helper: integrates speed at a given acceleration (km/h per second),
 // four engine frames per 16th, exactly as the page's loop produces them
 let t = 0, speed = 0, maxActive = 0, capBust = 0;
+// Global repeat watch, fed incrementally by drive(): a voice must never play
+// the same pitch twice in a row while climbing — the run-in used to pulse the
+// ladder's top note over changing chords, which needs a specific disengage
+// phase and chord to reproduce, so ONE section's data cannot be trusted to
+// contain it. Every section's drive feeds this; the assertion is at the end.
+// (Sessions reset the log; a shrinking log means a new session. The ledger is
+// bounded at 600 — sections here stay under it.)
+let climbRepeats = 0, procIdx = 0;
+const lastClimb = new Map();
+function harvest(lg) {
+  if (lg.length < procIdx) { procIdx = 0; lastClimb.clear(); }
+  for (; procIdx < lg.length; procIdx++) {
+    const e = lg[procIdx];
+    if (e.kind === "climb") {
+      if (lastClimb.get(e.slot) === e.midi) climbRepeats++;
+      lastClimb.set(e.slot, e.midi);
+    } else lastClimb.delete(e.slot);
+  }
+}
 function drive(steps, accel, capLimit = 3) {
   for (let i = 0; i < steps; i++) {
     for (let f = 0; f < 4; f++) {
@@ -47,6 +66,7 @@ function drive(steps, accel, capLimit = 3) {
     if (r) {
       if (r.active > maxActive) maxActive = r.active;
       if (r.active > capLimit) capBust++;
+      harvest(r.log);
     }
   }
 }
@@ -122,6 +142,12 @@ await Frunky.start();
       const pc = ((e.midi % 12) + 12) % 12;
       return pc === e.rootPc || pc === (e.rootPc + 7) % 12;
     }));
+  // energy resolves DOWNWARD: the payoff lands about an octave under where
+  // the voices climbed to, never on a shriek at the ladder's top — "lands on
+  // a high note, quite often, sometimes off" was the field report that
+  // rationed this whole gesture
+  ok("the landing register is capped, got " + arr.map((e) => e.midi).join(","),
+    arr.every((e) => e.midi <= 81));
   ok("no stray quiet cadence dilutes the payoff",
     after.every((e) => e.kind !== "cadence"));
   ok("after the arrival the figure is silent",
@@ -130,10 +156,70 @@ await Frunky.start();
   drive(64, 0);    // 4 more bars of cruise
   ok("and stays silent while cruising", log().length === quietAt);
 
+  // (the run-in's hold-at-the-top is asserted globally at the end of this
+  // file — see the harvest() watch in the drive helper)
+
   // ---- 4. re-engagement: the next pull starts a new figure -----------------
   drive(48, 12);
   ok("accelerating again re-engages the figure",
     log().slice(quietAt).some((e) => e.kind === "entry"));
+}
+Frunky.stop();
+transport.clear();
+
+// ---- 3b. a traffic-light sprint gets the LANDING, not the parade ------------
+// Build 25's full celebration (hat, stab, held chord) fired on every sprint
+// whose peak crossed 0.5 — in town that is every green light, and a drop that
+// always comes is not a drop. A short hard burst now resolves together on the
+// downbeat (still an ending that keeps time), but as the quiet tier: kind
+// "landing", no parade. The full "arrival" needs a SUSTAINED sprint.
+await Frunky.start();
+{
+  speed = 0;
+  drive(32, 20);   // two hard bars — a light turning green
+  const before = log().length;
+  drive(96, 0);
+  const after = log().slice(before);
+  const landed = after.filter((e) => e.kind === "landing");
+  ok("a short sprint lands quietly, got kinds " +
+    [...new Set(after.map((e) => e.kind))].join(","), landed.length >= 1);
+  ok("and never fakes the full arrival", after.every((e) => e.kind !== "arrival"));
+  ok("the quiet landing still keeps time (one downbeat moment)",
+    new Set(landed.map((e) => e.s)).size === 1 && landed.every((e) => e.s % 16 === 0));
+  ok("and stays chord-true and low", landed.every((e) => {
+    const pc = ((e.midi % 12) + 12) % 12;
+    return (pc === e.rootPc || pc === (e.rootPc + 7) % 12) && e.midi <= 81;
+  }));
+}
+Frunky.stop();
+transport.clear();
+
+// ---- 3c. the parade is rationed: once, then the cooldown ---------------------
+// Two sustained sprints back to back must not celebrate twice — the second
+// one takes the quiet landing, and only after a long stretch of restraint
+// does the full arrival come back. Scarcity is what keeps it a payoff.
+await Frunky.start();
+{
+  speed = 0;
+  drive(96, 18); drive(96, 0);            // sustained sprint #1 → full arrival
+  const a1 = log().filter((e) => e.kind === "arrival").length;
+  ok("the first sustained sprint earns the full arrival", a1 >= 2);
+  speed = 0;
+  drive(96, 18);                           // sustained sprint #2, hot on its heels
+  const before = log().length;
+  drive(96, 0);
+  const after2 = log().slice(before);
+  ok("the second sprint inside the cooldown lands quietly, got kinds " +
+    [...new Set(after2.map((e) => e.kind))].join(","),
+    after2.some((e) => e.kind === "landing") && after2.every((e) => e.kind !== "arrival"));
+  drive(544, 0);                           // half a minute of cruising
+  speed = 0;
+  drive(96, 18);
+  const before3 = log().length;
+  drive(96, 0);
+  const after3 = log().slice(before3);
+  ok("after the cooldown the parade returns",
+    after3.some((e) => e.kind === "arrival"));
 }
 Frunky.stop();
 transport.clear();
@@ -153,7 +239,8 @@ await Frunky.start();
     drive(88, 0);     // coast — the arrival lands mid-progression
     drive(64, -20);   // brake back down for the next launch
   }
-  const land = log().filter((e) => e.kind === "arrival" || e.kind === "cadence");
+  const land = log().filter((e) =>
+    e.kind === "arrival" || e.kind === "landing" || e.kind === "cadence");
   const roots = new Set(land.map((e) => e.rootPc));
   ok("landings met several different chords, saw pcs " + [...roots].join(","),
     roots.size >= 2);
@@ -316,6 +403,13 @@ await Frunky.start();
 }
 Frunky.stop();
 transport.clear();
+
+// ---- the run-in holds its breath at the top (all sections' data) ------------
+// A voice that has reached the ladder's top must HOLD until the landing, not
+// pulse its high note over changing chords — that pulse was the field
+// report's "sometimes it sounds off, as if not tuned to the chord".
+ok("no voice ever re-plays its pitch during a climb or run-in, got " +
+  climbRepeats + " repeats", climbRepeats === 0);
 
 if (failures.length) {
   console.error("FAILURES:");
