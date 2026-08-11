@@ -95,22 +95,38 @@
      costs a whole drive to discover */
   .build { color: var(--muted); font-family: ui-monospace, "SF Mono", Menlo, monospace;
            font-size: 0.72rem; letter-spacing: 0.1em; opacity: 0.7; }
-  /* The consent ask. Both answers are the same size and the same weight on
-     purpose: a "yes" that is a big bright button next to a grey "no" is a
-     nudged answer, and a nudged answer is not freely given. It disappears once
-     answered — asking again would be pressure with extra steps. */
-  #consent { max-width: 40ch; }
-  body.asked #consent { display: none; }
-  #consentQ { color: var(--muted); font-size: 0.82rem; line-height: 1.5; margin-bottom: 0.55rem; }
-  #consentQ a { color: var(--cyan); }
-  #consentBtns { display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; }
-  #consentBtns button {
-    font-family: inherit; font-size: 0.82rem; font-weight: 600;
-    color: var(--muted); background: transparent;
-    border: 1px solid #232a38; border-radius: 999px;
-    padding: 0.45rem 1.1rem; cursor: pointer;
+  /* The consent dialog.
+     The two answers share ONE rule, so they cannot drift apart into a coloured
+     bar next to a pale grey link — which is the shape regulators actually fine.
+     Emphasis on "yes" is allowed and is done here with the accent colour alone:
+     same size, same shape, same weight, both plainly legible. */
+  #consentModal {
+    display: none; position: fixed; inset: 0; z-index: 20;
+    background: rgba(4, 6, 10, 0.92); padding: 1.2rem;
+    align-items: center; justify-content: center;
   }
-  #consentBtns button:hover { color: var(--text); border-color: #35405a; }
+  body.asking #consentModal { display: flex; }
+  #consentCard {
+    max-width: 34rem; width: 100%; text-align: left;
+    background: #10141c; border: 1px solid #232a38; border-radius: 16px;
+    padding: 1.5rem 1.4rem; max-height: 100%; overflow: auto;
+  }
+  #consentCard h2 { font-size: 1.15rem; font-weight: 700; margin-bottom: 0.7rem; }
+  #consentCard p { font-size: 0.95rem; line-height: 1.55; margin-bottom: 0.9rem; }
+  #consentCard .fine { font-size: 0.82rem; color: var(--muted); line-height: 1.7; }
+  #consentCard .fine.muted { margin: 0.8rem 0 0; text-align: center; font-size: 0.76rem; }
+  #consentCard .yes { color: var(--cyan); }
+  #consentCard .no { color: var(--amber); }
+  #consentCard a { color: var(--cyan); }
+  #consentBtns { display: flex; gap: 0.6rem; margin-top: 1.2rem; }
+  #consentBtns button {
+    flex: 1 1 0; font-family: inherit; font-size: 1rem; font-weight: 700;
+    border: 1px solid var(--cyan); border-radius: 999px;
+    padding: 0.85rem 1rem; cursor: pointer; min-height: 3rem;
+  }
+  /* colour only — never size, never visibility */
+  #consentBtns button { background: transparent; color: var(--cyan); }
+  #consentBtns button.primary { background: var(--cyan); color: #06282c; }
   /* field-test overlay: hidden until the footer is tapped, because the answers
      it gives (does this browser report speed? how often?) can only be found in
      a moving car — and must not be on screen while driving normally */
@@ -164,21 +180,43 @@
   <p class="note" id="startNote">Braucht Standortfreigabe — die Musik folgt Beschleunigung,
     Bremsen und Kurven. Vor der Fahrt starten.</p>
 
-  <!-- The ask, and it is genuinely an ask: neither button is preselected, the
-       music is identical either way, and the page it links to answers what is
-       sent before anyone has to decide. A "yes" that costs nothing to refuse is
-       the only kind worth having. -->
-  <div id="consent">
-    <p id="consentQ">Anonyme Fehlerdaten senden? Kein Standort, keine Kennung —
-      <a href="privacy.html" id="consentInfo">was genau?</a></p>
-    <div id="consentBtns">
-      <button id="consentNo" type="button">Nein</button>
-      <button id="consentYes" type="button">Ja, hilft beim Debuggen</button>
-    </div>
-  </div>
-
   <p class="build" id="buildNote"></p>
 </main>
+
+<!-- The ask. Shown once, on the first "Losfahren", BEFORE the audio starts and
+     therefore before the browser's own location prompt — two questions in a row
+     are fine, two on top of each other lose both.
+
+     What makes this legitimate rather than a dark pattern is structural, not a
+     matter of taste: both answers are one tap on the same level, both are
+     styled by the same rule, and BOTH start the drive. The moment the music
+     depended on the answer, the consent would stop being freely given and be
+     worth nothing.
+
+     And the reason is concrete. "Help us improve our product" is on every
+     banner in the world and is not read any more; a real problem stated plainly
+     is what actually moves the answer — no dark pattern required. -->
+<div id="consentModal">
+  <div id="consentCard">
+    <h2>Dürfen wir mitmessen?</h2>
+    <p>Im Tesla stirbt die Musik nach ein paar Minuten, und wir wissen nicht
+      warum. Wenn du zustimmst, schickt Frunky nach der Fahrt ein technisches
+      Protokoll — genau davon leben die Fehlerbehebungen.</p>
+    <p class="fine">
+      <span class="yes">Gesendet:</span> Geschwindigkeits<em>klassen</em>, Rechenlast,
+      Aussetzer, Fehlermeldungen.<br>
+      <span class="no">Nie gesendet:</span> Standort, Route, IP-Adresse, irgendeine
+      dauerhafte Kennung.<br>
+      Nach 30 Tagen gelöscht, jederzeit widerrufbar.
+      <a href="privacy.html">Alle Einzelheiten</a>
+    </p>
+    <div id="consentBtns">
+      <button id="consentNo" type="button">Nein, danke</button>
+      <button id="consentYes" type="button" class="primary">Ja, gerne</button>
+    </div>
+    <p class="fine muted">Die Musik ist in beiden Fällen dieselbe.</p>
+  </div>
+</div>
 
 <main id="driveScreen">
   <p class="speed" id="speed">0</p>
@@ -208,11 +246,11 @@
 </footer>
 
 <script src="vendor/Tone.js"></script>
-<script src="engine.js?v=19"></script>
-<script src="geo.js?v=19"></script>
-<script src="diagnose.js?v=19"></script>
-<script src="trace-schema.js?v=19"></script>
-<script src="trace.js?v=19"></script>
+<script src="engine.js?v=20"></script>
+<script src="geo.js?v=20"></script>
+<script src="diagnose.js?v=20"></script>
+<script src="trace-schema.js?v=20"></script>
+<script src="trace.js?v=20"></script>
 <script>
 (() => {
   "use strict";
@@ -220,7 +258,7 @@
   // to know whether a trip tested the code we shipped is to read it back —
   // three reports in a row turned out to be the same stale build.
   // (Loading the page as ?v=<something-new> is what forces a fresh copy.)
-  const BUILD = "19";
+  const BUILD = "20";
   const el = (id) => document.getElementById(id);
   const startBtn = el("start"), stopBtn = el("stop");
   const speedEl = el("speed"), stateEl = el("state"), forceEl = el("forceBar");
@@ -344,18 +382,31 @@
     "Autobahn-Flow": "highway", "Stadt": "city", "Cruise": "cruise",
   };
 
-  const consentBox = el("consent");
+  // Both answers land here, and here is where the drive continues from. One
+  // continuation, not two: it is the only way to be sure that refusing is not a
+  // dead end, and a refusal that costs you the music is not a refusal anyone
+  // can freely make.
+  let afterConsent = null;
   function answerConsent(yes) {
     tracer.setConsent(yes);
-    document.body.classList.add("asked");
+    document.body.classList.remove("asking");
     paintOpts();
+    const next = afterConsent;
+    afterConsent = null;
+    if (next) next();
   }
   el("consentYes").addEventListener("click", () => answerConsent(true));
   el("consentNo").addEventListener("click", () => answerConsent(false));
-  // an answer already on record is not asked again; asking every time is
-  // pressure with extra steps, and the toggle below is where it can be changed
-  if (tracer.consent() !== null) document.body.classList.add("asked");
-  if (consentBox && !TRACE_ENDPOINT) document.body.classList.add("asked");
+
+  // Asked once, at the moment it is about to matter, and never again — an
+  // answer already on record is not re-asked, because re-asking until you get
+  // the answer you wanted is itself the manipulation. The switch in the
+  // diagnostics panel is where a mind can be changed, in both directions.
+  function askConsentThen(next) {
+    if (!TRACE_ENDPOINT || tracer.consent() !== null) { next(); return; }
+    afterConsent = next;
+    document.body.classList.add("asking");
+  }
 
   // the A/B a field test needs: whether the inertial reading feels right is a
   // question about the body, and a question needs two answers to compare
@@ -381,7 +432,6 @@
   const optTrace = el("optTrace");
   optTrace.addEventListener("click", async () => {
     const next = tracer.consent() !== true;
-    document.body.classList.add("asked");
     if (next) { await tracer.setConsent(true); }
     else {
       const n = await tracer.eraseAll();
@@ -566,7 +616,12 @@
       + " Vor der Fahrt starten.", false);
   }
 
-  function beginTrip() {
+  // The ask sits BEFORE the audio starts, which puts it before the browser's own
+  // location prompt rather than on top of it — two questions in a row are fine,
+  // two stacked lose both.
+  function beginTrip() { askConsentThen(startTrip); }
+
+  function startTrip() {
     document.body.classList.remove("done");
     Object.assign(trip, { startedAt: 0, fixes: 0, fromCoords: 0, coarse: 0,
       rejected: 0, intervals: [], accuracies: [], maxSpeed: 0, maxForce: 0,

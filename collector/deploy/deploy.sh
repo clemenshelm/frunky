@@ -29,8 +29,13 @@ rsync -az --delete \
   collector/ "${HOST}:${REMOTE_DIR}/collector/"
 rsync -az trace-schema.js "${HOST}:${REMOTE_DIR}/trace-schema.js"
 
+# `restart`, not `up -d`. The source is BIND-MOUNTED, so nothing in the compose
+# definition changes when the code does — `up -d` sees a container that already
+# matches its spec, prints "Running", and leaves the old code in memory. The
+# first run of this script did exactly that: files copied, nothing deployed, and
+# a health check that passed because the old process was perfectly healthy.
 echo "→ restarting"
-ssh "$HOST" "cd /opt/web-infra && docker compose up -d frunky-trace && sleep 2 && docker compose ps frunky-trace"
+ssh "$HOST" "cd /opt/web-infra && docker compose up -d frunky-trace && docker compose restart frunky-trace && docker compose ps frunky-trace"
 
 echo "→ health"
 ssh "$HOST" "docker compose -f /opt/web-infra/docker-compose.yml exec -T frunky-trace \

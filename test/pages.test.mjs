@@ -147,8 +147,39 @@ ok("the driver page never sends anything itself",
 ok("the page never turns tracing on by itself",
   !/setConsent\(\s*true\s*\)/.test(driveScript.replace(/askConsent[\s\S]{0,200}?onclick/g, "")) ||
   /consentYes|btnTraceYes|traceYes/.test(driveScript));
-ok("consent is asked for on the start screen", /id="consent/.test(drive));
-ok("and the answer can be no, right there", /id="consentNo"/.test(drive));
+ok("consent is asked for", /id="consent/.test(drive));
+ok("and the answer can be no", /id="consentNo"/.test(drive));
+
+// ---- the ask must not become a dark pattern -------------------------------
+// The rules that are actually enforced, made structural so a later styling
+// tweak cannot quietly cross them.
+//
+// 1. Equal effort. One tap against one tap, same level, no submenu — this is
+//    the one regulators have fined over (CNIL vs Google/Facebook, 2022).
+// 2. Equal prominence. Both answers share ONE css rule, so they cannot drift
+//    into a coloured bar next to a pale grey link. Emphasis on "yes" is fine;
+//    hiding "no" is not.
+// 3. Saying no must still start the drive. The moment the music depends on the
+//    answer, consent is no longer freely given (Art. 7(4) GDPR) and the whole
+//    thing is void — the worst of both worlds.
+const style = drive.slice(drive.indexOf("<style>"), drive.indexOf("</style>"));
+ok("neither answer is sized or coloured on its own",
+  !/#consent(Yes|No)\s*\{[^}]*(padding|font-size|width|display\s*:\s*none)/.test(style));
+ok("both answers are styled by one shared rule",
+  /#consentBtns\s+button\s*\{/.test(style));
+// both must reach the same continuation, so refusing is not a dead end
+const yesPath = /consentYes[\s\S]{0,220}?answerConsent\(true\)/.test(driveScript);
+const noPath = /consentNo[\s\S]{0,220}?answerConsent\(false\)/.test(driveScript);
+ok("yes is one tap", yesPath);
+ok("no is one tap, to the same place", noPath);
+ok("and the drive proceeds either way — one continuation, not two",
+  (driveScript.match(/function answerConsent/g) || []).length === 1);
+// the ask must give a reason, not a slogan: a concrete one is what actually
+// moves the answer, and a generic one is what trains people to dismiss prompts
+ok("the ask states a concrete reason", /Tesla|Auto|Fahrzeug/.test(
+  (drive.match(/<div id="consentModal"[\s\S]*?<\/div>\s*<\/div>/) || [""])[0]));
+ok("and links to the full text before the choice",
+  /id="consentModal"[\s\S]*?href="privacy\.html/.test(drive));
 ok("the tracer is only created once, in one place",
   (driveScript.match(/FrunkyTrace\.create/g) || []).length === 1);
 
