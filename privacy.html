@@ -80,8 +80,16 @@
         <td>Welche Programmversion gefahren wurde.</td></tr>
     <tr><td>Geräteklasse</td><td><code>tesla</code>, <code>ios</code>, <code>android</code>,
             <code>desktop</code>, <code>other</code></td>
-        <td>Eine von fünf Klassen, im Browser bestimmt. Die vollständige Browserkennung
-            (User-Agent) wird nicht gesendet.</td></tr>
+        <td>Eine von fünf Klassen, im Browser bestimmt.</td></tr>
+    <tr><td>Hersteller-Wörter</td><td><code>GNU Linux Tesla Chrome</code></td>
+        <td>Aus der Browserkennung, <strong>ohne jede Zahl</strong>. Der Zweck dieser Daten ist,
+            Fahrzeugbrowser zu reparieren — dafür müssen wir wissen, welcher es ist. Die
+            Versionsnummern (z.&nbsp;B. eine Firmware wie <code>2024.44.25.2</code>) tragen fast
+            die ganze Wiedererkennbarkeit und fast keinen Erkenntniswert, also entfallen sie
+            vollständig. Die Browserkennung selbst wird nie übertragen.</td></tr>
+    <tr><td>Engine-Hauptversion</td><td><code>126</code></td>
+        <td>Nur die erste Zahl. Ein veraltetes Chromium im Fahrzeug ist eine der besten
+            Erklärungen für Abbrüche; von Hauptversionen sind wenige Dutzend im Umlauf.</td></tr>
     <tr><td>Messpunkte (alle 5 s)</td>
         <td>Geschwindigkeitsklasse, Szene, Rechenlast, Noten/s, GPS-Quelle, Alter des letzten
             Fixes, lange Browseraufgaben</td>
@@ -110,16 +118,27 @@
       Prüfsumme mit einem stündlich wechselnden Zufallsschlüssel gehalten — sie steht nie in
       einer Datei.</li>
   <li><span class="no">Keine Cookies</span> und keine Zählpixel.</li>
-  <li><span class="no">Keine dauerhafte Kennung.</span> Es gibt nichts, worüber sich zwei
-      Fahrten demselben Gerät zuordnen liessen.</li>
+  <li><span class="no">Keine dauerhafte Kennung.</span> Es gibt nichts, was zwei Fahrten
+      demselben Gerät zuordnet. Ehrlich zur Grenze dieser Aussage: Die Hersteller-Wörter oben
+      verkleinern natürlich den Kreis — bei wenigen Nutzern ist „ein Tesla mit Engine 126" nicht
+      besonders viele Leute. Der Schutz liegt darin, dass wir das Genauere gar nicht erst
+      erheben und nach 30 Tagen alles löschen, nicht in einer Behauptung über Anonymität.</li>
   <li><span class="no">Keine Weitergabe an Dritte</span>, keine Werbung, keine Analysedienste.</li>
 </ul>
 
 <h2>Rechtsgrundlage, Zweck, Dauer</h2>
 <ul>
-  <li><strong>Rechtsgrundlage:</strong> deine <strong>Einwilligung</strong>
-      (Art. 6 Abs. 1 lit. a DSGVO). Du erteilst sie aktiv; ohne Antwort wird nichts gesendet.
-      Frunky funktioniert ohne Einwilligung vollständig gleich — die Musik hängt nicht daran.</li>
+  <li><strong>Rechtsgrundlage:</strong> deine <strong>Einwilligung</strong>. Der tragende
+      Grund dafür ist nicht die DSGVO, sondern die Regel zum Endgerät (Art. 5 Abs. 3
+      ePrivacy-Richtlinie; §&nbsp;25 TDDDG in Deutschland, §&nbsp;165 TKG in Österreich): Für das
+      Speichern von Informationen auf deinem Gerät brauchen wir deine Zustimmung
+      <em>unabhängig davon</em>, ob es personenbezogene Daten sind. Frunky legt für das Tracing
+      zwei Dinge lokal ab — eine noch nicht zugestellte Fahrt und die Kennungen deiner letzten
+      Fahrten, damit der Löschknopf unten überhaupt etwas löschen kann. Beides ist für die Musik
+      nicht erforderlich, also fragen wir. Soweit einzelne Angaben doch personenbezogen sein
+      sollten, ist die Einwilligung zugleich die Rechtsgrundlage nach Art. 6 Abs. 1 lit. a DSGVO.
+      Du erteilst sie aktiv; ohne Antwort wird nichts gesendet, und Frunky funktioniert
+      vollständig gleich — die Musik hängt nicht daran.</li>
   <li><strong>Zweck:</strong> ausschliesslich Fehlersuche und Verbesserung der Wiedergabe im
       Fahrzeugbrowser. Keine Profilbildung, keine automatisierte Entscheidung.</li>
   <li><strong>Speicherdauer:</strong> <strong>30 Tage</strong>. Danach löscht der Server die
@@ -164,8 +183,8 @@
   <p>Stand dieser Erklärung: August 2026.</p>
 </footer>
 
-<script src="trace-schema.js?v=18"></script>
-<script src="trace.js?v=18"></script>
+<script src="trace-schema.js?v=19"></script>
+<script src="trace.js?v=19"></script>
 <script>
 (() => {
   "use strict";

@@ -40,6 +40,9 @@
     const doFetch = typeof cfg.fetch === "function" ? cfg.fetch : null;
     const storage = cfg.storage || null;
     const platform = S.platformClass(cfg.userAgent);
+    // reduced here, once, at the only place that ever sees the raw string
+    const ua = S.uaTokens(cfg.userAgent);
+    const engineMajor = S.engineMajor(cfg.userAgent);
 
     // storage is a courtesy, not a dependency: Safari in private mode throws on
     // every call, and a driver whose browser refuses it still gets music
@@ -206,7 +209,7 @@
     function snapshot() {
       if (!id) return null;
       const draft = {
-        v: S.VERSION, id, build, platform, lite,
+        v: S.VERSION, id, build, platform, ua, engineMajor, lite,
         opts: { curveOutward: !!opts.curveOutward, inertiaDepth: !!opts.inertiaDepth },
         samples, events, msgs,
       };

@@ -339,6 +339,11 @@ const call = (app, method, path, body, headers) => app.handle({
   ok("and no address of the client that sent it",
     !onDisk.includes("127.0.0.1") && !onDisk.includes("::1"));
   ok("and no agent string", !onDisk.includes("Mozilla"));
+  // the vendor DOES arrive — that is the point of the field — but stripped of
+  // the firmware build that makes an agent string a fingerprint
+  ok("the vendor token is on disk", onDisk.includes("Tesla"));
+  ok("its firmware build is not", !onDisk.includes("2024.44") && !onDisk.includes("25.2"));
+  ok("nor the engine's full version", !onDisk.includes("126.0"));
 
   // the viewer renders it
   const page = await (await fetch(base + "/")).text();

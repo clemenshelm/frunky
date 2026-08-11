@@ -208,11 +208,11 @@
 </footer>
 
 <script src="vendor/Tone.js"></script>
-<script src="engine.js?v=18"></script>
-<script src="geo.js?v=18"></script>
-<script src="diagnose.js?v=18"></script>
-<script src="trace-schema.js?v=18"></script>
-<script src="trace.js?v=18"></script>
+<script src="engine.js?v=19"></script>
+<script src="geo.js?v=19"></script>
+<script src="diagnose.js?v=19"></script>
+<script src="trace-schema.js?v=19"></script>
+<script src="trace.js?v=19"></script>
 <script>
 (() => {
   "use strict";
@@ -220,7 +220,7 @@
   // to know whether a trip tested the code we shipped is to read it back —
   // three reports in a row turned out to be the same stale build.
   // (Loading the page as ?v=<something-new> is what forces a fresh copy.)
-  const BUILD = "18";
+  const BUILD = "19";
   const el = (id) => document.getElementById(id);
   const startBtn = el("start"), stopBtn = el("stop");
   const speedEl = el("speed"), stateEl = el("state"), forceEl = el("forceBar");

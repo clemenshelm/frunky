@@ -121,6 +121,11 @@ const drive = (tr, seconds, speedKmh) => {
   eq("the platform is a class, not an agent string", body.platform, "tesla");
   ok("the raw agent string is nowhere in the body",
     !JSON.stringify(body).includes("Mozilla") && !JSON.stringify(body).includes("2024.44"));
+  // ...but the vendor is, because "which car browser" is the whole purpose and
+  // five classes cannot tell a Polestar from a Rivian
+  ok("the vendor token travels", body.ua.includes("Tesla"));
+  ok("without the firmware build", !/\d/.test(body.ua));
+  eq("and the engine major version travels", body.engineMajor, 126);
 
   // the decisive one: what the client sends is already what the schema allows
   const re = S.redactTrace(body);

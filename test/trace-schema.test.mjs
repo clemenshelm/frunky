@@ -40,6 +40,47 @@ const UA_IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleW
 const UA_ANDROID = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36";
 const UA_MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15";
 
+// ---- the vendor survives, the firmware build does not ----------------------
+// Five classes cannot tell a Polestar from a Rivian, and an Android Automotive
+// car probably reports plain "Android" — so it would be filed as a PHONE, which
+// is not a blind spot but a wrong answer. The agent string is where the vendor
+// is, and it is also the classic fingerprinting surface. Those two facts live
+// in different halves of it: `Tesla` is a name and low entropy, `2024.44.25.2`
+// is a firmware build and very nearly a personal identifier at this fleet size.
+// So the words survive and every number goes.
+const UA_POLESTAR = "Mozilla/5.0 (Linux; Android 12; Polestar 2 Build/SP2A.220505.008) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.5414.86 Safari/537.36";
+const UA_MADEUP = "Mozilla/5.0 (Linux; Zorbo OS 4.2) AppleWebKit/537.36 Zorbomobile/9.9.9 Chrome/131.0.1 Safari/537.36";
+
+for (const ua of [UA_TESLA, UA_IPHONE, UA_ANDROID, UA_MAC, UA_POLESTAR, UA_MADEUP]) {
+  const tokens = S.uaTokens(ua);
+  ok("no digit survives in: " + tokens, !/\d/.test(tokens));
+  ok("nor a version separator", !tokens.includes("/") && !tokens.includes("."));
+  ok("the result is capped", tokens.length <= S.UA_MAX);
+}
+ok("the vendor survives", S.uaTokens(UA_TESLA).includes("Tesla"));
+ok("the browser engine survives", S.uaTokens(UA_TESLA).includes("Chrome"));
+ok("the firmware build does not", !S.uaTokens(UA_TESLA).includes("2024"));
+ok("boilerplate is not worth a slot", !S.uaTokens(UA_TESLA).includes("Mozilla") &&
+  !S.uaTokens(UA_TESLA).includes("AppleWebKit") && !S.uaTokens(UA_TESLA).includes("KHTML"));
+
+// The decisive property: this is NOT an allow-list of brands we know. A car
+// nobody has heard of has to arrive carrying its own name, or the field only
+// ever confirms what we already believed.
+ok("a car we know nothing about names itself", S.uaTokens(UA_POLESTAR).includes("Polestar"));
+ok("and so does one that does not exist yet", S.uaTokens(UA_MADEUP).includes("Zorbomobile"));
+ok("even its OS token", S.uaTokens(UA_MADEUP).includes("Zorbo"));
+eq("nothing in, nothing out", S.uaTokens(null), "");
+eq("and no guessing", S.uaTokens(12345), "");
+
+// the engine's MAJOR version only: an old Chromium in a car is one of the best
+// hypotheses we have, and about twenty of them are in circulation — which
+// singles nobody out, where a full build number very nearly does
+eq("the engine major version is kept", S.engineMajor(UA_TESLA), 126);
+eq("even on an old car browser", S.engineMajor(UA_POLESTAR), 109);
+eq("Safari reports through Version/", S.engineMajor(UA_IPHONE), 17);
+eq("an unreadable agent is zero, not a guess", S.engineMajor("Weird/1.0"), 0);
+eq("and so is a non-string", S.engineMajor(null), 0);
+
 eq("the Tesla browser is recognised", S.platformClass(UA_TESLA), "tesla");
 eq("iOS", S.platformClass(UA_IPHONE), "ios");
 eq("Android", S.platformClass(UA_ANDROID), "android");
@@ -82,6 +123,8 @@ const wellFormed = () => ({
   id: "a1b2c3d4e5f60718",
   build: "17",
   platform: "tesla",
+  ua: "GNU Linux Tesla Chrome Safari",
+  engineMajor: 126,
   lite: true,
   opts: { curveOutward: true, inertiaDepth: false },
   samples: [
@@ -179,11 +222,24 @@ ok("a malformed id is refused", S.redactTrace({ ...wellFormed(), id: "../../etc/
 ok("an id that is a path traversal cannot become a filename",
   S.redactTrace({ ...wellFormed(), id: "a/../b" }).ok === false);
 
-// ---- the one free-text field, and the fact that it is sanitised -----------
-// `msgs` carries JavaScript error messages, which is the single most useful
-// thing a remote crash report brings home and the only field where a page value
-// could in principle echo out. It is the documented exception to "no free text"
-// — so it gets its own assertions rather than a quiet pass.
+// ---- the free-text fields, and the fact that both are sanitised -----------
+// Two fields cannot be enumerated in advance: error messages, and the agent
+// string's vendor tokens. Both are the documented exceptions to "no free text",
+// so both get their own assertions rather than a quiet pass in the sweep below.
+//
+// The list is exported and asserted small: adding a third free-text field turns
+// this red, which is the point — each one is a decision, not a default.
+ok("the free-text fields are declared", Array.isArray(S.FREE_TEXT_FIELDS));
+ok("and there are exactly the two that were argued for (" + S.FREE_TEXT_FIELDS + ")",
+  S.FREE_TEXT_FIELDS.length === 2 &&
+  S.FREE_TEXT_FIELDS.includes("msgs") && S.FREE_TEXT_FIELDS.includes("ua"));
+
+// the agent field is sanitised on the way in as well, so a client that sends a
+// raw string gets the same treatment the browser should have applied
+const uaRaw = S.redactTrace({ ...wellFormed(), ua: UA_TESLA }).trace.ua;
+ok("a raw agent string is reduced at the door, not stored", !/\d/.test(uaRaw));
+ok("while keeping the vendor", uaRaw.includes("Tesla"));
+
 const msgy = wellFormed();
 msgy.msgs = [
   "Cannot read properties of undefined reading gain",
@@ -246,9 +302,12 @@ const poisoned = poisonFields(S.SPEC);
 // makes the trace invalid, and a sweep over a refused trace proves nothing
 poisoned.v = 1;
 poisoned.id = "a1b2c3d4e5f60718";
-// `msgs` is free text by design — see the block above, which is where it is held
-// to account instead
-poisoned.msgs = [];
+// the free-text fields are exempt by design — the block above is where they are
+// held to account instead. Driving the exemption off the exported list rather
+// than off two names typed here means a third such field cannot be quietly
+// waved through: it would have to be added to FREE_TEXT_FIELDS, which the
+// assertion above refuses.
+for (const f of S.FREE_TEXT_FIELDS) poisoned[f] = Array.isArray(poisoned[f]) ? [] : "";
 const poisonCount = poisons.length;
 const swept = JSON.stringify(S.redactTrace(poisoned).trace);
 const leaked = poisons.filter((p) => swept.includes(p));

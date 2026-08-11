@@ -70,9 +70,11 @@
     return Math.min(TOP_BUCKET, 1 + Math.floor(v / 10));
   }
 
-  // One of five classes, decided in the browser. The full agent string is never
-  // sent: a car's exact firmware build plus a coarse arrival time is a small
-  // enough crowd to be worth not collecting.
+  // One of five classes, decided in the browser. Coarse on purpose, and coarse
+  // enough to be WRONG on its own: an Android Automotive car (Polestar, Volvo)
+  // very likely reports plain "Android" and would be filed here as a phone.
+  // That is what `uaTokens` below is for; this stays because it is what the
+  // viewer sorts by.
   function platformClass(ua) {
     const s = typeof ua === "string" ? ua : "";
     if (/Tesla/i.test(s)) return "tesla";
@@ -80,6 +82,56 @@
     if (/Android/i.test(s)) return "android";
     if (/Macintosh|Windows|X11|Linux|CrOS/i.test(s)) return "desktop";
     return "other";
+  }
+
+  // The agent string, minus everything that makes it a fingerprint.
+  //
+  // Five classes cannot tell a Polestar from a Rivian, and the whole purpose of
+  // this data is diagnosing CAR browsers — so which car is squarely inside the
+  // purpose, and minimisation is measured against the purpose rather than
+  // against zero. The agent string is where the vendor is. It is also the
+  // classic fingerprinting surface, and those two facts sit in different halves
+  // of it: `Tesla` is a name, low entropy, exactly what is wanted;
+  // `2024.44.25.2` is a firmware build and at this fleet size very nearly a
+  // personal identifier. The versions carry almost all of the recognisability
+  // and almost none of the insight, so the words survive and the numbers go.
+  //
+  // Splitting on non-letters is what makes that airtight rather than careful:
+  // a digit cannot survive a rule that treats digits as separators.
+  //
+  // Deliberately NOT an allow-list of known brands. A car nobody here has heard
+  // of has to be able to arrive carrying its own name, or the field only ever
+  // confirms what we already believed — which is the same trap the first
+  // version of the privacy sweep fell into.
+  const UA_MAX = 80;
+  const UA_MAX_TOKENS = 12;
+  // Present in nearly every agent string, so they identify nothing and would
+  // only spend token slots. Missing one costs a slot, never a leak.
+  const UA_NOISE = new Set(["mozilla", "applewebkit", "khtml", "like", "gecko",
+    "compatible", "version", "build", "mobile", "safari"]);
+  function uaTokens(ua) {
+    if (typeof ua !== "string") return "";
+    const seen = new Set();
+    const out = [];
+    for (const token of ua.split(/[^A-Za-z]+/)) {
+      if (token.length < 2) continue;
+      const key = token.toLowerCase();
+      if (UA_NOISE.has(key) || seen.has(key)) continue;
+      seen.add(key);
+      out.push(token);
+      if (out.length >= UA_MAX_TOKENS) break;
+    }
+    return out.join(" ").slice(0, UA_MAX);
+  }
+
+  // The engine's MAJOR version and nothing finer. An old Chromium in a car is
+  // one of the better hypotheses for the failures this whole system exists to
+  // explain, and about twenty majors are in circulation — which singles nobody
+  // out, where a full build number very nearly does.
+  function engineMajor(ua) {
+    if (typeof ua !== "string") return 0;
+    const m = /(?:Chrome|CriOS|Firefox|Edg|OPR|Version)\/(\d{1,3})/.exec(ua);
+    return m ? Number(m[1]) : 0;
   }
 
   // An allow-list of shapes, not a deny-list of them.
@@ -162,6 +214,11 @@
     id: { t: "id" },
     build: { t: "build" },
     platform: oneOf(PLATFORMS, "other"),
+    // reduced again on arrival, not merely trusted: a client that sends a raw
+    // agent string gets the treatment its browser should have applied, and the
+    // collector never holds a version number even for the length of a write
+    ua: { t: "ua" },
+    engineMajor: int(0, 999),
     lite: bool(),
     opts: obj({ curveOutward: bool(), inertiaDepth: bool() }),
     samples: arr(SAMPLE, MAX_SAMPLES),
@@ -191,10 +248,10 @@
         if (value !== undefined) dropped.push(path);
         return spec.fallback === null ? NOTHING : spec.fallback;
       }
-      case "text": {
-        const s = sanitizeMessage(value);
-        return s;
-      }
+      case "text":
+        return sanitizeMessage(value);
+      case "ua":
+        return uaTokens(value);
       case "obj": {
         if (!value || typeof value !== "object" || Array.isArray(value)) {
           return spec.optional ? NOTHING : buildFrom(spec.fields, {}, dropped, path);
@@ -280,8 +337,13 @@
 
   const api = {
     VERSION, PLATFORMS, SCENES, GPS_SOURCES, END_REASONS, EVENT_KINDS, EVENT_CODES,
-    SPEED_LABELS, MAX_SAMPLES, MAX_EVENTS, MAX_MSGS, MSG_MAX,
-    speedBucket, platformClass, sanitizeMessage, redactTrace, newTraceId,
+    SPEED_LABELS, MAX_SAMPLES, MAX_EVENTS, MAX_MSGS, MSG_MAX, UA_MAX,
+    speedBucket, platformClass, uaTokens, engineMajor, sanitizeMessage,
+    redactTrace, newTraceId,
+    // The two fields whose contents cannot be enumerated in advance. Exported
+    // so the privacy sweep can exempt exactly these and no others — a third one
+    // has to be added here, in the open, and the test refuses it.
+    FREE_TEXT_FIELDS: ["msgs", "ua"],
     // Exported so the privacy sweep can build its input from the SPEC rather
     // than from a hand-written sample. A hand-written sample only ever poisons
     // the fields somebody remembered to put in it, which is precisely the field

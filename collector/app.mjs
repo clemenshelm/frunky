@@ -192,7 +192,10 @@ function renderViewer(traces, stats) {
     return "<tr data-id=\"" + esc(t.id) + "\">" +
       "<td class=\"mono\">" + esc(t.id.slice(0, 8)) + "</td>" +
       "<td>" + esc(new Date(t.at).toISOString().replace("T", " ").slice(0, 13)) + "h</td>" +
-      "<td>" + esc(t.platform) + "</td>" +
+      // the vendor tokens rather than the five-way class: an Android Automotive
+      // car reports plain "Android" and would read here as a phone
+      "<td title=\"" + esc(t.platform) + "\">" + esc(t.ua || t.platform) + "</td>" +
+      "<td>" + (t.engineMajor ? esc(String(t.engineMajor)) : "—") + "</td>" +
       "<td>" + esc(t.build) + "</td>" +
       "<td>" + (t.lite ? "sparsam" : "voll") + "</td>" +
       "<td>" + mins + "</td>" +
@@ -232,7 +235,7 @@ function renderViewer(traces, stats) {
 <p class="sub">${traces.length} Fahrten gespeichert · ${stats.files} Tagesdateien ·
   keine Positionen, keine Adressen, keine dauerhafte Kennung</p>
 ${traces.length ? `<table>
-<thead><tr><th>Kennung</th><th>Angekommen (UTC)</th><th>Gerät</th><th>Build</th><th>Modus</th>
+<thead><tr><th>Kennung</th><th>Angekommen (UTC)</th><th>Gerät</th><th>Engine</th><th>Build</th><th>Modus</th>
 <th>Minuten</th><th>Ende</th><th>Freezes</th><th>schlimmster</th><th>Noten/s</th><th>lange Aufg.</th></tr></thead>
 <tbody>
 ${rows}
@@ -277,7 +280,8 @@ ${rows}
       '<span class="ev">' + Math.round(e.t / 1000) + "s " + e.kind +
       (e.code ? "/" + e.code : "") + (e.n ? " " + e.n : "") + "</span>").join(" ");
     detail.innerHTML =
-      "<strong>" + t.id + "</strong> · " + t.platform + " · Build " + t.build +
+      "<strong>" + t.id + "</strong> · " + (t.ua || t.platform) +
+      (t.engineMajor ? " (Engine " + t.engineMajor + ")" : "") + " · Build " + t.build +
       " · " + (t.lite ? "Sparmodus" : "voller Graph") +
       " · Kurve " + (t.opts && t.opts.curveOutward ? "aussen" : "innen") +
       " · Tiefe " + (t.opts && t.opts.inertiaDepth ? "an" : "aus") +
