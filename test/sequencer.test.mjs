@@ -19,6 +19,16 @@ const failures = [];
 const SEEDS = [0.377, 0.113, 0.641, 0.209, 0.888, 0.05, 0.5, 0.731];
 const BARS = 160; // ~10 pieces' worth of sections per seed
 
+// one store shared across seeds: the eight fuzz runs become eight consecutive
+// DRIVES of one running set, so the fuzz walks the whole set wave (including
+// the anthem double peak) and exercises the resume path seven times over
+const setState = new Map();
+const sharedStore = {
+  getItem: (k) => (setState.has(k) ? setState.get(k) : null),
+  setItem: (k, v) => { setState.set(k, String(v)); },
+  removeItem: (k) => { setState.delete(k); },
+};
+
 const styles = new Set(), rhythms = new Set(), parts = new Set(), moods = new Set();
 let steps = 0, liteRuns = 0;
 // mix consistency: the family levels that hold every layer combination to the
@@ -29,7 +39,7 @@ for (const [si, seed] of SEEDS.entries()) {
   let rc = 0;
   Math.random = () => (rc = (rc + seed) % 1);
   transport.manual = true;
-  globalThis.window = { Tone: globalThis.Tone };
+  globalThis.window = { Tone: globalThis.Tone, localStorage: sharedStore };
   eval(script);
   const Frunky = globalThis.window.Frunky;
   // half the seeds build the low-power graph. It is a DIFFERENT graph — no
@@ -164,6 +174,11 @@ for (const r of ["bar", "twobar", "push", "sync"]) {
 if (liteRuns === 0) failures.push("the low-power graph was never built");
 for (const p of ["A", "B", "C"]) {
   if (!parts.has(p)) failures.push(`fuzz never exercised part ${p}`);
+}
+// the shared store makes this deterministic: sixteen consecutive episodes
+// must visit every station of the set wave
+for (const m of ["Deep", "neutral", "Anthem"]) {
+  if (!moods.has(m)) failures.push(`fuzz never exercised the "${m}" mood`);
 }
 
 if (failures.length) {

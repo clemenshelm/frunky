@@ -133,9 +133,46 @@
   // universe where the tonic never moves. Small moves only (±2/±3 semitones)
   const TRANSPOSES = [-3, -2, 0, 0, 2, 3];
   const KEYNAMES = { "-3": "F♯m", "-2": "Gm", "0": "Am", "2": "Hm", "3": "Cm" };
-  // macro arc: pieces alternate character like a DJ set alternates hours —
+  // macro arc: the mood is DRAMATURGY, not a pool. A DJ set is a wave —
+  // warm-up, build, peak, breathe, rebuild, then the double peak — and the
+  // valleys are what make the peaks land; a dice roll gives neither. The wave
+  // is indexed by the running episode number and cycles (~27 min per lap),
+  // so a 40-minute drive rides one full wave and starts earning the next.
   // deep pulls the payoff elements back, anthem leans into them
-  const MOODS = ["deep", "neutral", "anthem"];
+  const SET_WAVE = ["deep", "neutral", "anthem", "neutral", "deep", "neutral", "anthem", "anthem"];
+
+  // the residency: the set state survives the drive. A daily 10-minute
+  // commute never reaches minute 35 of one drive — its staleness comes from
+  // every drive starting at episode one. Persisting {episode, key, walk
+  // position} makes the next drive the NEXT EPISODE of a running set: it
+  // resumes wherever the wave stood and the key must move on. The payload is
+  // versioned and validated field by field; anything unreadable starts a
+  // fresh set — a hostile store must never crash the music.
+  const SET_KEY = "frunky.set.v1";
+  function setStore() {
+    // window.localStorage can THROW on access in hardened privacy modes
+    try { return (typeof window !== "undefined" && window.localStorage) || null; }
+    catch (err) { void err; return null; }
+  }
+  function loadSet() {
+    try {
+      const st = setStore();
+      const raw = st && st.getItem(SET_KEY);
+      if (!raw) return null;
+      const d = JSON.parse(raw);
+      if (!d || d.v !== 1) return null;
+      if (!Number.isInteger(d.num) || d.num < 1) return null;
+      if (!TRANSPOSES.includes(d.tp)) return null;
+      if (!Number.isInteger(d.progIdx) || !PROGS[d.progIdx]) return null;
+      return { num: d.num, tp: d.tp, progIdx: d.progIdx };
+    } catch (err) { void err; return null; }
+  }
+  function saveSet(num, tpv, progIdx) {
+    try {
+      const st = setStore();
+      if (st) st.setItem(SET_KEY, JSON.stringify({ v: 1, num, tp: tpv, progIdx }));
+    } catch (err) { void err; }
+  }
   function rollBundle(role, progIdx, mood, notLike) {
     // a sibling part must be tellable apart: never the same chord style or
     // bass pattern as the bundle it plays against (contrast is the form)
@@ -212,21 +249,24 @@
   }
   function newPiece() {
     // harmonic anchors walk the progression graph: verse where we are,
-    // chorus and bridge on neighbours
-    const prev = engine.piece;
+    // chorus and bridge on neighbours. "Where we are" includes the previous
+    // DRIVE: after a resume, engine.progIdx and setPrev carry the old set's
+    // position, so the walk and the key-avoidance continue across the boundary
+    const prev = engine.piece || engine.setPrev;
     const pA = engine.progIdx;
     const nA = PROG_NEXT[pA];
     const pB = nA[Math.floor(Math.random() * nA.length)];
     const nB = PROG_NEXT[pB];
     const pC = nB[Math.floor(Math.random() * nB.length)];
     const tpPool = TRANSPOSES.filter((x) => !prev || x !== prev.tp);
-    const moodPool = MOODS.filter((x) => !prev || x !== prev.mood);
-    const mood = moodPool[Math.floor(Math.random() * moodPool.length)];
+    const num = prev ? prev.num + 1 : 1;
+    // the wave, not the dice: the episode number decides the mood
+    const mood = SET_WAVE[(num - 1) % SET_WAVE.length];
     const A = rollBundle("verse", pA, mood);
     const B = rollBundle("chorus", pB, mood, A); // chorus must contrast the verse
     const C = rollBundle("bridge", pC, mood, B); // bridge must contrast the chorus
     engine.piece = {
-      num: prev ? prev.num + 1 : 1,
+      num,
       // a COPY: a launch rewrites this piece's script, and mutating the shared
       // pool entry would corrupt the form for every piece that follows
       form: FORMS[Math.floor(Math.random() * FORMS.length)].slice(),
@@ -237,6 +277,10 @@
       parts: { A, B, C },
       hook: genHook(),
     };
+    // persist the episode as it BEGINS: a drive can end anywhere inside it,
+    // and the next drive should resume as if this piece finished. Every form
+    // closes on the chorus, so pB is where the walk stands when it ends
+    saveSet(num, engine.piece.tp, pB);
   }
   function loadPart(t) {
     const piece = engine.piece;
@@ -1865,7 +1909,12 @@
     engine.lean = false;
     engine.riseOn = false; riseVoices = []; riseLog = []; riseNextAt = 0;
     risePeak = 0; riseArrivalAt = -1;
-    engine.flowOn = false; engine.progIdx = 0; engine.piece = null; engine.partLabel = "";
+    engine.flowOn = false; engine.piece = null; engine.partLabel = "";
+    // resume the residency: the saved set decides where the walk starts and
+    // which episode plays next. This also runs on a mid-drive rebuild(), so
+    // even the last-resort graph teardown no longer resets the set
+    engine.setPrev = loadSet();
+    engine.progIdx = engine.setPrev ? engine.setPrev.progIdx : 0;
     stepIdx = 0; pendingLaunchAt = -1; tp = 0; clock = 0;
     sched.clear(); ctlLast.clear(); stepCost = 0; peakCost = 0;
     strain = 0; strainSteps = 0; totalSteps = 0;
@@ -2026,6 +2075,16 @@
     __graph: () => (revSend
       ? { chorus: chorus || null, revSend, reverb, padLp, gateLp, busHarm, shed: fxShed }
       : null),
+    // test seam: the set arc and the running episode, so a test can assert
+    // the dramaturgy (wave, numbering, resume) rather than trust the gesture
+    __set: () => ({
+      wave: SET_WAVE.slice(),
+      resumed: engine.setPrev ? { ...engine.setPrev } : null,
+      piece: engine.piece ? {
+        num: engine.piece.num, tp: engine.piece.tp, mood: engine.piece.mood,
+        progA: engine.piece.parts.A.progIdx, progB: engine.piece.parts.B.progIdx,
+      } : null,
+    }),
     // test seam: the rise figure's ledger, so a test can assert the canon
     // (grid, pentatonic, ascent, cap, cadence) rather than trust the gesture
     __rise: () => ({
