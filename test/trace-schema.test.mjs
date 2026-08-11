@@ -127,11 +127,15 @@ const wellFormed = () => ({
   engineMajor: 126,
   lite: true,
   opts: { curveOutward: true, inertiaDepth: false },
+  hw: 4,
+  mem: 4,
   samples: [
     { t: 0, speed: 0, scene: "standstill", load: 3, notes: 0, strain: 0,
-      late: 0, stalls: 0, errors: 0, resumes: 0, fixAge: 900, gps: "coords", lt: 120 },
+      late: 0, stalls: 0, errors: 0, resumes: 0, fixAge: 900, gps: "coords", lt: 120,
+      audio: "running" },
     { t: 5000, speed: 4, scene: "city", load: 8, notes: 22, strain: 0,
-      late: 0, stalls: 0, errors: 0, resumes: 0, fixAge: 400, gps: "coords", lt: 60 },
+      late: 0, stalls: 0, errors: 0, resumes: 0, fixAge: 400, gps: "coords", lt: 60,
+      audio: "running" },
   ],
   events: [
     { t: 1200, kind: "launch", n: 0, code: "" },
@@ -221,6 +225,49 @@ ok("a wrong schema version is refused", S.redactTrace({ ...wellFormed(), v: 2 })
 ok("a malformed id is refused", S.redactTrace({ ...wellFormed(), id: "../../etc/passwd" }).ok === false);
 ok("an id that is a path traversal cannot become a filename",
   S.redactTrace({ ...wellFormed(), id: "a/../b" }).ok === false);
+
+// ---- the page's own life is the thing being measured now ------------------
+// Nine Tesla runs said the engine is fine: zero late steps, zero stalls, zero
+// errors, notes flowing to the last sample — and four of them ended in
+// `pagehide` after 11 to 44 seconds. The music does not die, the PAGE is taken
+// away. Telling apart "backgrounded and recoverable" from "discarded" needs the
+// browser's own lifecycle vocabulary, so the schema learns it.
+for (const kind of ["hidden", "visible", "pagehide", "pageshow", "audiostate",
+  "discarded", "wakelock"]) {
+  ok("the schema can record a " + kind + " event", S.EVENT_KINDS.includes(kind));
+}
+for (const code of ["persisted", "discarded", "suspended", "interrupted",
+  "running", "granted", "lost"]) {
+  ok("...and qualify it with " + code, S.EVENT_CODES.includes(code));
+}
+
+// The audio context's state per sample. A suspended context is silence with a
+// perfectly healthy sequencer behind it — the exact shape of "it got stuck",
+// and until now nothing in a trace could show it.
+{
+  const withAudio = wellFormed();
+  withAudio.samples[0].audio = "suspended";
+  withAudio.samples[1].audio = "erfunden";
+  const r = S.redactTrace(withAudio);
+  eq("a real audio state survives", r.trace.samples[0].audio, "suspended");
+  ok("an invented one does not", r.trace.samples[1].audio === "");
+  ok("and the states are the ones a browser actually reports",
+    ["running", "suspended", "interrupted", "closed"].every((s) => S.AUDIO_STATES.includes(s)));
+}
+
+// How weak is this device? The Tesla reports no vendor token at all — its agent
+// string is plain "Linux Chrome", indistinguishable from a desktop — so the
+// useful question is not which car it is but how much machine it has. Small
+// integers, and the ones that decide whether the low-power graph should be on.
+{
+  const r = S.redactTrace({ ...wellFormed(), hw: 4, mem: 4 });
+  eq("cores travel", r.trace.hw, 4);
+  eq("memory travels", r.trace.mem, 4);
+  const absurd = S.redactTrace({ ...wellFormed(), hw: 4096, mem: -3 });
+  ok("clamped, like every other number", absurd.trace.hw <= 64 && absurd.trace.mem >= 0);
+  eq("and an absent value is zero, not a guess",
+    S.redactTrace({ ...wellFormed(), hw: undefined }).trace.hw, 0);
+}
 
 // ---- the free-text fields, and the fact that both are sanitised -----------
 // Two fields cannot be enumerated in advance: error messages, and the agent

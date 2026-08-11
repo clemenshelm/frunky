@@ -89,6 +89,46 @@ ok("the long-task total reaches the trace", /lt:\s*Math\.max\(0, ltNow/.test(dri
 ok("the note counter reaches the trace", /notes:\s*notesPerSec/.test(drive));
 ok("and the GPS diagnostics reach the trace", /gps:\s*d\.fixes\s*\?\s*d\.speedSource/.test(drive));
 
+// ---- the page's own life is now the thing under investigation -------------
+// Nine Tesla runs: engine perfectly healthy in all 109 samples — zero late
+// steps, zero stalls, zero errors, notes flowing to the very last one — and
+// four of them ending in `pagehide` after 11 to 44 seconds. The music does not
+// die. The page is taken away. So the page reports its own lifecycle.
+for (const kind of ["hidden", "visible", "pagehide", "pageshow"]) {
+  ok("the page reports " + kind + " to the trace",
+    new RegExp('tracer\\.event\\("' + kind + '"').test(drive));
+}
+ok("a discarded tab says so on the next load", /wasDiscarded/.test(drive));
+ok("and the audio context's state travels with every sample", /audio:\s*h\.audio/.test(drive));
+
+// `pagehide` is NOT the end of a drive. It fires whenever the page is
+// backgrounded — on a car browser, every time the driver looks at the map — and
+// ending the trace there writes an `end` block onto a drive that is still
+// happening. Only a pagehide WITHOUT bfcache is a real ending.
+ok("pagehide reads the persisted flag before deciding anything",
+  /pagehide[\s\S]{0,400}persisted/.test(drive));
+ok("and only ends the drive when the page is really being thrown away",
+  /persisted[\s\S]{0,200}end\("unload"\)/.test(drive));
+
+// ---- what is being done about it ------------------------------------------
+// A tab that declares itself a media player is treated very differently by a
+// Chromium-based browser than one that merely happens to make noise — and on a
+// car it also puts the drive on the steering-wheel controls, which it should
+// have been on anyway.
+ok("the page declares a media session", /mediaSession/.test(drive));
+ok("with metadata, so the car knows what is playing", /MediaMetadata/.test(drive));
+ok("and it answers the car's transport controls",
+  /setActionHandler\("pause"/.test(drive) && /setActionHandler\("play"/.test(drive));
+// a context that goes to sleep must be caught the moment it does, not at the
+// next visibilitychange
+ok("a suspended audio context is noticed and resumed",
+  /onstatechange|"statechange"/.test(drive));
+// the Tesla is not recognisable from its agent string, but its weakness is
+// measurable — and the low-power graph existed all along with nothing to switch
+// it on
+ok("a weak device switches the low-power graph on by itself",
+  /hardwareConcurrency/.test(drive) && /setOption\("lite"/.test(drive));
+
 // ---- and the readouts really are gone -------------------------------------
 for (const [what, marker] of [
   ["the trip summary screen", 'id="trip"'],

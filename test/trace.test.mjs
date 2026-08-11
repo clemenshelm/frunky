@@ -58,6 +58,8 @@ const makeTracer = (over) => T.create(Object.assign({
   endpoint: ENDPOINT,
   build: "17",
   userAgent: "Mozilla/5.0 (X11; GNU/Linux) Tesla/2024.44.25.2 Chrome/126",
+  hardwareConcurrency: 4,
+  deviceMemory: 2,
   now: () => clock,
   fetch: fakeFetch(),
   storage: fakeStorage(),
@@ -67,7 +69,8 @@ const drive = (tr, seconds, speedKmh) => {
   for (let i = 0; i < seconds; i++) {
     clock += 1000;
     tr.sample({ speed: speedKmh, scene: "city", load: 0.05, notes: 20, strain: 0,
-      late: 0, stalls: 0, errors: 0, resumes: 0, fixAge: 800, gps: "coords", lt: 12 });
+      late: 0, stalls: 0, errors: 0, resumes: 0, fixAge: 800, gps: "coords", lt: 12,
+      audio: "running" });
   }
 };
 
@@ -126,6 +129,12 @@ const drive = (tr, seconds, speedKmh) => {
   ok("the vendor token travels", body.ua.includes("Tesla"));
   ok("without the firmware build", !/\d/.test(body.ua));
   eq("and the engine major version travels", body.engineMajor, 126);
+  // how weak the device is, which is the question the Tesla's anonymous agent
+  // string cannot answer
+  eq("cores travel", body.hw, 4);
+  eq("memory travels", body.mem, 2);
+  ok("the audio context state travels with every sample",
+    body.samples.every((s) => s.audio === "running"));
 
   // the decisive one: what the client sends is already what the schema allows
   const re = S.redactTrace(body);

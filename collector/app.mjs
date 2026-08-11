@@ -196,10 +196,13 @@ function renderViewer(traces, stats) {
       // car reports plain "Android" and would read here as a phone
       "<td title=\"" + esc(t.platform) + "\">" + esc(t.ua || t.platform) + "</td>" +
       "<td>" + (t.engineMajor ? esc(String(t.engineMajor)) : "—") + "</td>" +
+      "<td>" + (t.hw ? esc(String(t.hw)) + "×" : "—") +
+        (t.mem ? " / " + esc(String(t.mem)) + "G" : "") + "</td>" +
       "<td>" + esc(t.build) + "</td>" +
       "<td>" + (t.lite ? "sparsam" : "voll") + "</td>" +
       "<td>" + mins + "</td>" +
-      "<td>" + esc(String(end.reason || "—")) + "</td>" +
+      "<td class=\"" + (end.reason === "unload" ? "bad" : "") + "\">" +
+        esc(String(end.reason || "offen")) + "</td>" +
       "<td class=\"" + (end.freezes ? "bad" : "") + "\">" + esc(String(end.freezes ?? "—")) + "</td>" +
       "<td>" + worst + "</td>" +
       "<td>" + esc(String(end.minNotes ?? "—")) + "–" + esc(String(end.maxNotes ?? "—")) + "</td>" +
@@ -235,7 +238,7 @@ function renderViewer(traces, stats) {
 <p class="sub">${traces.length} Fahrten gespeichert · ${stats.files} Tagesdateien ·
   keine Positionen, keine Adressen, keine dauerhafte Kennung</p>
 ${traces.length ? `<table>
-<thead><tr><th>Kennung</th><th>Angekommen (UTC)</th><th>Gerät</th><th>Engine</th><th>Build</th><th>Modus</th>
+<thead><tr><th>Kennung</th><th>Angekommen (UTC)</th><th>Gerät</th><th>Engine</th><th>Maschine</th><th>Build</th><th>Modus</th>
 <th>Minuten</th><th>Ende</th><th>Freezes</th><th>schlimmster</th><th>Noten/s</th><th>lange Aufg.</th></tr></thead>
 <tbody>
 ${rows}
@@ -276,6 +279,7 @@ ${rows}
   function show(id) {
     const t = byId.get(id);
     if (!t) return;
+    const audioStates = [...new Set((t.samples || []).map((s) => s.audio).filter(Boolean))];
     const evs = (t.events || []).map((e) =>
       '<span class="ev">' + Math.round(e.t / 1000) + "s " + e.kind +
       (e.code ? "/" + e.code : "") + (e.n ? " " + e.n : "") + "</span>").join(" ");
@@ -285,6 +289,11 @@ ${rows}
       " · " + (t.lite ? "Sparmodus" : "voller Graph") +
       " · Kurve " + (t.opts && t.opts.curveOutward ? "aussen" : "innen") +
       " · Tiefe " + (t.opts && t.opts.inertiaDepth ? "an" : "aus") +
+      (t.hw ? " · " + t.hw + " Kerne" : "") + (t.mem ? " / " + t.mem + " GB" : "") +
+      (audioStates.length
+        ? ' · Audio <span class="' + (audioStates.some((a) => a !== "running") ? "bad" : "") + '">' +
+          audioStates.join(", ") + "</span>"
+        : "") +
       plot(t) +
       '<p class="legend"><span style="color:#6ee7ff">Tempo (Klassen ' + LABELS[0] + "…" + LABELS[13] + ")</span>" +
       '<span style="color:#7dff9b">Noten/s</span><span style="color:#ff9f6b">Last</span>' +

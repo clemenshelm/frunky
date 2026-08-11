@@ -49,6 +49,13 @@
   const EVENT_KINDS = [
     "start", "stop", "launch", "freeze", "stall", "rebuild", "resume",
     "jserror", "param", "loadtimeout", "gpserror", "watchdog", "lite", "consent",
+    // The page's own life. Nine Tesla runs showed a perfectly healthy engine —
+    // zero late steps, zero stalls, notes flowing to the last sample — and four
+    // of them ending in `pagehide` after 11 to 44 seconds. The music does not
+    // die; the page is taken away. Telling "backgrounded and recoverable" apart
+    // from "discarded" needs the browser's own vocabulary.
+    "hidden", "visible", "pagehide", "pageshow", "audiostate", "discarded",
+    "wakelock",
   ];
   // The vocabulary an event may add to its kind. An enum rather than a string,
   // so an event can carry a cause without opening a text channel.
@@ -56,7 +63,18 @@
     "", "our-js", "browser-stopped", "hidden", "gc", "mixed", "unknown",
     "timeout", "denied", "unavailable", "nan", "rebuilt", "refused", "failed",
     "on", "off",
+    // `persisted` is the one that decides the question: a pagehide into the
+    // back/forward cache is a page that can come back, one without is a page
+    // being thrown away
+    "persisted", "discarded", "suspended", "interrupted", "closed", "running",
+    "granted", "lost",
   ];
+
+  // What a browser may say about an audio context. A suspended context is
+  // silence with a healthy sequencer behind it — the exact shape of "it got
+  // stuck", and nothing in a trace could show it until now. ("interrupted" is
+  // Safari's, and a car browser has every reason to use something like it.)
+  const AUDIO_STATES = ["", "running", "suspended", "interrupted", "closed"];
 
   // 10-km/h buckets, with standstill given its own — the difference between
   // "stopped at a light" and "crawling" is a musical state, not a rounding
@@ -190,6 +208,7 @@
     fixAge: int(0, 600e3),
     gps: oneOf(GPS_SOURCES, "none"),
     lt: int(0, 600e3),          // long-task milliseconds inside this window
+    audio: oneOf(AUDIO_STATES, ""),
   });
 
   const EVENT = obj({
@@ -219,6 +238,13 @@
     // collector never holds a version number even for the length of a write
     ua: { t: "ua" },
     engineMajor: int(0, 999),
+    // How much machine is this? The Tesla reports no vendor token at all — its
+    // agent string is plain "Linux Chrome", indistinguishable from a desktop —
+    // so the useful question is not which car it is but how weak it is. Both
+    // are small integers, both are what should decide whether the low-power
+    // graph switches itself on.
+    hw: int(0, 64),             // navigator.hardwareConcurrency
+    mem: int(0, 128),           // navigator.deviceMemory, in GB
     lite: bool(),
     opts: obj({ curveOutward: bool(), inertiaDepth: bool() }),
     samples: arr(SAMPLE, MAX_SAMPLES),
@@ -337,6 +363,7 @@
 
   const api = {
     VERSION, PLATFORMS, SCENES, GPS_SOURCES, END_REASONS, EVENT_KINDS, EVENT_CODES,
+    AUDIO_STATES,
     SPEED_LABELS, MAX_SAMPLES, MAX_EVENTS, MAX_MSGS, MSG_MAX, UA_MAX,
     speedBucket, platformClass, uaTokens, engineMajor, sanitizeMessage,
     redactTrace, newTraceId,

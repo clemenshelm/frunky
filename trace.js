@@ -40,6 +40,13 @@
     const doFetch = typeof cfg.fetch === "function" ? cfg.fetch : null;
     const storage = cfg.storage || null;
     const platform = S.platformClass(cfg.userAgent);
+    // How weak is this machine? The Tesla's agent string names no vendor at all
+    // — plain "Linux Chrome" — so "which car" is unanswerable and "how much
+    // machine" is both answerable and the more useful question anyway.
+    const posInt = (v, cap) =>
+      typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.min(cap, Math.round(v)) : 0;
+    const hw = posInt(cfg.hardwareConcurrency, 64);
+    const mem = posInt(cfg.deviceMemory, 128);
     // reduced here, once, at the only place that ever sees the raw string
     const ua = S.uaTokens(cfg.userAgent);
     const engineMajor = S.engineMajor(cfg.userAgent);
@@ -155,6 +162,9 @@
           fixAge: Math.round(n(state.fixAge)),
           gps: typeof state.gps === "string" ? state.gps : "none",
           lt: Math.round(n(state.lt)),
+          // a suspended context is silence with a healthy sequencer behind it,
+          // which is exactly what "it got stuck" has looked like all along
+          audio: typeof state.audio === "string" ? state.audio : "",
         });
       } catch (err) { void err; }
     }
@@ -209,7 +219,7 @@
     function snapshot() {
       if (!id) return null;
       const draft = {
-        v: S.VERSION, id, build, platform, ua, engineMajor, lite,
+        v: S.VERSION, id, build, platform, ua, engineMajor, hw, mem, lite,
         opts: { curveOutward: !!opts.curveOutward, inertiaDepth: !!opts.inertiaDepth },
         samples, events, msgs,
       };
