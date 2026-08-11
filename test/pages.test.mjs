@@ -72,12 +72,40 @@ ok("driver page loads the engine", /src="engine\.js(\?v=\d+)?"/.test(drive));
 ok("driver page loads the GPS reader", /src="geo\.js(\?v=\d+)?"/.test(drive));
 ok("driver page loads the freeze diagnosis", /src="diagnose\.js(\?v=\d+)?"/.test(drive));
 
-// the four measurements that separate the causes of a frozen page — without
-// them a freeze is a number with no explanation, which is where we were
+// ---- the measurement outlives the readouts --------------------------------
+// The trip summary, the log view and the diagnostics line are gone: they were
+// the offline answer, and a trace that arrives on its own is a better one. What
+// must NOT go with them is the instrumentation, which now feeds the tracer
+// instead of a screen. Nothing renders it any more, so it looks like dead code
+// to the next person reading this file — these assertions are what says it is
+// not, and they name the consumer so the link is findable.
 ok("it watches for long tasks", drive.includes("longtask"));
 ok("it watches the page lifecycle", drive.includes("visibilitychange"));
 ok("it samples the heap", drive.includes("usedJSHeapSize"));
 ok("and it reports a verdict", drive.includes("classifyFreeze"));
+ok("the freeze verdict reaches the trace, not just a screen",
+  /tracer\.event\("freeze"/.test(drive));
+ok("the long-task total reaches the trace", /lt:\s*Math\.max\(0, ltNow/.test(drive));
+ok("the note counter reaches the trace", /notes:\s*notesPerSec/.test(drive));
+ok("and the GPS diagnostics reach the trace", /gps:\s*d\.fixes\s*\?\s*d\.speedSource/.test(drive));
+
+// ---- and the readouts really are gone -------------------------------------
+for (const [what, marker] of [
+  ["the trip summary screen", 'id="trip"'],
+  ["the log view", 'id="logView"'],
+  ["the diagnostics line", 'id="diag"'],
+]) {
+  ok(what + " is no longer in the driver page", !drive.includes(marker));
+}
+ok("nor the code that rendered them",
+  !/function showTrip|function renderLog/.test(drive));
+
+// ---- withdrawal stays reachable, whatever else is removed -----------------
+// Consent must be as easy to take back as it was to give. That makes this one
+// control legally load-bearing rather than a debug leftover, so it does not get
+// swept out with the panel it used to share.
+ok("the tracing switch survives", /id="optTrace"/.test(drive));
+ok("and something opens the panel it lives in", /classList\.toggle\("settings"\)/.test(drive));
 ok("bench loads Tone", bench.includes('src="vendor/Tone.js"'));
 ok("bench loads the engine", /src="engine\.js(\?v=\d+)?"/.test(bench));
 
@@ -93,9 +121,14 @@ ok("driver page does not simulate a drive", !drive.includes("advanceSim"));
 // only be tested through a page again
 ok("engine.js touches no DOM", !/\bdocument\.|getElementById|requestAnimationFrame/.test(engine));
 
-// both pages carry a build stamp: reviewing a stale cached copy has cost this
-// project two full feedback rounds already
-ok("driver page stamps its build", drive.includes("lastModified"));
+// Reviewing a stale cached copy has cost this project four field tests, so the
+// build has to be identifiable. The driver page used to carry two stamps: the
+// file's lastModified in the footer, and BUILD on the start screen. The footer
+// one is gone with the rest of the debug readouts — the remaining two signals
+// are both stronger, because BUILD is the deployed constant rather than a file
+// mtime, and it now travels home in every trace as well.
+ok("the build reaches the trace, so a stale run is visible without asking",
+  /build:\s*BUILD/.test(drive));
 // the build number must reach the report, or a stale run is indistinguishable
 // from a fresh one — which cost three field tests
 ok("the driver page reports its build number", /const BUILD = "\d+"/.test(drive));
@@ -118,6 +151,26 @@ for (const [name, src] of [["index.html", drive], ["bench.html", bench], ["priva
     try { new Function(code); } catch (err) {
       failures.push(name + " has an inline script that does not parse: " + err.message);
     }
+  }
+}
+
+// ---- every element the script reaches for has to exist --------------------
+// Parsing is not enough, and this was proved the expensive way: removing the
+// trip summary left `el("again").addEventListener(...)` behind. The file still
+// parsed perfectly, so the parse guard above was green — and the page threw
+// during initialisation, which aborted the rest of the script, which left a
+// `let` further down uninitialised, which made "Losfahren" silently do nothing.
+// One dead line, three symptoms, none of them visible in a static check.
+//
+// A car browser reports that as a blank screen after a tap, and nothing else.
+for (const [name, src] of [["index.html", drive], ["bench.html", bench], ["privacy.html", privacy]]) {
+  const ids = new Set([...src.matchAll(/\bid="([\w-]+)"/g)].map((m) => m[1]));
+  const reached = new Set([
+    ...[...src.matchAll(/\bel\("([\w-]+)"\)/g)].map((m) => m[1]),
+    ...[...src.matchAll(/getElementById\("([\w-]+)"\)/g)].map((m) => m[1]),
+  ]);
+  for (const id of reached) {
+    if (!ids.has(id)) failures.push(`${name} reaches for #${id}, which the page does not contain`);
   }
 }
 

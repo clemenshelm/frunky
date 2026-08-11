@@ -30,7 +30,7 @@
          align-items: center; justify-content: center; gap: 1rem; text-align: center; }
   /* the diagnostics and the footer must never be squeezed out by the drive
      screen — a log you cannot reach during the drive is not a log */
-  #diag, #diagOpts, footer { flex: 0 0 auto; }
+  #diagOpts, footer { flex: 0 0 auto; }
 
   /* the start screen is one enormous target — it is pressed before driving */
   #startScreen { gap: 2rem; }
@@ -127,15 +127,13 @@
   /* colour only — never size, never visibility */
   #consentBtns button { background: transparent; color: var(--cyan); }
   #consentBtns button.primary { background: var(--cyan); color: #06282c; }
-  /* field-test overlay: hidden until the footer is tapped, because the answers
-     it gives (does this browser report speed? how often?) can only be found in
-     a moving car — and must not be on screen while driving normally */
-  #diag { display: none; padding: 0.6rem 1.1rem 0; color: var(--muted);
-          font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.7rem;
-          line-height: 1.7; word-spacing: 0.4em; }
-  body.diag #diag { display: block; }
+  /* Settings, behind a footer tap. Not a debug panel any more — the readouts
+     that used to live here now travel home as a trace. What remains are the two
+     A/B switches the field test still needs, the low-power graph, and the
+     tracing switch, which has to stay reachable because consent must be as easy
+     to withdraw as it was to give. */
   #diagOpts { display: none; gap: 0.4rem; padding: 0.4rem 1.1rem 0; flex-wrap: wrap; }
-  body.diag #diagOpts { display: flex; }
+  body.settings #diagOpts { display: flex; }
   #diagOpts button {
     font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.7rem;
     color: var(--muted); background: transparent;
@@ -143,32 +141,6 @@
     padding: 0.3rem 0.6rem; cursor: pointer;
   }
   #diagOpts button.on { color: var(--cyan); border-color: var(--cyan); }
-  /* the log is the whole remote-debugging story: no backend, no streaming — a
-     car has no console, but it has a screen you can read and photograph */
-  #logView { display: none; position: fixed; inset: 0; background: var(--bg);
-             padding: 1rem; overflow: auto; z-index: 10;
-             font-family: ui-monospace, "SF Mono", Menlo, monospace;
-             font-size: 0.72rem; line-height: 1.6; white-space: pre-wrap; }
-  body.log #logView { display: block; }
-  #logClose { position: fixed; right: 0.8rem; bottom: 0.8rem; font-family: inherit;
-              font-size: 0.85rem; font-weight: 600; color: #06282c;
-              background: var(--cyan); border: none; border-radius: 999px;
-              padding: 0.6rem 1.4rem; cursor: pointer; }
-  /* the trip summary is the point of a field test: an impression is not a
-     result, and nobody can read a diagnostics line at 130 km/h */
-  #trip { display: none; padding: 1.2rem 1.1rem; max-width: 46ch; margin: 0 auto; }
-  body.done #trip { display: block; }
-  body.done #startScreen, body.done #driveScreen { display: none; }
-  #trip h2 { font-size: 1rem; font-weight: 600; margin-bottom: 0.7rem; }
-  #trip dl { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 1rem;
-             font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.78rem; }
-  #trip dt { color: var(--muted); }
-  #trip dd { color: var(--text); }
-  #again {
-    margin-top: 1.2rem; font-family: inherit; font-size: 0.95rem; font-weight: 600;
-    color: #06282c; background: var(--cyan);
-    border: none; border-radius: 999px; padding: 0.7rem 1.8rem; cursor: pointer;
-  }
 </style>
 </head>
 <body>
@@ -225,32 +197,23 @@
   <div class="force"><i id="forceBar"></i></div>
 </main>
 
-<main id="trip">
-  <h2>Fahrt ausgewertet</h2>
-  <dl id="tripBody"></dl>
-  <button id="again">Neue Fahrt</button>
-</main>
-
-<p id="diag"></p>
 <div id="diagOpts">
   <button id="optCurve">Kurve: aussen</button>
   <button id="optDepth">Trägheits-Tiefe: an</button>
   <button id="optLite">Sparmodus: aus</button>
   <button id="optTrace">Fehlerdaten: aus</button>
-  <button id="optLog">Protokoll</button>
 </div>
-<pre id="logView"></pre><button id="logClose" hidden>Schliessen</button>
 <footer>
   <span id="foot">Frunky</span>
   <button id="stop">Beenden</button>
 </footer>
 
 <script src="vendor/Tone.js"></script>
-<script src="engine.js?v=20"></script>
-<script src="geo.js?v=20"></script>
-<script src="diagnose.js?v=20"></script>
-<script src="trace-schema.js?v=20"></script>
-<script src="trace.js?v=20"></script>
+<script src="engine.js?v=21"></script>
+<script src="geo.js?v=21"></script>
+<script src="diagnose.js?v=21"></script>
+<script src="trace-schema.js?v=21"></script>
+<script src="trace.js?v=21"></script>
 <script>
 (() => {
   "use strict";
@@ -258,44 +221,30 @@
   // to know whether a trip tested the code we shipped is to read it back —
   // three reports in a row turned out to be the same stale build.
   // (Loading the page as ?v=<something-new> is what forces a fresh copy.)
-  const BUILD = "20";
+  const BUILD = "21";
   const el = (id) => document.getElementById(id);
   const startBtn = el("start"), stopBtn = el("stop");
   const speedEl = el("speed"), stateEl = el("state"), forceEl = el("forceBar");
   const noteEl = el("startNote");
 
-  const diagEl = el("diag");
   const reader = FrunkyGeo.createReader();
   let watchId = null, wakeLock = null, gotFix = false;
 
-  // ---- trip recording ------------------------------------------------------
-  // What a field test has to answer is factual — does this browser report a
-  // speed, how often does a fix arrive, how accurate is it — and none of it can
-  // be read off the screen while driving. So the drive records itself and the
-  // numbers are shown once it is over.
-  const trip = {
-    startedAt: 0, fixes: 0, fromCoords: 0, coarse: 0, rejected: 0,
-    intervals: [], accuracies: [],
-    maxSpeed: 0, maxForce: 0, maxLat: 0, staleMs: 0, lastSampleAt: 0,
-    clockFallback: 0, errors: 0, lastError: "", skipped: 0,
-    minNotes: 9999, maxNotes: 0,
-  };
-  const median = (a) => {
-    if (!a.length) return null;
-    const v = a.slice().sort((x, y) => x - y);
-    return v[Math.floor(v.length / 2)];
-  };
+  // ---- what the drive keeps ------------------------------------------------
+  // Only what something still reads. The trip summary that used to render most
+  // of this is gone: a drive now reports itself as a trace, and a screenful of
+  // numbers nobody photographs any more is just weight on a car browser that
+  // has none to spare.
+  const trip = { startedAt: 0, fixes: 0, skipped: 0, errors: 0, lastError: "" };
 
-  // tap the footer to reveal what the receiver is actually delivering. The
-  // in-car test's real question is whether this browser reports coords.speed
-  // and coords.heading at all — everything else can be tuned afterwards
-  el("foot").addEventListener("click", () => document.body.classList.toggle("diag"));
+  // tap the footer for the settings — the A/B switches and, crucially, the
+  // tracing switch, which has to stay reachable
+  el("foot").addEventListener("click", () => document.body.classList.toggle("settings"));
 
-  // ---- the log --------------------------------------------------------------
-  // A car has no console. Everything worth knowing goes into the engine's ring
-  // and is rendered on demand — readable, photographable, no backend involved.
-  // (Streaming it somewhere would be genuinely useful for other people later,
-  // but a GPS trace is personal data and that is not a switch to flip casually.)
+  // ---- errors ---------------------------------------------------------------
+  // The engine keeps its own event ring (health().events); the driver page no
+  // longer renders it, but a JavaScript error is worth carrying home, so it goes
+  // to the tracer as an event plus a sanitised message.
   window.addEventListener("error", (e) => {
     Frunky.log("js", (e.message || "error") + " @" + (e.filename || "").split("/").pop() + ":" + e.lineno);
     traceError(e.message);
@@ -309,55 +258,12 @@
   function traceError(text) {
     try { tracer.event("jserror", "", 0); tracer.message(text); } catch (err) { void err; }
   }
-  const logView = el("logView"), logClose = el("logClose");
-  function renderLog() {
-    const h = Frunky.health();
-    const d = reader.diagnostics(Date.now());
-    const lines = [
-      "FRUNKY build " + BUILD + " · " + document.lastModified,
-      "",
-      "audio      " + h.audio + (h.running ? " · läuft" : " · gestoppt"),
-      "steps      " + h.step,
-      "fehler     " + h.errors + " · resumes " + h.resumes + " · stalls " + h.stalls,
-      "verspätet  " + h.lateSteps + " steps · max " + Math.round(h.worstLate * 1000) + " ms",
-      "eingefroren " + freezes + "× · max " + Math.round(worstFreeze) + " ms",
-      "last       " + Math.round(h.load * 100) + "% · spitze " + Math.round(h.peakLoad * 100) + "%",
-      "vereinfacht " + (h.strain > 0.5 ? "JETZT" : "nein") + " · " + Math.round(h.strainPct) + "% der zeit",
-      "sparmodus  " + (Frunky.options().lite ? "an" : "aus"),
-      "",
-      "gps fixes  " + d.fixes + " · verworfen " + d.rejected,
-      "gps alter  " + (d.ageMs == null ? "—" : Math.round(d.ageMs) + " ms") +
-        " · takt " + (d.intervalMs == null ? "—" : Math.round(d.intervalMs) + " ms"),
-      "gps genau  " + (d.accuracy == null ? "—" : Math.round(d.accuracy) + " m"),
-      "gps quelle " + d.speedSource + "/" + d.headingSource +
-        " · uhr " + (trip.clockFallback ? "ankunft" : "gerät"),
-      "gps fehler " + trip.errors + (trip.lastError ? " (" + trip.lastError + ")" : "") +
-        " · übersprungen " + trip.skipped,
-      "",
-      "ereignisse:",
-    ];
-    for (const e of h.events) lines.push("  " + e.at + "ms " + e.kind + ": " + e.text);
-    if (!h.events.length) lines.push("  (keine)");
-    logView.textContent = lines.join("\n");
-  }
-  let logTimer = null;
-  el("optLog").addEventListener("click", () => {
-    document.body.classList.add("log");
-    logClose.hidden = false;
-    renderLog();
-    logTimer = setInterval(renderLog, 1000);
-  });
-  logClose.addEventListener("click", () => {
-    document.body.classList.remove("log");
-    logClose.hidden = true;
-    if (logTimer) { clearInterval(logTimer); logTimer = null; }
-  });
-
   // ---- tracing --------------------------------------------------------------
-  // The log above is the offline answer: read it, photograph it, send the photo.
-  // It has carried this project a long way and it stops working the moment
-  // somebody else drives — a stranger will not photograph a diagnostics screen,
-  // and a drive that ends in a freeze is exactly the one nobody thinks to.
+  // This replaced the log view and the trip summary. Those were the offline
+  // answer — read the screen, photograph it, send the photo — and they stopped
+  // working the moment somebody else drove: a stranger will not photograph a
+  // diagnostics screen, and a drive that ends in a freeze is exactly the one
+  // nobody thinks to.
   //
   // So the same numbers can now be sent home, under three rules that are worth
   // more than the data would be: nothing at all without an explicit yes, no
@@ -489,14 +395,10 @@
     if (arrivedNow - lastFixAccepted < MIN_FIX_GAP_MS) { trip.skipped++; return; }
     lastFixAccepted = arrivedNow;
     const c = pos.coords;
-    const before = reader.diagnostics(Date.now());
     trip.fixes++;
-    if (Number.isFinite(c.speed) && c.speed >= 0) trip.fromCoords++;
-    if (Number.isFinite(c.accuracy)) trip.accuracies.push(c.accuracy);
     // position.timestamp is not guaranteed to be on our clock — see fixTime
     const arrived = Date.now();
     const t = FrunkyGeo.fixTime(pos.timestamp, arrived);
-    if (t !== pos.timestamp) trip.clockFallback++;
     reader.push({
       lat: c.latitude, lon: c.longitude,
       speed: c.speed, heading: c.heading, accuracy: c.accuracy,
@@ -509,9 +411,6 @@
         " genau=" + (after.accuracy == null ? "—" : Math.round(after.accuracy)) +
         " quelle=" + after.speedSource + (t !== pos.timestamp ? " uhr=ankunft" : ""));
     }
-    if (after.intervalMs != null) trip.intervals.push(after.intervalMs);
-    if (after.speedSource === "grob") trip.coarse++;
-    if (after.rejected > before.rejected) trip.rejected++;
   }
   function onGeoError(err) {
     const msg = err.code === 1
@@ -550,58 +449,8 @@
     });
     keepAwake();
     trip.startedAt = Date.now();
-    trip.lastSampleAt = 0;
-    document.body.classList.remove("done");
     document.body.classList.add("driving");
     startBtn.disabled = false;
-  }
-
-  function showTrip() {
-    const mins = (Date.now() - trip.startedAt) / 60000;
-    const iv = median(trip.intervals), acc = median(trip.accuracies);
-    const rows = [
-      ["Version", BUILD],
-      ["Dauer", mins.toFixed(1) + " min"],
-      ["GPS-Fixes", String(trip.fixes)],
-      ["Takt (Median)", iv == null ? "—" : Math.round(iv) + " ms"],
-      ["Genauigkeit (Median)", acc == null ? "—" : Math.round(acc) + " m"],
-      ["Tempo vom Browser", trip.fixes ? Math.round((trip.fromCoords / trip.fixes) * 100) + " %" : "—"],
-      ["Fixes zu ungenau", String(trip.coarse)],
-      ["Sprünge verworfen", String(trip.rejected)],
-      ["Ohne Signal", (trip.staleMs / 1000).toFixed(0) + " s"],
-      ["Standort-Fehler", trip.errors ? trip.errors + " (" + trip.lastError + ")" : "0"],
-      ["Zeitstempel", trip.clockFallback ? "Ankunftszeit (Gerät unbrauchbar)" : "vom Gerät"],
-      ["Noten/s (min–max)", (trip.minNotes === 9999 ? "—" : trip.minNotes) + "–" + trip.maxNotes],
-      ["Audio-Last (Schnitt)", Math.round(Frunky.load() * 100) + " %"],
-      ["Audio-Last (Spitze)", Math.round(Frunky.peakLoad() * 100) + " %"],
-      ["Sparmodus", Frunky.options().lite ? "an" : "aus"],
-      ["Vereinfacht", Math.round(Frunky.health().strainPct) + " % der Zeit"],
-      ["Scheduler verspätet", Frunky.health().lateSteps + " Schritte, max " +
-        Math.round(Frunky.health().worstLate * 1000) + " ms"],
-      ["Transport-Stillstände", String(Frunky.health().stalls)],
-      ["Seite eingefroren", freezes + "× , max " + Math.round(worstFreeze) + " ms"],
-      ["Ursache", freezes ? (probe.verdict || "—") : "—"],
-      ["Deutung", freezes && probe.detail ? probe.detail : "—"],
-      ["Speicher", probe.heap == null ? "nicht messbar" : Math.round(probe.heap / 1e6) + " MB"],
-      ["Lange Aufgaben", probe.supported ? Math.round(probe.longtaskMs) + " ms gesamt" : "nicht messbar"],
-      ["Fixes verworfen (zu dicht)", String(trip.skipped)],
-      ["Höchsttempo", Math.round(trip.maxSpeed) + " km/h"],
-      ["Stärkste Kraft", Math.round(trip.maxForce * 100) + " %"],
-      ["Stärkste Querkraft", trip.maxLat.toFixed(2)],
-      ["Kurve", Frunky.options().curveOutward ? "aussen" : "innen"],
-      ["Trägheits-Tiefe", Frunky.options().inertiaDepth ? "an" : "aus"],
-    ];
-    const h = Frunky.health();
-    rows.push(["Audio-Aufwecker", String(h.resumes)]);
-    // the last few events, in the summary itself — a photo of this screen should
-    // answer the question without anyone having to find the log first
-    const tail = h.events.slice(-5);
-    if (tail.length) {
-      rows.push(["Ereignisse", tail.map((e) => e.kind + ": " + e.text).join(" · ")]);
-    }
-    el("tripBody").innerHTML = rows
-      .map(([k, v]) => "<dt>" + k + "</dt><dd>" + v + "</dd>").join("");
-    document.body.classList.add("done");
   }
 
   function stop() {
@@ -611,7 +460,6 @@
     if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
     if (wakeLock) { try { wakeLock.release(); } catch (err) { void err; } wakeLock = null; }
     document.body.classList.remove("driving");
-    if (trip.startedAt) showTrip();
     note("Braucht Standortfreigabe — die Musik folgt Beschleunigung, Bremsen und Kurven."
       + " Vor der Fahrt starten.", false);
   }
@@ -622,11 +470,7 @@
   function beginTrip() { askConsentThen(startTrip); }
 
   function startTrip() {
-    document.body.classList.remove("done");
-    Object.assign(trip, { startedAt: 0, fixes: 0, fromCoords: 0, coarse: 0,
-      rejected: 0, intervals: [], accuracies: [], maxSpeed: 0, maxForce: 0,
-      maxLat: 0, staleMs: 0, lastSampleAt: 0, clockFallback: 0, errors: 0,
-      lastError: "", skipped: 0, minNotes: 9999, maxNotes: 0 });
+    Object.assign(trip, { startedAt: 0, fixes: 0, skipped: 0, errors: 0, lastError: "" });
     freezes = 0; worstFreeze = 0; wasStale = false; shownParked = false;
     lastTraceSampleAt = 0; ltAtTraceSample = 0; stallsSeen = 0;
     tracer.begin({ lite: Frunky.options().lite, opts: Frunky.options() });
@@ -641,7 +485,6 @@
     try { tracer.end("unload"); tracer.flush(); } catch (err) { void err; }
   });
   startBtn.addEventListener("click", beginTrip);
-  el("again").addEventListener("click", beginTrip);
   stopBtn.addEventListener("click", stop);
 
   // Writing the readouts every frame means a layout pass every frame, and the
@@ -650,7 +493,7 @@
   // each element is only touched when its value actually changed
   let shownSpeed = -1, shownState = "", shownForce = -1, ltAtLastFrame = 0;
   let lastFrame = performance.now();
-  let lastDiagAt = 0, wasStale = false, freezes = 0, worstFreeze = 0, shownParked = false;
+  let wasStale = false, freezes = 0, worstFreeze = 0, shownParked = false;
   let notesPerSec = 0, noteWindowAt = 0, noteWindowStart = 0;
   // one trace sample every five seconds: fine enough to see the second the music
   // stops, coarse enough that an hour of driving still fits inside the cap
@@ -743,7 +586,6 @@
         shownParked = true;
         Frunky.log("gps", "parked — no new fixes expected while standing");
       }
-      if (stale && gotFix) document.body.classList.add("diag");
       const text = !gotFix ? "Warte auf GPS" : stale ? "Kein GPS-Signal" : st.text;
       // (a parked car produces no new fixes and is not stale — see geo.js)
       if (text !== shownState) {
@@ -760,8 +602,6 @@
       if (now - noteWindowAt > 1000) {
         notesPerSec = Math.round((nowN - noteWindowStart) * 1000 / (now - noteWindowAt));
         noteWindowAt = now; noteWindowStart = nowN;
-        trip.minNotes = Math.min(trip.minNotes, notesPerSec);
-        trip.maxNotes = Math.max(trip.maxNotes, notesPerSec);
       }
       // ---- one trace sample every five seconds ----------------------------
       // Raw speed goes in and a bucket comes out on the other side of trace.js;
@@ -792,33 +632,6 @@
         if (now - lastFlushAt > 60000) { lastFlushAt = now; tracer.flush(); }
       }
 
-      trip.maxSpeed = Math.max(trip.maxSpeed, input.speed);
-      trip.maxForce = Math.max(trip.maxForce, Frunky.force());
-      trip.maxLat = Math.max(trip.maxLat, Math.abs(input.lateralG));
-      const nowMs = Date.now();
-      if (stale && trip.lastSampleAt) trip.staleMs += nowMs - trip.lastSampleAt;
-      trip.lastSampleAt = nowMs;
-
-      // four times a second is plenty to read, and this rebuilds a long string,
-      // copies the event ring and touches the DOM every single time
-      if (document.body.classList.contains("diag") && now - lastDiagAt > 250) {
-        lastDiagAt = now;
-        const d = reader.diagnostics(Date.now());
-        diagEl.textContent =
-          "fixes " + d.fixes +
-          " · alt " + (d.ageMs == null ? "—" : Math.round(d.ageMs) + "ms") +
-          " · takt " + (d.intervalMs == null ? "—" : Math.round(d.intervalMs) + "ms") +
-          " · genau " + (d.accuracy == null ? "—" : Math.round(d.accuracy) + "m") +
-          " · speed " + d.speedSource +
-          " · kurs " + d.headingSource +
-          " · verworfen " + d.rejected +
-          " · uhr " + (trip.clockFallback ? "ankunft" : "gerät") +
-          " · fehler " + (trip.errors ? trip.errors + " (" + trip.lastError + ")" : "0") +
-          " · g " + input.lateralG.toFixed(2) +
-          " · noten/s " + notesPerSec +
-          " · last " + Math.round(Frunky.load() * 100) + "%" +
-          (Frunky.health().strain > 0.5 ? " · VEREINFACHT" : "");
-      }
     }
     requestAnimationFrame(frame);
   }
@@ -830,12 +643,10 @@
   const buildNote = el("buildNote");
   if (buildNote) buildNote.textContent = "Version " + BUILD;
 
-  // build stamp, so a stale cached copy can never be mistaken for the live one
-  const foot = el("foot");
-  if (foot) {
-    foot.textContent = "Frunky · " + document.lastModified +
-      (location.protocol === "file:" ? " · LOKALE KOPIE" : "");
-  }
+  // The footer is a plain label and the tap target for the settings. The build
+  // stamp it used to carry lives on the start screen, where it is read BEFORE a
+  // drive rather than after one — a stale cached copy discovered afterwards
+  // costs the whole drive, and it has, four times.
 })();
 </script>
 </body>
