@@ -432,7 +432,7 @@
   let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS, gateS, gateAmp, gateLp;
   // the rise figure: its own pool of mono voices — overlapping entries on one
   // synth would collide on the per-voice timeline (see the stub's rule)
-  let riseS = [], riseHp;
+  let riseS = [], riseLp = [], riseHp;
   let riseVoices = [], riseLog = [], riseNextAt = 0;
   let risePeak = 0, riseArrivalAt = -1;
   // sampled instruments persist across play cycles — buffers load once
@@ -803,20 +803,27 @@
     thrustSub = reg(new Tone.Oscillator(55, "sine").start());
     thrustSub.connect(thrustSubGain); thrustSubGain.connect(busBass);
 
-    // rise figure: glassy sines in the harmony family's room. Deliberately NOT
-    // a saw and NOT in the bass family — the figure should climb through the
-    // mix like light, not drone under it like an aggregate
+    // rise figure: warm detuned triangles (the gate voice's recipe) behind a
+    // per-voice lowpass that opens with the climb. A naked sine was tried and
+    // read as a foreign body next to the saws and squares — the figure has to
+    // be built from the band's own timbre, and it needs what every other
+    // voice here has: overtones plus filter movement. Deliberately NOT a saw
+    // and NOT in the bass family — it climbs through the mix, it doesn't
+    // drone under it. The shared dotted-8th delay carries the connection
+    // between the plucks, exactly as it does for the hook and the arp
     riseHp = reg(new Tone.Filter(400, "highpass"));
-    riseHp.connect(busHarm); riseHp.connect(revSend);
-    riseS = [];
+    riseHp.connect(busHarm); riseHp.connect(revSend); riseHp.connect(delaySend);
+    riseS = []; riseLp = [];
     for (let i = 0; i < (opts.lite ? 2 : 3); i++) {
+      const lp = reg(new Tone.Filter({ frequency: 1200, type: "lowpass", Q: 0.7 }));
+      lp.connect(riseHp);
       const rs = reg(new Tone.Synth({
-        oscillator: { type: "sine" },
-        envelope: { attack: 0.06, decay: 0.12, sustain: 0.55, release: 0.45 },
+        oscillator: opts.lite ? { type: "triangle" } : { type: "fattriangle", count: 2, spread: 10 },
+        envelope: { attack: 0.006, decay: 0.14, sustain: 0.35, release: 0.3 },
       }));
       rs.volume.value = db(0.3);
-      rs.connect(riseHp);
-      riseS.push(rs);
+      rs.connect(lp);
+      riseS.push(rs); riseLp.push(lp);
     }
 
     // brake: brown noise is a naturally dark rumble — pressure, not vacuum
@@ -994,12 +1001,20 @@
   function growlNote(t, vol, dur) {
     growlS.triggerAttackRelease(F(33), dur * 0.85, at("growl", t), vv(vol, 0.6));
   }
-  function riseNote(slot, t, midi, vol, dur = SPB * 2.6) {
-    // just over an 8th, so successive notes of one voice overlap into legato
-    riseS[slot].triggerAttackRelease(F(midi), dur, at("rise" + slot, t), vv(vol, 0.25));
+  function riseNote(slot, t, midi, vol, dur = SPB * 1.5, tight = false) {
+    // a pluck, not a wash — the delay carries the connection between notes.
+    // The cutoff opens with the voice's height and the push, so the ascent is
+    // told in brightness as well as pitch. Micro-jitter like the rest of the
+    // band, except where the figure lands together (tight): a smeared unison
+    // is a flam, not an arrival
+    const tt = at("rise" + slot, tight ? t : hum(t, 0));
+    const cut = 550 + 2800 * clamp((midi - 64) / 24, 0, 1) + 900 * engine.thrust;
+    riseLp[slot].frequency.setValueAtTime(cut, tt);
+    riseS[slot].triggerAttackRelease(F(midi), dur, tt, vv(vol, 0.25));
+    return Math.round(cut);
   }
-  function riseRecord(s, slot, midi, kind, rootPc) {
-    const e = { s, slot, midi, kind };
+  function riseRecord(s, slot, midi, kind, cut, rootPc) {
+    const e = { s, slot, midi, kind, cut };
     if (rootPc !== undefined) e.rootPc = rootPc;
     riseLog.push(e);
     if (riseLog.length > 600) riseLog.splice(0, riseLog.length - 600);
@@ -1029,7 +1044,7 @@
   // The rise figure's clock, once per 8th. Two rates carry the rev counter:
   // how often a new voice ENTERS (10 → 4 steps as the push grows) and how
   // fast each voice CLIMBS (quarters on a gentle pull, 8ths in a sprint).
-  function riseStep(t, s, push, lean, rootMidi) {
+  function riseStep(t, s, push, lean, rootMidi, chordMidis) {
     if (s % 2 !== 0) return;
     const rootPc = ((rootMidi % 12) + 12) % 12;
     if (!engine.riseOn && push > RISE_ON) {
@@ -1061,11 +1076,14 @@
         const v = riseVoices[i];
         if (!v) continue;
         const land = riseLanding(v.last, rootPc);
-        riseNote(i, t, land, v.vol * 1.2, SPB * 10);
-        riseRecord(s, i, land, "arrival", rootPc);
+        const cut = riseNote(i, t, land, v.vol * 1.2, SPB * 10, true);
+        riseRecord(s, i, land, "arrival", cut, rootPc);
         riseVoices[i] = null;
       }
       hat(t, true, 0.13); // the breath that opens the moment
+      // and a body under the landing: the stab doubles the chord on the one,
+      // so the payoff has more than the (now brighter) climb voices themselves
+      if (chordMidis) stabChord(t, chordMidis, 0.09);
       return;
     }
     for (let i = 0; i < riseVoices.length; i++) {
@@ -1073,8 +1091,8 @@
       if (!v || s < v.nextAt) continue;
       if (v.cadence) {
         const land = riseLanding(v.last, rootPc);
-        riseNote(i, t, land, v.vol * 0.6);
-        riseRecord(s, i, land, "cadence", rootPc);
+        const cut = riseNote(i, t, land, v.vol * 0.6, SPB * 2.6);
+        riseRecord(s, i, land, "cadence", cut, rootPc);
         riseVoices[i] = null;
         continue;
       }
@@ -1082,15 +1100,15 @@
         // run-in: keep climbing toward the landing, clamped at the ladder's
         // top — the figure pulses on its peak rather than stopping short
         const midi = RISE_LADDER[Math.min(v.start + v.n, RISE_LADDER.length - 1)];
-        riseNote(i, t, midi, v.vol * 0.8);
-        riseRecord(s, i, midi, "climb");
+        const cut = riseNote(i, t, midi, v.vol * 0.8);
+        riseRecord(s, i, midi, "climb", cut);
         v.last = midi; v.n++; v.nextAt = s + v.adv;
         continue;
       }
       if (v.n >= RISE_LEN) { riseVoices[i] = null; continue; }
       const midi = RISE_LADDER[v.start + v.n];
-      riseNote(i, t, midi, v.vol * RISE_ENV[v.n]);
-      riseRecord(s, i, midi, "climb");
+      const cut = riseNote(i, t, midi, v.vol * RISE_ENV[v.n]);
+      riseRecord(s, i, midi, "climb", cut);
       v.last = midi; v.n++; v.nextAt = s + v.adv;
     }
     // a new entry: only while engaged, never in lean (ornaments go first), and
@@ -1108,8 +1126,8 @@
     };
     v.nextAt = s + v.adv;
     riseVoices[slot] = v;
-    riseNote(slot, t, midi, v.vol * RISE_ENV[0]);
-    riseRecord(s, slot, midi, "entry");
+    const cut = riseNote(slot, t, midi, v.vol * RISE_ENV[0]);
+    riseRecord(s, slot, midi, "entry", cut);
     riseNextAt = s + 10 - 2 * Math.round(3 * clamp((push - RISE_ON) / 0.55, 0, 1));
   }
   function stabChord(t, midis, vol) {
@@ -1305,7 +1323,7 @@
     // Deliberately outside the still/cruise split — a launch from standstill
     // is exactly the moment the figure exists for
     const ciRise = hrEff === "twobar" ? Math.floor(bar / 2) % 4 : bar % 4;
-    riseStep(t, s, push, lean, rootsEff[ciRise]);
+    riseStep(t, s, push, lean, rootsEff[ciRise], progEff[ciRise]);
 
     if (still) {
       // the beat pulls back — a heartbeat keeps subtle tension alive
@@ -2010,6 +2028,11 @@
       : null),
     // test seam: the rise figure's ledger, so a test can assert the canon
     // (grid, pentatonic, ascent, cap, cadence) rather than trust the gesture
-    __rise: () => ({ active: riseVoices.filter(Boolean).length, log: riseLog.slice() }),
+    __rise: () => ({
+      active: riseVoices.filter(Boolean).length, log: riseLog.slice(),
+      nodes: riseS.length
+        ? { voices: riseS, lps: riseLp, hp: riseHp, delaySend, busHarm }
+        : null,
+    }),
   };
 })();

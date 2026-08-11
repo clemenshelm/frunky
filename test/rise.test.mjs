@@ -89,7 +89,12 @@ await Frunky.start();
   const runs = [];
   const open = new Map();
   for (const e of l) {
-    if (e.kind === "entry") { open.set(e.slot, [e.midi]); continue; }
+    if (e.kind === "entry") {
+      // flush a fade-ended run before its slot is reused (see section 8)
+      if (open.has(e.slot)) runs.push(open.get(e.slot));
+      open.set(e.slot, [e.midi]);
+      continue;
+    }
     const run = open.get(e.slot);
     if (!run) continue;
     if (e.kind === "climb") run.push(e.midi);
@@ -263,6 +268,54 @@ Frunky.setOption("lite", false);
   Frunky.stop();
   transport.clear();
 }
+
+// ---- 8. the voice belongs to the band: filter, delay, brightness ------------
+// A naked sine next to detuned saws, squares and Rhodes reads as a foreign
+// body. The figure's notes go through a per-voice lowpass that OPENS as the
+// voice climbs (riser behaviour, in the band's own timbre), and the shared
+// dotted-8th delay — the genre glue the hook and the arp live on — carries
+// the connection between the plucks.
+await Frunky.start();
+{
+  const r = Frunky.__rise();
+  const nodes = r && r.nodes;
+  ok("the seam exposes the sound chain",
+    !!(nodes && nodes.voices && nodes.lps && nodes.hp && nodes.delaySend && nodes.busHarm));
+  if (nodes) {
+    ok("every voice reaches its own lowpass",
+      nodes.voices.length > 0 &&
+      nodes.voices.every((v, i) => v.outs && v.outs.has(nodes.lps[i])));
+    ok("every lowpass reaches the shared highpass",
+      nodes.lps.every((lp) => lp.outs.has(nodes.hp)));
+    ok("the figure reaches its bus", nodes.hp.outs.has(nodes.busHarm));
+    ok("and feeds the shared delay — the genre glue", nodes.hp.outs.has(nodes.delaySend));
+  }
+  // brightness follows the climb: within a voice the cutoff opens
+  speed = 0;
+  drive(128, 12);
+  const runs = [];
+  const open = new Map();
+  for (const e of log()) {
+    if (e.kind === "entry") {
+      // a voice that ended by simply fading (no cadence) leaves its run open —
+      // flush it before the slot is reused, or every completed run is lost
+      if (open.has(e.slot)) runs.push(open.get(e.slot));
+      open.set(e.slot, [e]);
+      continue;
+    }
+    const run = open.get(e.slot);
+    if (run && e.kind === "climb") run.push(e);
+    else if (run) { runs.push(run); open.delete(e.slot); }
+  }
+  for (const run of open.values()) runs.push(run);
+  const full = runs.filter((run) => run.length >= 4);
+  ok("full climbs exist to inspect, got " + full.length, full.length >= 3);
+  ok("every note carries its cutoff", log().every((e) => Number.isFinite(e.cut)));
+  ok("the lowpass opens as the voice climbs",
+    full.every((run) => Math.max(...run.map((e) => e.cut)) > run[0].cut * 1.4));
+}
+Frunky.stop();
+transport.clear();
 
 if (failures.length) {
   console.error("FAILURES:");
