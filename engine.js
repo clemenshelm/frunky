@@ -104,6 +104,22 @@
     [57, 62, 64, 67, 69, 67, 64, 62],
     [64, 62, 60, 57, 60, 62, 64, 67],
   ];
+  // ---- rise figure ---------------------------------------------------------
+  // The engine feedback, EV edition. A siren-style pitch sweep was tried and
+  // failed twice over: a glissando knows neither key nor grid, and a rising
+  // continuous tone reads as alarm. The model here is the traction inverter
+  // of a tram — successive rising tones that OVERLAP — translated into the
+  // one musical device built from overlapping entries: a canon. Voices enter
+  // on the 8th grid and climb this pentatonic ladder, so no overlap can be
+  // dissonant; the window is Shepard-shaped (entries start low, voices fade
+  // toward the top), so the ascent never runs out of register — an EV has no
+  // redline. When the push ebbs the last voices LAND on a chord tone: the
+  // figure cadences instead of being switched off.
+  const RISE_LADDER = [64, 67, 69, 72, 74, 76, 79, 81, 84, 86, 88]; // E G A C D…
+  const RISE_LEN = 6;                      // notes per voice, about an octave of climb
+  const RISE_ENV = [0.55, 0.8, 1, 1, 0.8, 0.55]; // Shepard window: in low, out high
+  const RISE_ON = 0.15, RISE_OFF = 0.08;   // thrust hysteresis, in engagement order
+
   // ---- song form ----------------------------------------------------------
   // A piece = a script of parts. Verse delivers, chorus pays off (the SAME
   // hook every time), the bridge disrupts so the last chorus feels like release.
@@ -322,6 +338,7 @@
     pullChorus: false, // a launch pulls the chorus forward at the next boundary
     dropAt: -1,        // step index of a scheduled drop-gap release
     liftActive: false,
+    riseOn: false,    // rise-figure engagement latch (thrust hysteresis)
     flowOn: false,    // latched highway-harmony switch (hysteresis, barline only)
     progIdx: 0,       // position in the progression graph
     piece: null,      // the current piece: form script + part bundles + hook
@@ -413,6 +430,11 @@
   let stretchNoise, stretchBp, stretchGain;
   let padS, padTri, padHp, padLp, arpS, arpLp, stabS, stabLp;
   let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS, gateS, gateAmp, gateLp;
+  // the rise figure: its own pool of mono voices — overlapping entries on one
+  // synth would collide on the per-voice timeline (see the stub's rule)
+  let riseS = [], riseHp;
+  let riseVoices = [], riseLog = [], riseNextAt = 0;
+  let risePeak = 0, riseArrivalAt = -1;
   // sampled instruments persist across play cycles — buffers load once
   let rhodes = null, hookGit = null;
   function ensureSamplers() {
@@ -781,6 +803,22 @@
     thrustSub = reg(new Tone.Oscillator(55, "sine").start());
     thrustSub.connect(thrustSubGain); thrustSubGain.connect(busBass);
 
+    // rise figure: glassy sines in the harmony family's room. Deliberately NOT
+    // a saw and NOT in the bass family — the figure should climb through the
+    // mix like light, not drone under it like an aggregate
+    riseHp = reg(new Tone.Filter(400, "highpass"));
+    riseHp.connect(busHarm); riseHp.connect(revSend);
+    riseS = [];
+    for (let i = 0; i < (opts.lite ? 2 : 3); i++) {
+      const rs = reg(new Tone.Synth({
+        oscillator: { type: "sine" },
+        envelope: { attack: 0.06, decay: 0.12, sustain: 0.55, release: 0.45 },
+      }));
+      rs.volume.value = db(0.3);
+      rs.connect(riseHp);
+      riseS.push(rs);
+    }
+
     // brake: brown noise is a naturally dark rumble — pressure, not vacuum
     brakeLp = reg(new Tone.Filter({ frequency: 300, type: "lowpass", Q: 2 }));
     brakeGain = reg(new Tone.Gain(0));
@@ -955,6 +993,124 @@
   }
   function growlNote(t, vol, dur) {
     growlS.triggerAttackRelease(F(33), dur * 0.85, at("growl", t), vv(vol, 0.6));
+  }
+  function riseNote(slot, t, midi, vol, dur = SPB * 2.6) {
+    // just over an 8th, so successive notes of one voice overlap into legato
+    riseS[slot].triggerAttackRelease(F(midi), dur, at("rise" + slot, t), vv(vol, 0.25));
+  }
+  function riseRecord(s, slot, midi, kind, rootPc) {
+    const e = { s, slot, midi, kind };
+    if (rootPc !== undefined) e.rootPc = rootPc;
+    riseLog.push(e);
+    if (riseLog.length > 600) riseLog.splice(0, riseLog.length - 600);
+  }
+  function riseEntryIndex(rootPc) {
+    // begin near the bottom, on the chord if it lives there: the Shepard
+    // illusion needs fresh entries low while the older voices are already high
+    const top = RISE_LADDER.length - RISE_LEN;
+    for (let i = 0; i <= top; i++) {
+      const pc = RISE_LADDER[i] % 12;
+      if (pc === rootPc || pc === (rootPc + 7) % 12) return i;
+    }
+    return 0;
+  }
+  function riseLanding(from, rootPc) {
+    // the nearest root or fifth to where the voice got to — a landing is an
+    // arrival, not a jump home. No seeded fallback: an incumbent that is not
+    // itself a chord tone once let a G-chord landing come out as an A
+    let best = null;
+    for (let m = 60; m <= 92; m++) {
+      const pc = m % 12;
+      if (pc !== rootPc && pc !== (rootPc + 7) % 12) continue;
+      if (best === null || Math.abs(m - from) < Math.abs(best - from)) best = m;
+    }
+    return best === null ? from : best;
+  }
+  // The rise figure's clock, once per 8th. Two rates carry the rev counter:
+  // how often a new voice ENTERS (10 → 4 steps as the push grows) and how
+  // fast each voice CLIMBS (quarters on a gentle pull, 8ths in a sprint).
+  function riseStep(t, s, push, lean, rootMidi) {
+    if (s % 2 !== 0) return;
+    const rootPc = ((rootMidi % 12) + 12) % 12;
+    if (!engine.riseOn && push > RISE_ON) {
+      // (re-)engage — a pending arrival is cancelled: the driver is back on
+      // the pedal, so the build simply continues
+      engine.riseOn = true; riseNextAt = s; risePeak = push; riseArrivalAt = -1;
+    } else if (engine.riseOn) {
+      if (push > risePeak) risePeak = push;
+      if (push < RISE_OFF) {
+        engine.riseOn = false;
+        // A real sprint has EARNED a payoff: the build-up resolves on the
+        // next downbeat, together, at full strength — a riser that merely
+        // fades is a broken promise. A gentle pull made no promise, and an
+        // end under braking is energy being DRAINED, not arrived at; both
+        // take the quiet staggered cadence instead.
+        if (risePeak > 0.5 && engine.brake < 0.3 && riseVoices.some((v) => v)) {
+          const rem = (16 - (s % 16)) % 16;
+          riseArrivalAt = s + (rem < 4 ? rem + 16 : rem);
+        } else {
+          for (const v of riseVoices) if (v) v.cadence = true;
+        }
+      }
+    }
+    // the arrival: everyone lands the chord on the one — root and fifth
+    // spread over the registers the voices climbed to — and rings out
+    if (s === riseArrivalAt) {
+      riseArrivalAt = -1;
+      for (let i = 0; i < riseVoices.length; i++) {
+        const v = riseVoices[i];
+        if (!v) continue;
+        const land = riseLanding(v.last, rootPc);
+        riseNote(i, t, land, v.vol * 1.2, SPB * 10);
+        riseRecord(s, i, land, "arrival", rootPc);
+        riseVoices[i] = null;
+      }
+      hat(t, true, 0.13); // the breath that opens the moment
+      return;
+    }
+    for (let i = 0; i < riseVoices.length; i++) {
+      const v = riseVoices[i];
+      if (!v || s < v.nextAt) continue;
+      if (v.cadence) {
+        const land = riseLanding(v.last, rootPc);
+        riseNote(i, t, land, v.vol * 0.6);
+        riseRecord(s, i, land, "cadence", rootPc);
+        riseVoices[i] = null;
+        continue;
+      }
+      if (riseArrivalAt >= 0) {
+        // run-in: keep climbing toward the landing, clamped at the ladder's
+        // top — the figure pulses on its peak rather than stopping short
+        const midi = RISE_LADDER[Math.min(v.start + v.n, RISE_LADDER.length - 1)];
+        riseNote(i, t, midi, v.vol * 0.8);
+        riseRecord(s, i, midi, "climb");
+        v.last = midi; v.n++; v.nextAt = s + v.adv;
+        continue;
+      }
+      if (v.n >= RISE_LEN) { riseVoices[i] = null; continue; }
+      const midi = RISE_LADDER[v.start + v.n];
+      riseNote(i, t, midi, v.vol * RISE_ENV[v.n]);
+      riseRecord(s, i, midi, "climb");
+      v.last = midi; v.n++; v.nextAt = s + v.adv;
+    }
+    // a new entry: only while engaged, never in lean (ornaments go first), and
+    // only into a free slot — a full pool converts push into saturation, and a
+    // due entry simply retries every 8th until a voice ends
+    if (!engine.riseOn || lean || s < riseNextAt) return;
+    let slot = riseVoices.findIndex((v) => !v);
+    if (slot < 0 && riseVoices.length < riseS.length) slot = riseVoices.length;
+    if (slot < 0) return;
+    const start = riseEntryIndex(rootPc);
+    const midi = RISE_LADDER[start];
+    const v = {
+      start, n: 1, last: midi, vol: 0.05 + 0.09 * push,
+      adv: push > 0.5 ? 2 : 4, cadence: false,
+    };
+    v.nextAt = s + v.adv;
+    riseVoices[slot] = v;
+    riseNote(slot, t, midi, v.vol * RISE_ENV[0]);
+    riseRecord(s, slot, midi, "entry");
+    riseNextAt = s + 10 - 2 * Math.round(3 * clamp((push - RISE_ON) / 0.55, 0, 1));
   }
   function stabChord(t, midis, vol) {
     stabS.triggerAttackRelease(midis.map(F), 0.16, at("stab", t), vv(vol, 0.14));
@@ -1144,6 +1300,12 @@
     const progEff = !flowMode ? engine.prog : liftPhase ? LIFTPROG : PEDALPROG;
     const rootsEff = !flowMode ? engine.roots : liftPhase ? LIFTROOTS : PEDALROOTS;
     const hrEff = flowMode ? "twobar" : engine.hr;
+
+    // engine feedback: the rise figure reads the push and the current chord.
+    // Deliberately outside the still/cruise split — a launch from standstill
+    // is exactly the moment the figure exists for
+    const ciRise = hrEff === "twobar" ? Math.floor(bar / 2) % 4 : bar % 4;
+    riseStep(t, s, push, lean, rootsEff[ciRise]);
 
     if (still) {
       // the beat pulls back — a heartbeat keeps subtle tension alive
@@ -1683,6 +1845,8 @@
     engine.syncPos = 12; engine.snare = false; engine.padStyle = "wash";
     engine.liftActive = false; engine.pullChorus = false; engine.dropAt = -1;
     engine.lean = false;
+    engine.riseOn = false; riseVoices = []; riseLog = []; riseNextAt = 0;
+    risePeak = 0; riseArrivalAt = -1;
     engine.flowOn = false; engine.progIdx = 0; engine.piece = null; engine.partLabel = "";
     stepIdx = 0; pendingLaunchAt = -1; tp = 0; clock = 0;
     sched.clear(); ctlLast.clear(); stepCost = 0; peakCost = 0;
@@ -1801,6 +1965,7 @@
       renderLoad, renderPeak, underruns: underrunWins,
       strain, strainPct: totalSteps ? (strainSteps / totalSteps) * 100 : 0,
       lean: engine.lean,
+      rise: riseVoices.filter(Boolean).length,
       flowFade: engine.flowFade,
       wake: engine.wake,
       events: events.slice(),
@@ -1843,5 +2008,8 @@
     __graph: () => (revSend
       ? { chorus: chorus || null, revSend, reverb, padLp, gateLp, busHarm, shed: fxShed }
       : null),
+    // test seam: the rise figure's ledger, so a test can assert the canon
+    // (grid, pentatonic, ascent, cap, cadence) rather than trust the gesture
+    __rise: () => ({ active: riseVoices.filter(Boolean).length, log: riseLog.slice() }),
   };
 })();

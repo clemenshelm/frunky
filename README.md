@@ -41,7 +41,7 @@ The core design decision: **musical energy follows force — acceleration, braki
 | --- | --- |
 | Standstill | The beat pulls back; a heartbeat keeps subtle tension (stronger once "armed") |
 | Launch | A tom fill introduces the beat, an impact hits on the next 8th, the mix pumps deeper |
-| Acceleration | A distorted growl bass rolls in on the offbeats; background percussion swells |
+| Acceleration | A distorted growl bass rolls in on the offbeats; background percussion swells — and the **rise figure**: glassy canon voices enter on the 8th grid and climb the pentatonic, overlapping like a tram inverter stepping through its pulse patterns. Entry rate and climb speed follow the push (the rev counter as event *rate*, never a siren pitch sweep), the window is Shepard-shaped so the ascent never runs out of register, and the ending keeps the build-up's promise: a gentle pull ebbs into quiet staggered cadences, while a real sprint runs in toward the next downbeat and **arrives** — every voice landing root-and-fifth together, at full strength, ringing out (an end under braking gets no celebration; braking drains) |
 | Braking | A master lowpass closes over the whole mix — energy is audibly drained |
 | City (~15–65 km/h) | Syncopated percussion groove, Rhodes comping dabs, urban detail |
 | Highway (>90 km/h) | The harmony retires to an Am pedal with a walking inner voice — and every 24 bars the anthem lift (♭VI–♭VII–i) opens the sky for 8 bars |
