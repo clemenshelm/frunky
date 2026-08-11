@@ -198,6 +198,7 @@
     <div class="mode" role="group" aria-label="Räumliches Modell">
       <button id="optCurve" class="on">Kurve: aussen</button>
       <button id="optDepth" class="on">Trägheits-Tiefe: an</button>
+      <button id="optCarMix" class="on">Car-Mix: an</button>
       <button id="optLite">Sparmodus: aus</button>
     </div>
     <p class="mode-caption">
@@ -443,6 +444,7 @@
   const optCurve = document.getElementById("optCurve");
   const optDepth = document.getElementById("optDepth");
   const optLite = document.getElementById("optLite");
+  const optCarMix = document.getElementById("optCarMix");
   function paintOpts() {
     const o = Frunky.options();
     optCurve.textContent = "Kurve: " + (o.curveOutward ? "aussen" : "innen");
@@ -453,6 +455,8 @@
     optLite.textContent = "Sparmodus: " + (o.lite ? "an" : "aus") +
       (Frunky.isRunning() ? " (Neustart)" : "");
     optLite.classList.toggle("on", o.lite);
+    optCarMix.textContent = "Car-Mix: " + (o.carMix ? "an" : "aus");
+    optCarMix.classList.toggle("on", o.carMix);
   }
   optLite.addEventListener("click", () => {
     Frunky.setOption("lite", !Frunky.options().lite); paintOpts();
@@ -462,6 +466,9 @@
   });
   optDepth.addEventListener("click", () => {
     Frunky.setOption("inertiaDepth", !Frunky.options().inertiaDepth); paintOpts();
+  });
+  optCarMix.addEventListener("click", () => {
+    Frunky.setOption("carMix", !Frunky.options().carMix); paintOpts();
   });
   paintOpts();
 

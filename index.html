@@ -208,6 +208,7 @@
 <div id="diagOpts">
   <button id="optCurve">Kurve: aussen</button>
   <button id="optDepth">Trägheits-Tiefe: an</button>
+  <button id="optCarMix">Car-Mix: an</button>
   <button id="optLite">Sparmodus: aus</button>
   <button id="optTrace">Fehlerdaten: aus</button>
 </div>
@@ -217,12 +218,12 @@
 </footer>
 
 <script src="vendor/Tone.js"></script>
-<script src="engine.js?v=28"></script>
-<script src="geo.js?v=28"></script>
-<script src="diagnose.js?v=28"></script>
-<script src="trace-schema.js?v=28"></script>
-<script src="trace.js?v=28"></script>
-<script src="fresh.js?v=28"></script>
+<script src="engine.js?v=29"></script>
+<script src="geo.js?v=29"></script>
+<script src="diagnose.js?v=29"></script>
+<script src="trace-schema.js?v=29"></script>
+<script src="trace.js?v=29"></script>
+<script src="fresh.js?v=29"></script>
 <script>
 (() => {
   "use strict";
@@ -230,7 +231,7 @@
   // to know whether a trip tested the code we shipped is to read it back —
   // three reports in a row turned out to be the same stale build.
   // (Loading the page as ?v=<something-new> is what forces a fresh copy.)
-  const BUILD = "28";
+  const BUILD = "29";
   const el = (id) => document.getElementById(id);
   const startBtn = el("start"), stopBtn = el("stop");
   const speedEl = el("speed"), stateEl = el("state"), forceEl = el("forceBar");
@@ -329,6 +330,7 @@
   // question about the body, and a question needs two answers to compare
   const optCurve = el("optCurve"), optDepth = el("optDepth");
   const optLite = document.getElementById("optLite");
+  const optCarMix = el("optCarMix");
   function paintOpts() {
     const o = Frunky.options();
     optCurve.textContent = "Kurve: " + (o.curveOutward ? "aussen" : "innen");
@@ -339,6 +341,8 @@
     optLite.textContent = "Sparmodus: " + (o.lite ? "an" : "aus") +
       (Frunky.isRunning() ? " (Neustart)" : "");
     optLite.classList.toggle("on", o.lite);
+    optCarMix.textContent = "Car-Mix: " + (o.carMix ? "an" : "aus");
+    optCarMix.classList.toggle("on", o.carMix);
     const c = tracer.consent();
     optTrace.textContent = "Fehlerdaten: " + (c === true ? "an" : c === false ? "aus" : "ungefragt");
     optTrace.classList.toggle("on", c === true);
@@ -361,6 +365,11 @@
     const next = !Frunky.options().lite;
     Frunky.setOption("lite", next); paintOpts();
     try { localStorage.setItem("frunky.lite", next ? "1" : "0"); } catch (err) { void err; }
+  });
+  // the car voicing A/B — the final decibel is decided by ears in the car,
+  // and an A/B needs a B. Not persisted: ON is the right default every day.
+  optCarMix.addEventListener("click", () => {
+    Frunky.setOption("carMix", !Frunky.options().carMix); paintOpts();
   });
   // A weak device switches the low-power graph on by itself.
   //

@@ -409,6 +409,7 @@
   const poly = (p, n) => { try { p.maxPolyphony = n; } catch (err) { void err; } return p; };
 
   let master, comp, limiter, makeup, tensionLp, masterHp, panner, duck, dry;
+  let carLow, carPres;
   let depthLp, depthGain;
   let busDrums, busBass, busHarm, busLead, busFx;
   let revSend, reverb, delaySend, delayRet, chorus;
@@ -453,7 +454,7 @@
       return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
     } catch (err) { void err; return false; }
   })();
-  const opts = { curveOutward: true, inertiaDepth: true, lite: lowPower };
+  const opts = { curveOutward: true, inertiaDepth: true, lite: lowPower, carMix: true };
 
   // Control-rate writes. Setting an AudioParam's .value schedules a STEP, and
   // fifteen of them sixty times a second is nine hundred discontinuities per
@@ -640,6 +641,17 @@
     makeup = reg(new Tone.Gain(1));
     tensionLp = reg(new Tone.Filter(18000, "lowpass"));
     masterHp = reg(new Tone.Filter(25, "highpass"));
+    // The car voicing. Every room this product plays in is a car cabin —
+    // the in-dash browser or a phone over Bluetooth into the same speakers —
+    // and a cabin adds up to ~12 dB/octave below 70–90 Hz (cabin gain) while
+    // road noise eats the quiet detail. So the master chain pre-answers the
+    // room: the shelf hands the sub region back before the cabin doubles it,
+    // the peak lifts the band the details live in. ON by default everywhere;
+    // the bench keeps an A/B because the final decibel belongs to ears in
+    // the actual car. Gains start flat — the ctl in update() breathes them
+    // in, and the same ctl is what the A/B switch flattens them with.
+    carLow = reg(new Tone.Filter({ frequency: 100, type: "lowshelf", gain: 0 }));
+    carPres = reg(new Tone.Filter({ frequency: 3200, type: "peaking", Q: 0.8, gain: 0 }));
     panner = reg(new Tone.Panner(0));
     duck = reg(new Tone.Gain(1));
     dry = reg(new Tone.Gain(1));
@@ -653,8 +665,8 @@
     // gestures pulling the same parameter opposite ways cancel out
     depthLp = reg(new Tone.Filter(18000, "lowpass"));
     depthGain = reg(new Tone.Gain(1));
-    panner.chain(depthLp, depthGain, tensionLp, masterHp, makeup, comp, master,
-      limiter, Tone.getDestination());
+    panner.chain(depthLp, depthGain, tensionLp, masterHp, carLow, carPres,
+      makeup, comp, master, limiter, Tone.getDestination());
     master.gain.rampTo(0.9, 0.1);
 
     // ---- submix buses ------------------------------------------------------
@@ -1794,6 +1806,9 @@
     const flowHigh = clamp((eNow - 0.5) / 0.35, 0, 1);
     ctl(makeup.gain, "makeup", 1 + 0.16 * flowHigh, 0.006, 0.2);
     ctl(busDrums.gain, "busDrums", 1 - 0.08 * engine.urban, 0.006, 0.2);
+    // the car voicing (see the node comments): dB gains, flat when A/B'd off
+    ctl(carLow.gain, "carLow", opts.carMix ? -4.5 : 0, 0.05, 0.2);
+    ctl(carPres.gain, "carPres", opts.carMix ? 2.5 : 0, 0.05, 0.2);
   }
 
   // Silence has exactly two shapes and they need different answers: the clock
@@ -2109,7 +2124,8 @@
     // test seam: the parties of the fx shed, so a test can assert the
     // topology rather than trust the gesture (see performance.test.mjs)
     __graph: () => (revSend
-      ? { chorus: chorus || null, revSend, reverb, padLp, gateLp, busHarm, shed: fxShed }
+      ? { chorus: chorus || null, revSend, reverb, padLp, gateLp, busHarm, shed: fxShed,
+          masterHp, carLow, carPres, makeup }
       : null),
     // test seam: the set arc and the running episode, so a test can assert
     // the dramaturgy (wave, numbering, resume) rather than trust the gesture

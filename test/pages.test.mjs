@@ -153,6 +153,14 @@ ok("and something opens the panel it lives in", /classList\.toggle\("settings"\)
 ok("bench loads Tone", bench.includes('src="vendor/Tone.js"'));
 ok("bench loads the engine", /src="engine\.js(\?v=\d+)?"/.test(bench));
 
+// The car voicing is ON by default everywhere (every target room is a car),
+// so the A/B needs a switch on BOTH pages: the bench for desk listening, the
+// driver page because the final decibel is decided by ears in the actual car.
+for (const [name, src] of [["index.html", drive], ["bench.html", bench]]) {
+  ok(name + " offers the car-mix A/B", /id="optCarMix"/.test(src));
+  ok(name + " wires it to the option", /setOption\("carMix"/.test(src));
+}
+
 // the two pages must stay distinct in role: only the driver page reads real
 // GPS, only the bench simulates one. Mixing them up is how a "fixed" bug turns
 // out to have been fixed on the page nobody drives with
