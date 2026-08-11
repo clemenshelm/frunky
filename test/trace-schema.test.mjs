@@ -255,6 +255,37 @@ for (const code of ["persisted", "discarded", "suspended", "interrupted",
     ["running", "suspended", "interrupted", "closed"].every((s) => S.AUDIO_STATES.includes(s)));
 }
 
+// The render thread's own account, where the browser exposes one. Every other
+// health number measures the MAIN thread; a crackle is made on the render
+// thread, and rload/under are the first fields that can show it. -1 means
+// "this browser has no probe" — a different fact from 0, which means "idle",
+// and the default for a sample that never mentions the field must therefore
+// be -1: an old client that predates the field made no claim about idleness.
+{
+  const withRender = wellFormed();
+  withRender.samples[0].rload = -1;
+  withRender.samples[0].under = 0;
+  withRender.samples[1].rload = 87;
+  withRender.samples[1].under = 3;
+  const r = S.redactTrace(withRender);
+  eq("an unsupported probe survives as -1", r.trace.samples[0].rload, -1);
+  eq("a render load survives", r.trace.samples[1].rload, 87);
+  eq("underruns survive", r.trace.samples[1].under, 3);
+
+  const missing = S.redactTrace(wellFormed()); // samples never mention rload
+  eq("a sample that predates the probe reads as unsupported, not as idle",
+    missing.trace.samples[0].rload, -1);
+  eq("but an absent underrun count is an honest zero",
+    missing.trace.samples[0].under, 0);
+
+  const wild = wellFormed();
+  wild.samples[0].rload = -33;
+  wild.samples[0].under = -5;
+  const c = S.redactTrace(wild);
+  eq("below the floor clamps to the floor", c.trace.samples[0].rload, -1);
+  eq("negative underruns clamp to zero", c.trace.samples[0].under, 0);
+}
+
 // How weak is this device? The Tesla reports no vendor token at all — its agent
 // string is plain "Linux Chrome", indistinguishable from a desktop — so the
 // useful question is not which car it is but how much machine it has. Small

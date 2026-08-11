@@ -345,7 +345,33 @@
   let master, comp, limiter, makeup, tensionLp, masterHp, panner, duck, dry;
   let depthLp, depthGain;
   let busDrums, busBass, busHarm, busLead, busFx;
-  let revSend, delaySend, delayRet, chorus;
+  let revSend, reverb, delaySend, delayRet, chorus;
+
+  // Scheduler slack. 250 ms is the base; a device that has proven it can fall
+  // behind that once gets 500 ms for the rest of the session — the evidence
+  // does not expire when the watchdog rebuilds the graph
+  const LOOK_BASE = 0.25, LOOK_RAISED = 0.5;
+  let lookRaised = false;
+
+  // Latency is the one resource this app has to spare: nothing is played
+  // live, every event is scheduled a quarter second ahead, and the drive's
+  // input is a second old before it arrives. Tone's default context asks the
+  // browser for "interactive" — its SMALLEST render quantum, headroom traded
+  // for a reflex nobody here needs. "playback" reverses the trade: render
+  // buffers several times larger, which on a weak device is the difference
+  // between a load spike being absorbed and being heard as a crack. Created
+  // once, BEFORE any node exists — a node built earlier would land on the
+  // default context and stay there
+  let ctxConfigured = false;
+  function configureContext() {
+    if (ctxConfigured) return;
+    ctxConfigured = true;
+    try {
+      if (typeof Tone.Context === "function" && typeof Tone.setContext === "function") {
+        Tone.setContext(new Tone.Context({ latencyHint: "playback", lookAhead: LOOK_BASE }));
+      }
+    } catch (err) { void err; }
+  }
   // Spatial behaviour is a QUESTION, not a setting: whether the inertial
   // direction feels right can only be answered in a moving car, and an answer
   // needs an A and a B. Both default to the congruent reading
@@ -386,7 +412,7 @@
   let brakeNoise, brakeLp, brakeGain, brakeOsc, brakeOscGain;
   let stretchNoise, stretchBp, stretchGain;
   let padS, padTri, padHp, padLp, arpS, arpLp, stabS, stabLp;
-  let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS, gateS, gateAmp;
+  let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS, gateS, gateAmp, gateLp;
   // sampled instruments persist across play cycles — buffers load once
   let rhodes = null, hookGit = null;
   function ensureSamplers() {
@@ -428,6 +454,89 @@
   }
   const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
+  // ---- render-thread probe -------------------------------------------------
+  // stepCost measures the MAIN thread; a crackle is made on the RENDER thread,
+  // where a missed deadline drops audio frames — an underrun. Newer Chromium
+  // exposes that as RenderCapacity, and where it exists it is not a proxy for
+  // the fault, it IS the fault: underrunRatio > 0 means the output glitched.
+  // So an underrun feeds the same strain machine that main-thread overload
+  // feeds, and the arrangement thins in answer to the actual mechanism
+  let renderCap = null, renderLoad = -1, renderPeak = -1, underrunWins = 0;
+  function startRenderProbe() {
+    renderLoad = -1; renderPeak = -1; underrunWins = 0;
+    try {
+      const c = Tone.getContext();
+      const cap = c && c.rawContext && c.rawContext.renderCapacity;
+      if (!cap || typeof cap.start !== "function") return;
+      renderCap = cap;
+      cap.onupdate = (e) => {
+        try {
+          const avg = Number(e && e.averageLoad);
+          const peak = Number(e && e.peakLoad);
+          const ur = Number(e && e.underrunRatio);
+          if (Number.isFinite(avg)) renderLoad = avg;
+          if (Number.isFinite(peak)) renderPeak = Math.max(renderPeak, peak);
+          if (Number.isFinite(ur) && ur > 0) {
+            underrunWins++;
+            strain = 1;
+            if (underrunWins <= 3 || underrunWins % 20 === 0) {
+              note("render", "underrun ratio " + ur.toFixed(3) + " at " +
+                Math.round((Number.isFinite(avg) ? avg : 0) * 100) + "% render load");
+            }
+          } else if (Number.isFinite(peak) && peak > 0.85) {
+            // no glitch yet, but one spike away from one — lean in early
+            strain = Math.min(1, strain + 0.3);
+          }
+        } catch (err) { void err; }
+      };
+      cap.start({ updateInterval: 1 });
+    } catch (err) { void err; }
+  }
+  function stopRenderProbe() {
+    try {
+      if (renderCap) {
+        if (typeof renderCap.stop === "function") renderCap.stop();
+        renderCap.onupdate = null;
+      }
+    } catch (err) { void err; }
+    renderCap = null;
+  }
+
+  // ---- lean sheds the render-thread costs ----------------------------------
+  // Thinning drops NOTES — main-thread work and voices — but the two
+  // per-sample costs, the chorus (a modulated delay) and the convolution
+  // reverb, kept running at full price for an arrangement that had already
+  // gone simple. A disconnected subtree is not pulled by Web Audio at all, so
+  // the shed is topological: cut the convolver's input, unhook the chorus and
+  // wire the pad straight to its bus. State-machine guarded, so connect and
+  // disconnect always come in pairs — and reversed the moment the device
+  // catches up, at a barline like every other lean decision
+  let fxShed = false;
+  function setFxShed(on) {
+    if (on === fxShed || !revSend) return;
+    fxShed = on;
+    note("fx", on ? "shedding chorus and room" : "chorus and room restored");
+    try {
+      if (on) {
+        if (chorus) {
+          padLp.disconnect(chorus);
+          padLp.connect(busHarm);
+          gateLp.disconnect(chorus);
+          chorus.disconnect();
+        }
+        revSend.disconnect(reverb);
+      } else {
+        if (chorus) {
+          padLp.disconnect(busHarm);
+          padLp.connect(chorus);
+          chorus.connect(busHarm);
+          gateLp.connect(chorus);
+        }
+        revSend.connect(reverb);
+      }
+    } catch (err) { note("fx", (err && err.message) || err); }
+  }
+
   let transport = null, repeatId = null;
   let stepIdx = 0;
   let pendingLaunchAt = -1;
@@ -439,7 +548,7 @@
     // look-ahead leaves the scheduler no slack there, and a late callback is
     // exactly the "one beat dropped out" artefact. Latency costs us nothing —
     // our input already arrives about a second late
-    try { ctx.lookAhead = 0.25; } catch (err) { void err; }
+    try { ctx.lookAhead = lookRaised ? LOOK_RAISED : LOOK_BASE; } catch (err) { void err; }
     raw = ctx.rawContext;
     if (!noiseBuf) {
       noiseBuf = raw.createBuffer(1, raw.sampleRate * 2, raw.sampleRate);
@@ -504,7 +613,7 @@
     busLead.chain(leadHp, duck);
 
     // space: real convolution reverb, returned through the duck so it pumps
-    const reverb = reg(new Tone.Reverb({ decay: opts.lite ? 1.2 : 2.6, preDelay: 0.02, wet: 1 }));
+    reverb = reg(new Tone.Reverb({ decay: opts.lite ? 1.2 : 2.6, preDelay: 0.02, wet: 1 }));
     await reverb.ready;
     revSend = reg(new Tone.Gain(0.4));
     const revRet = reg(new Tone.Gain(0.5));
@@ -610,7 +719,7 @@
     // effect actually is, costs four voices instead of forty, and lets the
     // gate close to a floor instead of to nothing
     const gateHp = reg(new Tone.Filter({ frequency: 180, type: "highpass" }));
-    const gateLp = reg(new Tone.Filter({ frequency: 1050, type: "lowpass", Q: 0.5 }));
+    gateLp = reg(new Tone.Filter({ frequency: 1050, type: "lowpass", Q: 0.5 }));
     gateAmp = reg(new Tone.Gain(0));
     gateS = reg(new Tone.PolySynth(Tone.Synth, {
       oscillator: opts.lite ? { type: "triangle" } : { type: "fattriangle", count: 2, spread: 12 },
@@ -936,6 +1045,7 @@
     if (pos === 0) {
       if (!engine.lean && strain > 0.6) engine.lean = true;
       else if (engine.lean && strain < 0.3) engine.lean = false;
+      setFxShed(engine.lean);
     }
     const lean = engine.lean; // the device is at its limit — shed ornaments
     const wake = clamp(engine.wake, 0, 1); // the rhythm section fading in
@@ -1543,6 +1653,7 @@
     events.length = 0; errCount = 0; resumes = 0; lastResumeAt = 0;
     stalls = 0; lateSteps = 0; worstLate = 0;
     try {
+      configureContext();
       await Tone.start();
       await buildGraph();
       // Sample buffers (Rhodes, muted guitar). A failed load must never block
@@ -1577,6 +1688,8 @@
     sched.clear(); ctlLast.clear(); stepCost = 0; peakCost = 0;
     strain = 0; strainSteps = 0; totalSteps = 0;
     lastStepSeen = -1; lastStepAt = 0;
+    fxShed = false; // a fresh graph is always the full graph
+    startRenderProbe();
     transport = Tone.getTransport();
     transport.bpm.value = BPM;
     transport.swing = 0.22; // light 16th shuffle — the pulse stays straight
@@ -1604,6 +1717,16 @@
           if (lateSteps === 1 || lateSteps % 50 === 0) {
             note("late", "scheduler " + Math.round(lateBy * 1000) + "ms behind (" +
               lateSteps + " steps)");
+          }
+          // the obvious response, not just a note: a device that fell behind
+          // 250 ms of slack once gets 500 ms for the rest of the session.
+          // The main thread would now have to block half a second at a stretch
+          // before the next burst. Cost: musical gestures land a beat later —
+          // only on devices that have proven they need the slack
+          if (!lookRaised && stepIdx > 32) {
+            lookRaised = true;
+            try { c.lookAhead = LOOK_RAISED; } catch (err) { void err; }
+            note("late", "lookahead raised to " + Math.round(LOOK_RAISED * 1000) + "ms");
           }
         }
       } catch (err) { void err; }
@@ -1643,6 +1766,7 @@
   function stop() {
     if (!engine.running) return;
     engine.running = false;
+    stopRenderProbe();
     transport.stop();
     if (repeatId !== null) transport.clear(repeatId);
     transport.cancel(0);
@@ -1672,6 +1796,9 @@
       running: engine.running, step: stepIdx, audio: state,
       errors: errCount, resumes, stalls, lateSteps, worstLate, notes, idleCut,
       load: stepCost, peakLoad: peakCost,
+      // the render thread's own account, where the browser gives one:
+      // -1 means "no probe here", which is a different fact from "idle"
+      renderLoad, renderPeak, underruns: underrunWins,
       strain, strainPct: totalSteps ? (strainSteps / totalSteps) * 100 : 0,
       lean: engine.lean,
       flowFade: engine.flowFade,
@@ -1711,5 +1838,10 @@
     load, peakLoad, health, log,
     isRunning: () => engine.running,
     isBuilding: () => building,
+    // test seam: the parties of the fx shed, so a test can assert the
+    // topology rather than trust the gesture (see performance.test.mjs)
+    __graph: () => (revSend
+      ? { chorus: chorus || null, revSend, reverb, padLp, gateLp, busHarm, shed: fxShed }
+      : null),
   };
 })();

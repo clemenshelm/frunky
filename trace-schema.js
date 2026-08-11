@@ -179,7 +179,10 @@
   }
 
   // ---- the spec -----------------------------------------------------------
-  const int = (min, max) => ({ t: "int", min, max });
+  // `missing` is what an ABSENT value coerces to (default 0). It exists for
+  // fields where 0 is itself a claim — a render load of 0 says "idle", and a
+  // sample from a build that predates the field never said that
+  const int = (min, max, missing) => ({ t: "int", min, max, missing });
   const bool = () => ({ t: "bool" });
   // fallback null means: this value is load-bearing, drop the record that holds it
   const oneOf = (values, fallback) => ({ t: "enum", values, fallback });
@@ -209,6 +212,12 @@
     gps: oneOf(GPS_SOURCES, "none"),
     lt: int(0, 600e3),          // long-task milliseconds inside this window
     audio: oneOf(AUDIO_STATES, ""),
+    // The render thread's own account, where the browser exposes one
+    // (Chromium's RenderCapacity). Every other number here measures the main
+    // thread; a crackle is made on the render thread, and an underrun IS the
+    // crackle. -1 = this browser has no probe — a different fact from "idle"
+    rload: int(-1, 100, -1),    // render-thread load, percent
+    under: int(0, 1e5),         // cumulative underrun windows
   });
 
   const EVENT = obj({
@@ -264,7 +273,7 @@
     switch (spec.t) {
       case "int": {
         const n = typeof value === "number" ? value : Number(value);
-        if (!Number.isFinite(n)) return 0;
+        if (!Number.isFinite(n)) return spec.missing != null ? spec.missing : 0;
         return Math.round(Math.min(spec.max, Math.max(spec.min, n)));
       }
       case "bool":

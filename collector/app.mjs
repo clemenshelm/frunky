@@ -265,6 +265,9 @@ ${rows}
         '"/>';
     };
     const maxNotes = Math.max(...s.map((p) => p.notes), 1);
+    // the render thread's own load, where the browser reported one (-1 = no
+    // probe on that device, and pre-probe builds default to -1 on arrival)
+    const hasRender = s.some((p) => typeof p.rload === "number" && p.rload >= 0);
     const marks = (trace.events || []).map((e) =>
       '<line x1="' + x(e.t).toFixed(1) + '" y1="0" x2="' + x(e.t).toFixed(1) +
       '" y2="' + h + '" stroke="#ffd166" stroke-dasharray="2 3" opacity=".7"/>').join("");
@@ -273,6 +276,7 @@ ${rows}
       line((p) => p.speed, 13, "#6ee7ff") +
       line((p) => p.notes, maxNotes, "#7dff9b") +
       line((p) => p.load, 100, "#ff9f6b") +
+      (hasRender ? line((p) => Math.max(p.rload || 0, 0), 100, "#e07dff") : "") +
       "</svg>";
   }
 
@@ -280,6 +284,7 @@ ${rows}
     const t = byId.get(id);
     if (!t) return;
     const audioStates = [...new Set((t.samples || []).map((s) => s.audio).filter(Boolean))];
+    const underruns = Math.max(0, ...(t.samples || []).map((s) => s.under || 0));
     const evs = (t.events || []).map((e) =>
       '<span class="ev">' + Math.round(e.t / 1000) + "s " + e.kind +
       (e.code ? "/" + e.code : "") + (e.n ? " " + e.n : "") + "</span>").join(" ");
@@ -294,9 +299,11 @@ ${rows}
         ? ' · Audio <span class="' + (audioStates.some((a) => a !== "running") ? "bad" : "") + '">' +
           audioStates.join(", ") + "</span>"
         : "") +
+      (underruns > 0 ? ' · <span class="bad">' + underruns + " Underrun-Fenster</span>" : "") +
       plot(t) +
       '<p class="legend"><span style="color:#6ee7ff">Tempo (Klassen ' + LABELS[0] + "…" + LABELS[13] + ")</span>" +
       '<span style="color:#7dff9b">Noten/s</span><span style="color:#ff9f6b">Last</span>' +
+      '<span style="color:#e07dff">Render-Last</span>' +
       '<span style="color:#ffd166">Ereignisse</span></p>' +
       "<p>" + (evs || "keine Ereignisse") + "</p>" +
       (t.msgs && t.msgs.length ? "<p>Meldungen: " + t.msgs.join(" · ") + "</p>" : "");

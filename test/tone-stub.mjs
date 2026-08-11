@@ -59,6 +59,15 @@ class FakeAudioContext {
     this.state = "running";
     this.destination = rawNode();
     this.clockOverride = null; // tests drive the audio clock directly
+    // the RenderCapacity probe, where the browser has one: tests fire
+    // renderCapacity.onupdate({averageLoad, peakLoad, underrunRatio}) by hand
+    this.renderCapacity = {
+      started: false,
+      opts: null,
+      onupdate: null,
+      start(o) { this.started = true; this.opts = o || null; },
+      stop() { this.started = false; },
+    };
   }
   get currentTime() {
     return this.clockOverride == null ? (Date.now() - t0) / 1000 : this.clockOverride;
@@ -84,9 +93,24 @@ const stubConfig = { loadedHangs: false };
 function toneNode() {
   const id = ++nodeSeq;
   let lastStart = null;
+  // the stub REMEMBERS the graph edges: a shedding gesture that claims to
+  // disconnect the chorus can only be checked by a stub that knows what is
+  // connected to what
+  const outs = new Set();
   const n = {
-    connect() { return n; }, chain() { return n; }, fan() { return n; },
-    disconnect() {}, dispose() {}, start() { return n; }, stop() { return n; },
+    outs,
+    connect(x) { outs.add(x); return n; },
+    chain(...rest) {
+      let cur = n;
+      for (const x of rest) {
+        if (cur && typeof cur.connect === "function") cur.connect(x);
+        cur = x;
+      }
+      return n;
+    },
+    fan() { return n; },
+    disconnect(x) { if (x === undefined) outs.clear(); else outs.delete(x); },
+    dispose() {}, start() { return n; }, stop() { return n; },
     // Real Tone.js REFUSES a voice triggered at or before its previous start
     // time, and the throw lands inside the transport callback — so every voice
     // scheduled after it in that step is simply never played, and the music
@@ -131,6 +155,10 @@ const transport = {
   cancel() {},
   start() {}, stop() { this.clear(); }, pause() {},
 };
+// ONE context wrapper, not a fresh object per call: the engine writes
+// lookAhead onto it and a later read has to see that write, exactly as with
+// the real Tone context
+const toneCtx = { rawContext: fakeCtx, lookAhead: 0.1, resume() {} };
 const Tone = new Proxy({}, {
   get(_, key) {
     if (key === "start") return async () => {};
@@ -138,7 +166,8 @@ const Tone = new Proxy({}, {
       ? new Promise(() => {}) : Promise.resolve();
     if (key === "getTransport") return () => transport;
     if (key === "getDestination") return () => toneNode();
-    if (key === "getContext") return () => ({ rawContext: fakeCtx });
+    if (key === "getContext") return () => toneCtx;
+    if (key === "setContext") return () => {};
     if (key === "connect") return () => {};
     if (key === "now") return () => fakeCtx.currentTime;
     return function ToneClass() { return toneNode(); };
@@ -146,4 +175,4 @@ const Tone = new Proxy({}, {
 });
 globalThis.Tone = Tone;
 
-export { Tone, transport, fakeCtx, meter, stubConfig };
+export { Tone, transport, fakeCtx, toneCtx, meter, stubConfig };

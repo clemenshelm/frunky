@@ -165,6 +165,12 @@
           // a suspended context is silence with a healthy sequencer behind it,
           // which is exactly what "it got stuck" has looked like all along
           audio: typeof state.audio === "string" ? state.audio : "",
+          // the render thread's own account: the engine reports 0..1 (or -1
+          // where the browser has no probe), the wire carries a percent —
+          // and "not measured" must never be mistaken for "idle"
+          rload: typeof state.rload === "number" && Number.isFinite(state.rload) &&
+            state.rload >= 0 ? Math.round(state.rload * 100) : -1,
+          under: Math.round(n(state.under)),
         });
       } catch (err) { void err; }
     }

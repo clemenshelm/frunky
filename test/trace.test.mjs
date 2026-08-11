@@ -70,7 +70,7 @@ const drive = (tr, seconds, speedKmh) => {
     clock += 1000;
     tr.sample({ speed: speedKmh, scene: "city", load: 0.05, notes: 20, strain: 0,
       late: 0, stalls: 0, errors: 0, resumes: 0, fixAge: 800, gps: "coords", lt: 12,
-      audio: "running" });
+      audio: "running", rload: 0.34, under: 2 });
   }
 };
 
@@ -135,6 +135,11 @@ const drive = (tr, seconds, speedKmh) => {
   eq("memory travels", body.mem, 2);
   ok("the audio context state travels with every sample",
     body.samples.every((s) => s.audio === "running"));
+  // the render thread's own account: the engine reports 0..1, the wire
+  // carries a percent — same convention as the main-thread load
+  ok("the render load travels as a percent",
+    body.samples.every((s) => s.rload === 34));
+  ok("underruns travel", body.samples.every((s) => s.under === 2));
 
   // the decisive one: what the client sends is already what the schema allows
   const re = S.redactTrace(body);
@@ -146,6 +151,31 @@ const drive = (tr, seconds, speedKmh) => {
   ok("no raw speed anywhere", !JSON.stringify(body).includes("63.4"));
   ok("speed arrived as its bucket", body.samples.every((s) => s.speed === S.speedBucket(63.4)));
   ok("and that bucket is the right one", S.speedBucket(63.4) === 7);
+}
+
+// ---- 2b. a browser without the render probe reads as "no probe" -------------
+// -1 and 0 are different facts: 0 claims the render thread was idle, -1 says
+// nobody measured it. A device without the probe must never look idle.
+{
+  const fetchSpy = fakeFetch();
+  const tr = makeTracer({ fetch: fetchSpy });
+  tr.setConsent(true);
+  tr.begin();
+  const base = { speed: 30, scene: "city", load: 0.05, notes: 20, strain: 0,
+    late: 0, stalls: 0, errors: 0, resumes: 0, fixAge: 800, gps: "coords", lt: 0,
+    audio: "running" };
+  clock += 1000;
+  tr.sample({ ...base, rload: -1, under: 0 });
+  clock += 1000;
+  tr.sample(base); // a caller that never heard of the field
+  await tr.flush();
+  const body = fetchSpy.calls[0].body;
+  eq("an explicit -1 stays -1", body.samples[0].rload, -1);
+  eq("a missing reading defaults to -1, not to idle", body.samples[1].rload, -1);
+  eq("and its underruns to zero", body.samples[1].under, 0);
+  const re = S.redactTrace(body);
+  ok("that body is accepted by the schema unchanged",
+    re.ok === true && re.dropped.length === 0);
 }
 
 // ---- 3. every drive is a new identity -------------------------------------

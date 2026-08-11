@@ -100,6 +100,10 @@ for (const kind of ["hidden", "visible", "pagehide", "pageshow"]) {
 }
 ok("a discarded tab says so on the next load", /wasDiscarded/.test(drive));
 ok("and the audio context's state travels with every sample", /audio:\s*h\.audio/.test(drive));
+// the render thread's own account: every other number in a sample measures
+// the main thread, and a crackle is made on the render thread
+ok("the render load travels with every sample", /rload:\s*h\.renderLoad/.test(drive));
+ok("and so does the underrun count", /under:\s*h\.underruns/.test(drive));
 
 // `pagehide` is NOT the end of a drive. It fires whenever the page is
 // backgrounded — on a car browser, every time the driver looks at the map — and

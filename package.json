@@ -4,8 +4,8 @@
   "description": "Adaptive generative driving music for the car browser — the drive composes, you just listen.",
   "type": "module",
   "scripts": {
-    "test": "node test/pages.test.mjs && node test/geo.test.mjs && node test/diagnose.test.mjs && node test/trace-schema.test.mjs && node test/trace.test.mjs && node test/collector.test.mjs && node test/spatial.test.mjs && node test/resilience.test.mjs && node test/regressions.test.mjs && node test/sequencer.test.mjs && node test/smoke.test.mjs",
-    "test:fast": "node test/pages.test.mjs && node test/geo.test.mjs && node test/diagnose.test.mjs && node test/trace-schema.test.mjs && node test/trace.test.mjs && node test/collector.test.mjs && node test/spatial.test.mjs && node test/resilience.test.mjs && node test/regressions.test.mjs",
+    "test": "node test/pages.test.mjs && node test/geo.test.mjs && node test/diagnose.test.mjs && node test/trace-schema.test.mjs && node test/trace.test.mjs && node test/collector.test.mjs && node test/spatial.test.mjs && node test/resilience.test.mjs && node test/performance.test.mjs && node test/regressions.test.mjs && node test/sequencer.test.mjs && node test/smoke.test.mjs",
+    "test:fast": "node test/pages.test.mjs && node test/geo.test.mjs && node test/diagnose.test.mjs && node test/trace-schema.test.mjs && node test/trace.test.mjs && node test/collector.test.mjs && node test/spatial.test.mjs && node test/resilience.test.mjs && node test/performance.test.mjs && node test/regressions.test.mjs",
     "collector": "node collector/server.mjs"
   },
   "repository": {
