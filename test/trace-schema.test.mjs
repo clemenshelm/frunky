@@ -405,6 +405,49 @@ eq("ids do not repeat", ids.size, 200);
 ok("an id is 16 lowercase hex characters", [...ids].every((i) => /^[0-9a-f]{16}$/.test(i)));
 ok("a fresh id passes its own validator", S.redactTrace({ ...wellFormed(), id: S.newTraceId() }).ok);
 
+
+// ---- the motion capability, one coordinate-free word ----------------------
+// Whether a browser exposes an IMU decides how the parking detector works
+// (gyro-assisted or GPS-pattern only), and nobody documents it — the Tesla
+// browser least of all. The answer is a CAPABILITY CLASS, not a reading:
+// no rotation value, no axis, nothing about any movement ever leaves the
+// device. Deliberate allow-list extension, reasons next to the field.
+{
+  ok("the schema can record a motion event", S.EVENT_KINDS.includes("motion"));
+  for (const code of ["values", "silent", "gated"]) {
+    ok("...and qualify it with " + code, S.EVENT_CODES.includes(code));
+  }
+  const withMotion = wellFormed();
+  withMotion.events = [{ t: 5, kind: "motion", n: 0, code: "values" }];
+  const r = S.redactTrace(withMotion);
+  ok("a motion capability event survives redaction",
+    r.ok && r.trace.events.some((e) => e.kind === "motion" && e.code === "values"));
+  const smuggle = wellFormed();
+  smuggle.events = [{ t: 5, kind: "motion", n: 0, code: "yaw 3.2 north" }];
+  const r2 = S.redactTrace(smuggle);
+  ok("a motion event cannot smuggle a reading through its code",
+    r2.ok && r2.trace.events.every((e) => e.kind !== "motion" || e.code === ""));
+}
+
+
+// ---- the scene vocabulary grows with the scene machine ----------------------
+// Build 33 gave the engine five narrative scenes. The trace's scene enum and
+// the coda life-cycle events are how real drives will judge the classifier:
+// a coda that fires at every slow red light shows up HERE first.
+{
+  for (const scene of ["ouverture", "breath", "patience", "coda"]) {
+    ok("the schema knows the " + scene + " scene", S.SCENES.includes(scene));
+  }
+  for (const kind of ["reversal", "coda"]) {
+    ok("the schema can record a " + kind + " event", S.EVENT_KINDS.includes(kind));
+  }
+  const withScene = wellFormed();
+  withScene.samples[0].scene = "patience";
+  const r = S.redactTrace(withScene);
+  ok("a patience sample survives redaction",
+    r.ok && r.trace.samples[0].scene === "patience");
+}
+
 if (failures.length) {
   console.error("FAILURES:");
   for (const f of failures) console.error("  -", f);

@@ -43,7 +43,11 @@
   const PLATFORMS = ["tesla", "ios", "android", "desktop", "other"];
   // "" is the honest scene: a sample whose state we could not read is not a
   // cruise, and inventing one would show up as a shape in the viewer
-  const SCENES = ["", "standstill", "launch", "thrust", "brake", "cruise", "city", "highway"];
+  const SCENES = ["", "standstill", "launch", "thrust", "brake", "cruise", "city", "highway",
+    // the scene machine's five narrative states (build 33). Coarse musical
+    // states, not places: which of them the classifier believed is exactly
+    // what a real drive has to judge it by
+    "ouverture", "breath", "patience", "coda"];
   const GPS_SOURCES = ["none", "coords", "track", "grob"];
   const END_REASONS = ["user", "unload", "error", "timeout"];
   const EVENT_KINDS = [
@@ -56,6 +60,18 @@
     // from "discarded" needs the browser's own vocabulary.
     "hidden", "visible", "pagehide", "pageshow", "audiostate", "discarded",
     "wakelock",
+    // Does this browser expose an IMU? A capability CLASS, never a reading:
+    // the code below says which of four classes the device is in, and no
+    // rotation value, axis or movement ever travels. It exists because the
+    // answer decides how parking detection can work per platform, and no
+    // documentation answers it for a car browser.
+    "motion",
+    // the parking detector's life cycle: "reversal" marks the arm (the
+    // kinematic signature was seen), "coda" with on/off marks the farewell
+    // starting or being cancelled by driving on. Whether these fire at real
+    // parking and NOT at every slow red light is the question the next
+    // drives answer — coordinate-free, like everything here.
+    "reversal", "coda",
   ];
   // The vocabulary an event may add to its kind. An enum rather than a string,
   // so an event can carry a cause without opening a text channel.
@@ -68,6 +84,10 @@
     // being thrown away
     "persisted", "discarded", "suspended", "interrupted", "closed", "running",
     "granted", "lost",
+    // the motion capability classes ("unavailable" already exists above):
+    // values = a real sensor, silent = API without sensor, gated = iOS-style
+    // permission wall the probe deliberately never pushes on
+    "values", "silent", "gated",
   ];
 
   // What a browser may say about an audio context. A suspended context is

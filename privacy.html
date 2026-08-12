@@ -98,6 +98,10 @@
     <tr><td>Engine-Hauptversion</td><td><code>126</code></td>
         <td>Nur die erste Zahl. Ein veraltetes Chromium im Fahrzeug ist eine der besten
             Erklärungen für Abbrüche; von Hauptversionen sind wenige Dutzend im Umlauf.</td></tr>
+    <tr><td>Bewegungssensor</td><td><code>values</code>, <code>gated</code> …</td>
+        <td>Nur <em>ob</em> der Browser einen Lagesensor freigibt — eine von vier Klassen,
+            nie ein Messwert, keine Achse, keine Bewegung. Entscheidet, wie die
+            Einpark-Erkennung auf dem Gerät arbeiten kann.</td></tr>
     <tr><td>Messpunkte (alle 5 s)</td>
         <td>Geschwindigkeitsklasse, Szene, Rechenlast, Noten/s, GPS-Quelle, Alter des letzten
             Fixes, lange Browseraufgaben, Audio-Render-Last und -Aussetzer</td>
@@ -197,8 +201,8 @@
   <p>Stand dieser Erklärung: August 2026.</p>
 </footer>
 
-<script src="trace-schema.js?v=32"></script>
-<script src="trace.js?v=32"></script>
+<script src="trace-schema.js?v=33"></script>
+<script src="trace.js?v=33"></script>
 <script>
 (() => {
   "use strict";

@@ -286,6 +286,97 @@
   const ARC_GATE = { brassy: 0.6, blips: 0.5, ghosts: 0.45, bassFill: 0.35,
     lick: 0.4, snareGhosts: 0.55, hookLift: 0.8 };
 
+  // ---- scene scoring -------------------------------------------------------
+  // The drive is the film and this engine writes the score — and a score
+  // knows which SCENE it is in. Until now the engine saw only speed and
+  // force: the same standstill got the same music whether the driver was
+  // buckling up, waiting at a light, or crawling through a jam. Five scenes,
+  // classified from what the engine already has (speed history, session age,
+  // the GPS reader's reversal flag) — never from anything a driver cannot
+  // feel themselves:
+  //   ouverture  never yet cruised: ease in, the driver is parking out
+  //   free       ordinary driving — the arc plays at full stage
+  //   breath     a short stop inside flowing traffic: a held, UNRESOLVED sus
+  //              chord; the departure itself is the resolution
+  //   patience   stop-and-go: de-arousal — capped stage, softer kick, no
+  //              arrival parade. Entered on a hard cut, deliberately: abrupt
+  //              transitions calm better in high-demand traffic (v.d.Zwaag)
+  //   coda       reversal + stop = probably parked. A staged farewell that
+  //              ends on a resolution — and cancels without ceremony if the
+  //              drive goes on, because a wrong coda must cost nothing
+  // The scene CAPS the story arc's stage: scene outside, arc inside, the
+  // drive modulating inside both — three nested layers, film-score style.
+  const SCENE_CAP = { ouverture: 0.35, free: 1, breath: 1, patience: 0.45 };
+  const OUVERTURE_KMH = 15, OUVERTURE_HOLD_S = 5;
+  const STOP_WINDOW_MS = 90000, STOPS_FOR_PATIENCE = 3;
+  const CODA_ARM_KMH = 12, CODA_ARM_MS = 30000, CODA_CONFIRM_MS = 5000;
+  const CODA_RAMP_MS = 20000, CODA_CANCEL_KMH = 10;
+  // the parade is a celebration, and neither a jam nor a farewell is the
+  // place for one — the quiet landing still resolves every sprint
+  const paradeAllowed = () =>
+    engine.scene !== "patience" && engine.scene !== "coda";
+
+  function classifyScene(dt, speed, rev) {
+    const e = engine;
+    // stop bookkeeping: a completed moving→stopped transition is one stop
+    if (speed > 10) e.wasMoving = true;
+    if (e.wasMoving && speed < 2) { e.stopLog.push(clock); e.wasMoving = false; }
+    while (e.stopLog.length && clock - e.stopLog[0] > STOP_WINDOW_MS) e.stopLog.shift();
+    // the ouverture ends once, on the first sustained real driving
+    if (!e.everCruised) {
+      e.cruiseHold = speed > OUVERTURE_KMH ? e.cruiseHold + dt : 0;
+      if (e.cruiseHold >= OUVERTURE_HOLD_S) e.everCruised = true;
+    }
+    // a reversal ARMS the coda; only a stop confirms it — a three-point turn
+    // has the same kinematics and differs only in what happens next
+    if (rev && speed < CODA_ARM_KMH && e.everCruised) {
+      e.revArmedUntil = clock + CODA_ARM_MS;
+    }
+    const stoodFor = e.standstillSince != null ? clock - e.standstillSince : 0;
+
+    let next;
+    if (e.scene === "coda" && speed <= CODA_CANCEL_KMH) {
+      next = "coda";
+      e.codaProgress = clamp((clock - e.codaAt) / CODA_RAMP_MS, 0, 1);
+    } else if (e.scene !== "coda" && clock < e.revArmedUntil &&
+        stoodFor > CODA_CONFIRM_MS) {
+      next = "coda";
+      e.codaAt = clock; e.codaProgress = 0; e.codaResolved = false;
+    } else {
+      if (e.scene === "coda") { // cancelled: the drive goes on
+        e.codaAt = null; e.codaProgress = 0; e.codaResolved = false;
+        e.revArmedUntil = -1;
+      }
+      next = !e.everCruised ? "ouverture"
+        : e.stopLog.length >= STOPS_FOR_PATIENCE ? "patience"
+        : stoodFor > 1500 ? "breath" : "free";
+    }
+    if (next !== e.scene) {
+      if (next === "patience" || next === "coda") e.sceneHushPending = true;
+      e.scene = next;
+      e.gatesDirty = true;
+    }
+    e.sceneCap = e.scene === "coda"
+      ? clamp(1 - 0.8 * e.codaProgress, 0.2, 1) : SCENE_CAP[e.scene];
+  }
+
+  // the scene caps the arc: which materials speak is decided by the SMALLER
+  // of "where the piece stands" and "what the scene allows". Gating always
+  // derives from the part's rolled flags, so a lifted cap can bring a
+  // material BACK — a one-way mutation could only ever remove
+  function applyStageGates() {
+    const eff = Math.min(engine.stageBase, engine.sceneCap);
+    engine.stage = eff;
+    const r = engine.rolledFlags || {};
+    engine.brassy = !!r.brassy && eff >= ARC_GATE.brassy;
+    engine.blips = !!r.blips && eff >= ARC_GATE.blips;
+    engine.ghosts = !!r.ghosts && eff >= ARC_GATE.ghosts;
+    engine.bassFill = !!r.bassFill && eff >= ARC_GATE.bassFill;
+    engine.lick = eff >= ARC_GATE.lick ? r.lick || null : null;
+    engine.hookLift = !!r.hookLift && eff >= ARC_GATE.hookLift;
+    engine.snareGhosts = eff >= ARC_GATE.snareGhosts;
+  }
+
   // hook riff: the piece's identity. Earworm research says simple — small
   // range, plain contour, ONE twist; songwriting craft says rhythm-first,
   // 3–5 notes, the rests ARE the hook. This is NOT a melody, on purpose.
@@ -394,17 +485,15 @@
     engine.hookLift = Math.random() < 0.2;
     if (Math.random() < 0.3) engine.ghosts = !engine.ghosts;
     // the story arc: the slot's stage decides which of the returning
-    // materials speak THIS time. Gates run after every per-occurrence roll —
-    // a re-rolled lick or a flipped ghost trait must not sneak past the arc —
-    // and before rebalance(), which reads the surviving flags
-    engine.stage = ARCS[piece.arcName][piece.idx];
-    if (engine.stage < ARC_GATE.brassy) engine.brassy = false;
-    if (engine.stage < ARC_GATE.blips) engine.blips = false;
-    if (engine.stage < ARC_GATE.ghosts) engine.ghosts = false;
-    if (engine.stage < ARC_GATE.bassFill) engine.bassFill = false;
-    if (engine.stage < ARC_GATE.lick) engine.lick = null;
-    if (engine.stage < ARC_GATE.hookLift) engine.hookLift = false;
-    engine.snareGhosts = engine.stage >= ARC_GATE.snareGhosts;
+    // materials speak THIS time. The rolled flags are recorded after every
+    // per-occurrence roll — a re-rolled lick or a flipped ghost trait must
+    // not sneak past the arc — and the gates derive from them, so a scene
+    // whose cap moves mid-part can re-gate without re-rolling
+    engine.stageBase = ARCS[piece.arcName][piece.idx];
+    engine.rolledFlags = { brassy: engine.brassy, blips: engine.blips,
+      ghosts: engine.ghosts, bassFill: engine.bassFill, lick: engine.lick,
+      hookLift: engine.hookLift };
+    applyStageGates();
     rebalance();
     // lingering notes must not carry the old harmony — or, at a piece
     // boundary, the old KEY — into the new part. The pads were released here
@@ -478,6 +567,21 @@
     gatePat: null,
     barInPart: 0,
     stage: 1,        // the story arc's stage for the current part, 0..1
+    stageBase: 1,    // the arc's own stage, before the scene caps it
+    sceneCap: 0.35,  // what the scene allows — the session opens easy
+    rolledFlags: null, // the part's rolled ornaments, pre-gate
+    gatesDirty: false, // the cap moved: re-gate on the next barline
+    sceneHushPending: false, // patience/coda enter on a hard cut
+    scene: "ouverture",
+    everCruised: false,
+    cruiseHold: 0,
+    stopLog: [],     // clock stamps of moving→stopped transitions
+    wasMoving: false,
+    revArmedUntil: -1,
+    codaAt: null,
+    codaProgress: 0,
+    codaResolved: false,
+    susVoiced: 0,    // how often the breath held its sus chord
     snareGhosts: false, // ghost chatter needs the stage, not only the trait
     lean: false,     // the device is overloaded: play less, not nothing
     hookLift: false,
@@ -1245,7 +1349,8 @@
         if (risePeak > 0.5 && engine.brake < 0.3 && riseVoices.some((v) => v)) {
           const rem = (16 - (s % 16)) % 16;
           riseArrivalAt = s + (rem < 4 ? rem + 16 : rem);
-          riseFull = riseHot >= RISE_FULL_HOT && s - riseLastFullAt >= RISE_COOLDOWN;
+          riseFull = riseHot >= RISE_FULL_HOT && s - riseLastFullAt >= RISE_COOLDOWN
+            && paradeAllowed();
         } else {
           for (const v of riseVoices) if (v) v.cadence = true;
         }
@@ -1364,6 +1469,18 @@
     rhodes.triggerAttackRelease(midis.map(F), SPB * 6, at("rhodes", t), vv(vol, 0.25));
   }
   function chordVoice(t, midis, dur, vol, cut) {
+    // breath: a red light holds its breath. The pad voices a SUSPENDED
+    // chord — root, fourth, fifth, no third — and deliberately never
+    // resolves it here: the departure is the resolution, because the next
+    // moving part voices real harmony again. Film craft: tension by
+    // withholding, paid off by the road
+    if (engine.scene === "breath") {
+      const r = midis[0];
+      midis = [r, r + 5, r + 7, r + 12];
+      engine.susVoiced++;
+    }
+    // the coda's final chord rings alone: once resolved, no new voicings
+    if (engine.scene === "coda" && engine.codaResolved) return;
     // the highway carries, and so does a device at its limit: the wash is a
     // single trigger per chord where the figures are eight or more
     const style = engine.flowOn || engine.lean ? "wash" : engine.padStyle;
@@ -1454,6 +1571,18 @@
       loadPart(t);
       engine.piece.idx++;
     }
+    // the scene re-gates the stage on barlines: a cap that moved mid-part
+    // must reach the flags, and patience/coda enter on the hard cut (hush)
+    // that IS the calming signal — not a failure of smoothness
+    if (pos === 0) {
+      if (engine.scene === "coda") engine.gatesDirty = true; // the cap keeps falling
+      if (engine.gatesDirty && engine.piece) {
+        engine.gatesDirty = false;
+        applyStageGates();
+        rebalance();
+      }
+      if (engine.sceneHushPending) { engine.sceneHushPending = false; hush(t); }
+    }
     if (pos === 0) engine.barInPart = bar % 16;
     if (pos === 0 && bar % 8 === 7) engine.fill = FILLS[Math.floor(Math.random() * FILLS.length)];
     // what comes after this section? (idx already points at the next part)
@@ -1527,6 +1656,17 @@
     const ciRise = hrEff === "twobar" ? Math.floor(bar / 2) % 4 : bar % 4;
     riseStep(t, s, push, lean, rootsEff[ciRise], progEff[ciRise]);
 
+    // the coda's last word: everything hushes and one long chord rings out
+    // alone — a drive that ends now ends on a resolution instead of
+    // mid-phrase (peak-end: the ending owns the memory of the whole ride).
+    // pad() directly, because chordVoice refuses new voicings once resolved
+    if (pos === 0 && engine.scene === "coda" && engine.codaProgress >= 1 &&
+        !engine.codaResolved) {
+      engine.codaResolved = true;
+      hush(t);
+      pad(t, progEff[ciRise], SPB * 32, 0.2, 900);
+    }
+
     if (still) {
       // the beat pulls back — a heartbeat keeps subtle tension alive
       const hb = engine.armed ? 0.62 : 0.42;
@@ -1537,7 +1677,11 @@
       // is the recipe's groove template — four-on-floor is one frame among
       // several now, and halftime's fewer kicks carry more weight each
       if (engine.groove.kick.includes(pos) && !breather && !bridgeDown) {
-        kick(t, (0.85 + 0.1 * e) * (1 - 0.18 * flowHigh) * wake * engine.groove.kickW,
+        // patience softens the kick; the coda fades it out with the farewell
+        const sceneKick = engine.scene === "patience" ? 0.75
+          : engine.scene === "coda" ? 1 - 0.7 * engine.codaProgress : 1;
+        kick(t, (0.85 + 0.1 * e) * (1 - 0.18 * flowHigh) * wake
+          * engine.groove.kickW * sceneKick,
           0.05 + 0.3 * push);
         duckAt(t, 0.3 * (1 - 0.3 * flowHigh) + 0.28 * push);
       }
@@ -1586,6 +1730,13 @@
       // otherwise retrigger and choke it on every offbeat hit
       if (pos === 0 && ff > 0.02 && !breather && !bridgeDown) {
         bassSubNote(t, rootF, 0.26 * flowHigh * drain * ff, SPB * 15);
+      }
+      // the deep palette: film craft's cheapest tension device — the tonic
+      // stays put while the harmony walks above it. Deep pieces only, city
+      // and cruise only: the highway already has its own sustained root
+      if (engine.piece && engine.piece.mood === "deep" && !flowMode &&
+          ff < 0.02 && pos === 0 && bar % 2 === 0 && !breather && !bridgeDown) {
+        bassSubNote(t, F(33), 0.12 * wake * drain, SPB * 30);
       }
       // thrust: growl-bass eases in and out with force — no hard gate
       if (push > 0.04 && pos % 4 === 2) growlNote(t, 0.62 * Math.pow(push, 1.3), SPB * 1.6);
@@ -1856,6 +2007,8 @@
     // MOMENT of crossing, where the half-second smoother has only seen a third
     // of the acceleration — so 7 here separates a real sprint (about 10 by
     // then) from an ordinary pull-away (about 5), not 28 from 6
+    // which scene is the film in? Needs the fresh standstill clock above
+    classifyScene(dt, speed, !!(input && input.reversal));
     if (engine.armed && speed > 6 && engine.prevEst <= 6 && engine.accelEst > 7) {
       engine.armed = false;
       engine.launchBoost = 1;
@@ -1998,7 +2151,17 @@
     if (engine.launchBoost > 0.5) return { text: "LAUNCH", kind: "launch" };
     if (engine.thrust > 0.4) return { text: "Schub", kind: "launch" };
     if (engine.brake > 0.45) return { text: "Bremsen", kind: "launch" };
-    if (e < 0.06) return { text: engine.armed ? "Stand — geladen" : "Stand", kind: "" };
+    // the farewell outranks the stillness readouts: it IS one, with a story
+    if (engine.scene === "coda") return { text: "Ausklang", kind: "" };
+    if (e < 0.06) {
+      // an armed launch is the one thing worth saying at any standstill
+      if (engine.armed) return { text: "Stand — geladen", kind: "" };
+      if (engine.scene === "ouverture") return { text: "Aufwärmen", kind: "" };
+      if (engine.scene === "patience") return { text: "Geduld", kind: "" };
+      if (engine.scene === "breath") return { text: "Atempause", kind: "" };
+      return { text: "Stand", kind: "" };
+    }
+    if (engine.scene === "patience") return { text: "Geduld", kind: "cruise" };
     if (e > 0.75) return { text: "Autobahn-Flow", kind: "high" };
     if (engine.urban > 0.6) return { text: "Stadt", kind: "cruise" };
     return { text: "Cruise", kind: "cruise" };
@@ -2080,6 +2243,12 @@
     engine.recipe = "club"; engine.grooveName = "four";
     engine.groove = GROOVES.four; engine.lead = "guitar";
     engine.stage = 1; engine.snareGhosts = false;
+    engine.stageBase = 1; engine.rolledFlags = null; engine.gatesDirty = false;
+    engine.scene = "ouverture"; engine.sceneCap = SCENE_CAP.ouverture;
+    engine.sceneHushPending = false; engine.everCruised = false;
+    engine.cruiseHold = 0; engine.stopLog = []; engine.wasMoving = false;
+    engine.revArmedUntil = -1; engine.codaAt = null; engine.codaProgress = 0;
+    engine.codaResolved = false; engine.susVoiced = 0;
     engine.riseOn = false; riseVoices = []; riseLog = []; riseNextAt = 0;
     risePeak = 0; riseArrivalAt = -1;
     riseHot = 0; riseFull = false; riseLastFullAt = -Infinity;
@@ -2262,6 +2431,19 @@
       nodes: kickS
         ? { kick: kickS, snare: snareS, guitar: hookGit, square: hookS, warm: leadTri }
         : null,
+    }),
+    // test seam: the scene machine — which scene the score believes it is
+    // in, what that costs the stage, and the coda's whole life cycle
+    __scene: () => ({
+      scene: engine.scene,
+      cap: engine.sceneCap,
+      codaProgress: engine.codaProgress,
+      stops: engine.stopLog.length,
+      revArmed: clock < engine.revArmedUntil,
+      everCruised: engine.everCruised,
+      paradeAllowed: paradeAllowed(),
+      susVoiced: engine.susVoiced,
+      nodes: bassSubS ? { bassSub: bassSubS, kick: kickS } : null,
     }),
     // test seam: the story arc — the piece's character, the current stage,
     // the gated flags AND the bundle's raw rolls, so a test can prove the

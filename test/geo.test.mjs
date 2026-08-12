@@ -227,6 +227,185 @@ ok("standing still has no lateral force", Geo.lateralG(0, 30) === 0);
   ok("and going quiet while crawling is stale", r.isStale(t0 + 20000) === true);
 }
 
+
+// ---- motion capability probe ------------------------------------------------
+// Does THIS browser expose an IMU? Nobody documents it (the Tesla browser
+// least of all), so the page measures it: listen for devicemotion, classify
+// what arrives. The probe never prompts — a permission-gated sensor reports
+// "gated", and asking is a separate, deliberate act.
+{
+  const fakeWin = (dm) => {
+    const w = {
+      addEventListener: (k, f) => { w.listeners[k] = f; },
+      listeners: {},
+      fire: (e) => w.listeners.devicemotion && w.listeners.devicemotion(e),
+    };
+    if (dm === "plain") w.DeviceMotionEvent = function () {};
+    if (dm === "gated") {
+      w.DeviceMotionEvent = function () {};
+      w.DeviceMotionEvent.requestPermission = () => {};
+    }
+    return w;
+  };
+  const capture = () => {
+    const c = { cb: null };
+    c.setTimeout = (fn) => { c.cb = fn; return 1; };
+    return c;
+  };
+
+  ok("createMotionProbe exists", typeof Geo.createMotionProbe === "function");
+
+  // no constructor at all: the answer is immediate
+  {
+    const p = Geo.createMotionProbe({ addEventListener: () => {} }, capture());
+    p.start();
+    ok("no DeviceMotionEvent constructor is unavailable, got " + p.state().verdict,
+      p.state().verdict === "unavailable");
+  }
+  // real values arriving settles the question without waiting for the window
+  {
+    const w = fakeWin("plain");
+    let told = null;
+    const p = Geo.createMotionProbe(w, capture());
+    p.start((v) => { told = v; });
+    w.fire({ rotationRate: { alpha: 3.2, beta: 0, gamma: 0 } });
+    ok("numeric rotation is values, got " + p.state().verdict, p.state().verdict === "values");
+    ok("the verdict callback fired with it", told === "values");
+    ok("and the yaw is readable, got " + p.state().yaw, p.state().yaw === 3.2);
+  }
+  // an accelerometer without a gyro still counts: values, yaw stays null
+  {
+    const w = fakeWin("plain");
+    const p = Geo.createMotionProbe(w, capture());
+    p.start();
+    w.fire({ rotationRate: null, accelerationIncludingGravity: { x: 0.4, y: 0, z: 9.8 } });
+    ok("numeric acceleration alone is values, got " + p.state().verdict,
+      p.state().verdict === "values");
+    ok("but the yaw stays null without a gyro", p.state().yaw === null);
+  }
+  // events that only ever carry nulls: the browser has the API, not the sensor
+  {
+    const w = fakeWin("plain");
+    const c = capture();
+    const p = Geo.createMotionProbe(w, c);
+    p.start();
+    w.fire({ rotationRate: { alpha: null, beta: null, gamma: null }, acceleration: null });
+    ok("null-only events stay pending inside the window", p.state().verdict === "pending");
+    c.cb();
+    ok("and classify as silent when the window closes, got " + p.state().verdict,
+      p.state().verdict === "silent");
+  }
+  // no events and a permission gate: gated, and the probe must NOT have asked
+  {
+    const w = fakeWin("gated");
+    const c = capture();
+    let asked = false;
+    w.DeviceMotionEvent.requestPermission = () => { asked = true; };
+    const p = Geo.createMotionProbe(w, c);
+    p.start();
+    c.cb();
+    ok("permission-gated silence reads gated, got " + p.state().verdict,
+      p.state().verdict === "gated");
+    ok("and the probe never prompted on its own", asked === false);
+  }
+  // no events, no gate: the API is a stub
+  {
+    const w = fakeWin("plain");
+    const c = capture();
+    const p = Geo.createMotionProbe(w, c);
+    p.start();
+    c.cb();
+    ok("event-less plain API reads unavailable, got " + p.state().verdict,
+      p.state().verdict === "unavailable");
+  }
+  // late values after a silent verdict must not flip history: verdict settles once
+  {
+    const w = fakeWin("plain");
+    const c = capture();
+    let calls = 0;
+    const p = Geo.createMotionProbe(w, c);
+    p.start(() => { calls++; });
+    c.cb();
+    w.fire({ rotationRate: { alpha: 1.0 } });
+    ok("the verdict settles exactly once, got " + calls, calls === 1);
+    ok("but the live yaw keeps updating for the display, got " + p.state().yaw,
+      p.state().yaw === 1.0);
+  }
+}
+
+// ---- reversal detection: the parking signature ------------------------------
+// Below the heading floor GPS course is noise per fix, but the MOVEMENT
+// direction over a completed stretch of ground still speaks: direction is
+// computed only once >=6 m of net displacement beat the position noise, and a
+// flip of >120 deg between consecutive stretches at crawling speed is a
+// reversal — the kinematic signature of parking (and of a three-point turn,
+// which is why the engine arms rather than concludes on it).
+{
+  const D = 7.2e-5; // ~8 m of latitude
+  const creep = (r, t0, n, dir, kmh, acc) => {
+    for (let i = 0; i < n; i++) {
+      r.push({ lat: 48 + dir * D * i, lon: 11, speed: kmh / 3.6, heading: null,
+        accuracy: acc == null ? 5 : acc, t: t0 + i * 1000 });
+    }
+    return t0 + n * 1000;
+  };
+  // creep forward, then back over the same ground: reversal
+  {
+    const r = Geo.createReader();
+    let t = creep(r, 10_000_000, 4, +1, 8);
+    ok("no reversal while creeping one way", r.sample(t, 0.016).reversal !== true);
+    for (let i = 0; i < 4; i++) {
+      r.push({ lat: 48 + 3 * D - D * i, lon: 11, speed: 8 / 3.6, heading: null,
+        accuracy: 5, t: t + i * 1000 });
+    }
+    ok("creep-and-reverse raises the reversal flag", r.sample(t + 4000, 0.016).reversal === true);
+    ok("and the diagnostics can say how fresh it is",
+      Number.isFinite(r.diagnostics(t + 4000).reversalAgeMs));
+  }
+  // the same geometry at road speed is a U-turn, not a parking shuffle
+  {
+    const r = Geo.createReader();
+    let t = creep(r, 20_000_000, 4, +1, 40);
+    for (let i = 0; i < 4; i++) {
+      r.push({ lat: 48 + 3 * D - D * i, lon: 11, speed: 40 / 3.6, heading: null,
+        accuracy: 5, t: t + i * 1000 });
+    }
+    ok("a fast about-face is not a reversal", r.sample(t + 4000, 0.016).reversal !== true);
+  }
+  // parked jitter never completes a stretch, so it can never flip one
+  {
+    const r = Geo.createReader();
+    const t0 = 30_000_000;
+    for (let i = 0; i < 60; i++) {
+      r.push({ lat: 48 + (i % 2 ? 1.5e-5 : -1.5e-5), lon: 11, speed: 0, heading: null,
+        accuracy: 5, t: t0 + i * 1000 });
+    }
+    ok("standstill jitter is not a reversal", r.sample(t0 + 60000, 0.016).reversal !== true);
+  }
+  // a neighbourhood-grade fix is not ground truth: no stretches from wifi
+  {
+    const r = Geo.createReader();
+    let t = creep(r, 40_000_000, 4, +1, 8, 500);
+    for (let i = 0; i < 4; i++) {
+      r.push({ lat: 48 + 3 * D - D * i, lon: 11, speed: 8 / 3.6, heading: null,
+        accuracy: 500, t: t + i * 1000 });
+    }
+    ok("coarse fixes never claim a reversal", r.sample(t + 4000, 0.016).reversal !== true);
+  }
+  // the flag arms a window, it is not a latch: it expires
+  {
+    const r = Geo.createReader();
+    let t = creep(r, 50_000_000, 4, +1, 8);
+    for (let i = 0; i < 4; i++) {
+      r.push({ lat: 48 + 3 * D - D * i, lon: 11, speed: 8 / 3.6, heading: null,
+        accuracy: 5, t: t + i * 1000 });
+    }
+    ok("fresh reversal is armed", r.sample(t + 4000, 0.016).reversal === true);
+    ok("and thirty seconds later it has expired",
+      r.sample(t + 4000 + 30000, 0.016).reversal !== true);
+  }
+}
+
 if (failures.length) {
   console.error("FAILURES:");
   for (const f of failures) console.error("  -", f);

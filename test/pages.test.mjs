@@ -22,8 +22,12 @@ const ok = (label, cond) => { if (!cond) failures.push(label); };
 // assigned straight to window (engine, geo, diagnose) and a named object
 // published to both window and globalThis, because the tracing files are read
 // by the collector in node as well as by the browser.
+// comment lines are stripped first: a documented key is still a key — the
+// old parser silently dropped every key that carried a comment above it,
+// which surfaced the moment a page called such a seam
 const members = (body) => new Set(
-  body.split(",").map((part) => (part.split(":")[0] || "").trim())
+  body.replace(/^\s*\/\/.*$/gm, "")
+    .split(",").map((part) => (part.split(":")[0] || "").trim())
     .filter((n) => /^[A-Za-z_$][\w$]*$/.test(n))
 );
 const published = (src, global) => {
@@ -335,6 +339,23 @@ ok("it names the legal basis", /Einwilligung/.test(privacy));
 ok("it says where the server stands", /Hetzner|Deutschland|EU/.test(privacy));
 ok("the privacy page is reachable without consenting to anything",
   !/setConsent\(\s*true\s*\)/.test(privacy));
+
+
+// ---- the motion capability probe is wired into the driver page --------------
+// The probe answers "does THIS browser expose an IMU" — a question no
+// documentation answers for a car browser. It must run, paint its verdict
+// into the settings row, and put the one-word capability class on the trace.
+ok("driver page starts the motion probe", /createMotionProbe\(/.test(drive));
+ok("the verdict reaches the trace as an event", /tracer\.event\("motion"/.test(drive));
+ok("and the settings row shows it live", /id="motionStat"/.test(drive));
+
+
+// ---- the scene machine reaches the driver page ------------------------------
+ok("the new scene words map onto the trace vocabulary",
+  /"Aufwärmen":\s*"ouverture"/.test(drive) && /"Atempause":\s*"breath"/.test(drive) &&
+  /"Geduld":\s*"patience"/.test(drive) && /"Ausklang":\s*"coda"/.test(drive));
+ok("the coda life cycle reaches the trace", /tracer\.event\("coda"/.test(drive));
+ok("and so does the reversal arm", /tracer\.event\("reversal"/.test(drive));
 
 if (failures.length) {
   console.error("FAILURES:");

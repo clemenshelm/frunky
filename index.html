@@ -141,6 +141,7 @@
     padding: 0.3rem 0.6rem; cursor: pointer;
   }
   #diagOpts button.on { color: var(--cyan); border-color: var(--cyan); }
+  #diagOpts span { padding: 0.35rem 0.2rem; font-size: 0.75rem; color: var(--muted); align-self: center; }
 </style>
 <script>
   // The old GitHub Pages address is a signpost now: a bookmark in a car
@@ -211,6 +212,7 @@
   <button id="optCarMix">Car-Mix: an</button>
   <button id="optLite">Sparmodus: aus</button>
   <button id="optTrace">Fehlerdaten: aus</button>
+  <span id="motionStat">Motion: …</span>
 </div>
 <footer>
   <span id="foot">Frunky</span>
@@ -218,12 +220,12 @@
 </footer>
 
 <script src="vendor/Tone.js"></script>
-<script src="engine.js?v=32"></script>
-<script src="geo.js?v=32"></script>
-<script src="diagnose.js?v=32"></script>
-<script src="trace-schema.js?v=32"></script>
-<script src="trace.js?v=32"></script>
-<script src="fresh.js?v=32"></script>
+<script src="engine.js?v=33"></script>
+<script src="geo.js?v=33"></script>
+<script src="diagnose.js?v=33"></script>
+<script src="trace-schema.js?v=33"></script>
+<script src="trace.js?v=33"></script>
+<script src="fresh.js?v=33"></script>
 <script>
 (() => {
   "use strict";
@@ -231,7 +233,7 @@
   // to know whether a trip tested the code we shipped is to read it back —
   // three reports in a row turned out to be the same stale build.
   // (Loading the page as ?v=<something-new> is what forces a fresh copy.)
-  const BUILD = "32";
+  const BUILD = "33";
   const el = (id) => document.getElementById(id);
   const startBtn = el("start"), stopBtn = el("stop");
   const speedEl = el("speed"), stateEl = el("state"), forceEl = el("forceBar");
@@ -294,10 +296,33 @@
   // this page load is the only chance it will ever get to arrive
   tracer.recover();
 
+  // Does this browser expose an IMU? Measured, because nobody documents it —
+  // the Tesla browser least of all — and the answer decides how the parking
+  // detector can work per platform. The probe never prompts (a gated sensor
+  // reports "gated"); the verdict travels as one coordinate-free word, and
+  // the settings row shows it live, with a rotation number where one exists.
+  const motionProbe = FrunkyGeo.createMotionProbe(window);
+  const motionStat = el("motionStat");
+  const MOTION_WORDS = { pending: "wird gemessen …", values: "Sensor da",
+    silent: "API ohne Sensor", gated: "Freigabe nötig (iOS)", unavailable: "keiner" };
+  function paintMotion() {
+    if (!motionStat) return;
+    const m = motionProbe.state();
+    motionStat.textContent = "Motion: " + (MOTION_WORDS[m.verdict] || m.verdict) +
+      (m.yaw != null ? " · Gier " + m.yaw.toFixed(1) + "°/s" : "");
+  }
+  motionProbe.start((verdict) => {
+    try { tracer.event("motion", verdict, 0); } catch (err) { void err; }
+    paintMotion();
+  });
+  setInterval(paintMotion, 1000);
+
   const SCENE_OF = {
     "LAUNCH": "launch", "Schub": "thrust", "Bremsen": "brake",
     "Stand": "standstill", "Stand — geladen": "standstill",
     "Autobahn-Flow": "highway", "Stadt": "city", "Cruise": "cruise",
+    "Aufwärmen": "ouverture", "Atempause": "breath",
+    "Geduld": "patience", "Ausklang": "coda",
   };
 
   // Both answers land here, and here is where the drive continues from. One
@@ -626,6 +651,9 @@
   // stops, coarse enough that an hour of driving still fits inside the cap
   const TRACE_SAMPLE_MS = 5000;
   let lastTraceSampleAt = 0, ltAtTraceSample = 0, stallsSeen = 0, lastFlushAt = 0;
+  // the scene machine's life cycle, onto the trace: whether the coda fires
+  // at real parking and not at every slow red light is what these decide
+  let revSeen = false, lastScene = "";
 
   // ---- why does the page stop? ----------------------------------------------
   // Four measurements, because they are what separates the possible causes.
@@ -754,6 +782,14 @@
         ltAtTraceSample = ltNow;
         lastTraceSampleAt = now;
         if (h.stalls > stallsSeen) { tracer.event("stall", "", h.stalls); stallsSeen = h.stalls; }
+        const scn = Frunky.__scene ? Frunky.__scene() : null;
+        if (scn) {
+          if (scn.revArmed && !revSeen) tracer.event("reversal", "", 0);
+          revSeen = scn.revArmed;
+          if (scn.scene === "coda" && lastScene !== "coda") tracer.event("coda", "on", 0);
+          if (lastScene === "coda" && scn.scene !== "coda") tracer.event("coda", "off", 0);
+          lastScene = scn.scene;
+        }
         // A drive that never ends cleanly must still arrive. Sending every
         // minute means the worst case is one lost minute rather than one lost
         // drive — which is the case that matters, since the drives that end

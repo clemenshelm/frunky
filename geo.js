@@ -60,9 +60,25 @@
   const STALE_S = 5;         // beyond this we no longer claim to know the speed
   const MAX_EXTRAP_S = 1.2;  // how far dead reckoning may run past the last fix
 
+  // Reversal detection: the parking signature. Below the heading floor the
+  // per-fix course is noise, but the MOVEMENT direction over a completed
+  // stretch of ground still speaks — so direction is computed only once
+  // SEG_M metres of net displacement have beaten the position noise, and a
+  // flip of more than REV_FLIP_DEG between consecutive stretches at crawling
+  // speed is a reversal. It ARMS a window rather than concluding anything: a
+  // three-point turn has the same signature, and only what happens next (a
+  // stop, or driving on) tells them apart — that judgement is the engine's.
+  const SEG_M = 6;             // a stretch must beat 2–5 m GPS noise
+  const REV_FLIP_DEG = 120;    // between consecutive stretch bearings
+  const REV_MAX_KMH = 12;      // above this an about-face is a U-turn
+  const REV_ARM_MS = 25000;    // how long the flag stays armed
+
   function createReader() {
     let last = null;      // { t, speed, heading }
     let lastPos = null;   // { lat, lon }
+    let segAnchor = null; // where the current movement stretch began
+    let segBearing = null; // the last completed stretch's direction
+    let reversalAt = null; // when a low-speed flip was last seen
     let slope = 0;        // km/h per second, for dead reckoning
     let rawG = 0;         // lateral g at the last fix
     let pendingDerived = null; // last track-derived speed, accepted or not
@@ -146,6 +162,21 @@
       lastPos = pos;
       fixes++;
       stats.fixes = fixes;
+
+      // movement stretches for the reversal signature — only on fixes good
+      // enough to be ground truth; a wifi neighbourhood must never claim one
+      if (Number.isFinite(fix.accuracy) && fix.accuracy <= ACC_TRUST_M) {
+        if (!segAnchor) segAnchor = pos;
+        else if (haversineMeters(segAnchor, pos) >= SEG_M) {
+          const b = bearingDeg(segAnchor, pos);
+          if (segBearing != null && speed < REV_MAX_KMH &&
+              Math.abs(headingDelta(segBearing, b)) > REV_FLIP_DEG) {
+            reversalAt = t;
+          }
+          segBearing = b;
+          segAnchor = pos;
+        }
+      }
     }
 
     // called once per animation frame: extrapolate to now, then smooth
@@ -163,7 +194,8 @@
       const target = lost ? 0 : rawG;
       est += (base - est) * (1 - Math.exp(-dt / 0.35));
       estG += (target - estG) * (1 - Math.exp(-dt / 0.45));
-      return { speed: est, lateralG: estG };
+      return { speed: est, lateralG: estG,
+        reversal: reversalAt != null && nowMs - reversalAt < REV_ARM_MS };
     }
 
     // A parked car produces no new fixes, because nothing moved — the receiver
@@ -192,6 +224,7 @@
         rejected: stats.rejected,
         stale: isStale(nowMs),
         parked: isParked(),
+        reversalAgeMs: reversalAt == null ? null : nowMs - reversalAt,
       };
     }
 
@@ -211,6 +244,59 @@
       ? reported : now;
   }
 
+  // ---- motion capability probe ---------------------------------------------
+  // Does THIS browser expose an IMU? Nobody documents it — the Tesla browser
+  // least of all — and the answer decides how the parking detector can work
+  // (gyro-assisted where a gyro exists, GPS-pattern only where it doesn't).
+  // So the page measures it once per session: listen for devicemotion and
+  // classify what arrives. Four honest answers:
+  //   values       events carry real numbers — there is a sensor behind the API
+  //   silent       events fire but only ever carry nulls — API without sensor
+  //   gated        nothing fires and requestPermission exists (iOS): asking is
+  //                a separate, deliberate act — the probe NEVER prompts
+  //   unavailable  no constructor, or a plain API that never fires
+  // The verdict settles exactly once; the listener stays attached afterwards
+  // so the settings row can show a live rotation number on devices that have
+  // one. Nothing from this probe ever carries a coordinate.
+  const MOTION_WINDOW_MS = 6000;
+  function createMotionProbe(win, options) {
+    const o = options || {};
+    const later = o.setTimeout || ((fn, ms) => setTimeout(fn, ms));
+    const st = { verdict: "pending", events: 0, values: 0, yaw: null };
+    let onVerdict = null;
+    const settle = (v) => {
+      if (st.verdict !== "pending") return;
+      st.verdict = v;
+      if (onVerdict) { try { onVerdict(v); } catch (err) { void err; } }
+    };
+    const onMotion = (e) => {
+      st.events++;
+      const r = e && e.rotationRate;
+      const a = e && (e.accelerationIncludingGravity || e.acceleration);
+      const yaw = r && Number.isFinite(r.alpha) ? r.alpha : null;
+      const acc = a && Number.isFinite(a.x) ? a.x : null;
+      if (yaw != null) st.yaw = yaw; // live, even after the verdict settled
+      if (yaw != null || acc != null) { st.values++; settle("values"); }
+    };
+    function start(cb) {
+      onVerdict = cb || null;
+      if (!win || typeof win.addEventListener !== "function" ||
+          typeof win.DeviceMotionEvent === "undefined") {
+        settle("unavailable");
+        return st;
+      }
+      win.addEventListener("devicemotion", onMotion);
+      later(() => {
+        if (st.verdict !== "pending") return;
+        if (st.events > 0) settle("silent");
+        else if (typeof win.DeviceMotionEvent.requestPermission === "function") settle("gated");
+        else settle("unavailable");
+      }, o.windowMs || MOTION_WINDOW_MS);
+      return st;
+    }
+    return { start, state: () => ({ ...st }) };
+  }
+
   window.FrunkyGeo = { haversineMeters, bearingDeg, headingDelta, lateralG, createReader,
-    fixTime, HEADING_FLOOR_KMH, STALE_S };
+    fixTime, createMotionProbe, HEADING_FLOOR_KMH, STALE_S };
 })();
