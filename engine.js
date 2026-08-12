@@ -190,6 +190,35 @@
     [1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 0], // 3-3-2
   ];
   const FILLS = ["toms", "sweep", "swell"];
+  // the fill crate — hand-set drum phrases, three sizes, the drummer's
+  // hierarchy: a small shrug every few bars, a half-bar answer at phrase
+  // ends, a full-bar statement into a new part. Fills mark FORM boundaries
+  // (the boundary predictable, the content not — that is what the ear
+  // counts as musical intent), so they live at bar tails, never mid-bar.
+  // [pos, voice, pitch, vel] — voice: t tom (pitch=f0), s snare, g ghost, k kick
+  const DRUMFILLS = {
+    small: [
+      [[13, "g", 0, 0.5], [14, "t", 170, 0.7], [15, "t", 140, 0.9]],
+      [[14, "g", 0, 0.5], [15, "s", 0, 0.8]],
+      [[12, "t", 190, 0.6], [14, "t", 150, 0.8], [15, "g", 0, 0.5]],
+    ],
+    medium: [
+      [[10, "s", 0, 0.6], [11, "g", 0, 0.4], [12, "t", 180, 0.7],
+        [13, "t", 150, 0.8], [14, "t", 125, 0.9], [15, "g", 0, 0.5]],
+      [[10, "t", 200, 0.6], [12, "s", 0, 0.7], [13, "g", 0, 0.4],
+        [14, "s", 0, 0.85], [15, "t", 130, 0.9]],
+      [[8, "k", 0, 0.7], [10, "s", 0, 0.6], [12, "t", 170, 0.75],
+        [14, "t", 140, 0.85], [15, "s", 0, 0.9]],
+    ],
+    large: [
+      [[4, "s", 0, 0.6], [6, "t", 200, 0.65], [8, "s", 0, 0.7],
+        [10, "t", 170, 0.75], [12, "t", 150, 0.85], [13, "g", 0, 0.5],
+        [14, "t", 125, 0.95], [15, "s", 0, 1]],
+      [[4, "t", 210, 0.55], [7, "g", 0, 0.4], [8, "t", 180, 0.7],
+        [11, "g", 0, 0.45], [12, "s", 0, 0.8], [14, "t", 140, 0.9],
+        [15, "t", 120, 1]],
+    ],
+  };
   // call-and-response answers for the square-wave blip voice (pentatonic, high)
   const BLIPS = [[76, 74, 72], [72, 76, 79], [74, 72, 69]];
   // bass licks as [pos, semitones-from-root]: pickups into the next ONE.
@@ -746,6 +775,16 @@
     engine.rolledFlags = { brassy: engine.brassy, blips: engine.blips,
       ghosts: engine.ghosts, bassFill: engine.bassFill, lick: engine.lick,
       hookLift: engine.hookLift };
+    // the last chorus gets everything: pop practice — the final return
+    // carries the ornaments the earlier ones held back. The gate style
+    // keeps its curation (the gate IS the foreground rhythm, brass and
+    // blips would fight it — Bregman outranks the payoff)
+    if (label === "B" && piece.idx === piece.form.lastIndexOf("B") &&
+        engine.padStyle !== "gate") {
+      engine.rolledFlags.brassy = true;
+      engine.rolledFlags.blips = true;
+      engine.rolledFlags.hookLift = true;
+    }
     applyStageGates();
     rebalance();
     // lingering notes must not carry the old harmony — or, at a piece
@@ -808,6 +847,7 @@
     arpOct: 0,
     hr: "bar",
     fill: "toms",
+    drumFill: null,   // the bar's chosen fill phrase, or null
     ghosts: false,
     bassFill: false,  // Daði: octave pops + approach notes into the next chord
     blips: false,     // Daði: square-wave answers to the arp
@@ -1622,6 +1662,17 @@
   function heartbeat(t, vol, f0) {
     heartS.triggerAttackRelease(f0 * 0.35, 0.3, at("heart", t), vv(vol, 0.6));
   }
+  // one fill hit, routed to its voice — velocities scale with the arc's
+  // stage, so a sparse opening never gets a drummer showing off
+  function playFill(t, hits, pos, scale) {
+    const h = hits.find((x) => x[0] === pos);
+    if (!h) return;
+    const v = h[3] * scale;
+    if (h[1] === "t") tom(t, h[2], 0.11 * v);
+    else if (h[1] === "s") snare(hum(t, pos), vel(0.14 * v));
+    else if (h[1] === "g") snare(hum(t, pos), vel(0.05 * v), true);
+    else if (h[1] === "k") kick(t, 0.6 * v, 0);
+  }
   function tom(t, f0, vol) {
     tomS.triggerAttackRelease(f0 * 0.45, 0.18, at("tom", t), vv(vol, 0.35));
   }
@@ -2250,6 +2301,29 @@
             vel(0.025 + 0.012 * buildSeg + 0.003 * pos));
         }
       }
+      // the fill hierarchy: a full-bar statement into a new part, the
+      // phrase-end answer (when the phrase rolled the drum flavor), and an
+      // occasional small shrug at half-phrase tails. Never during a build
+      // (the roll owns those bars), never in the breather or breakdown
+      if (pos === 0) {
+        engine.drumFill = null;
+        if (!buildOn && !breather && !bridgeDown && !lean &&
+            engine.piece && engine.stage >= 0.35) {
+          const fr = dicer("fill:" + engine.piece.num + ":" + bar);
+          if (bar % 16 === 15 && engine.stage >= 0.5) {
+            engine.drumFill = pick(DRUMFILLS.large, null, fr);
+          } else if (bar % 8 === 7 && engine.fill === "toms") {
+            engine.drumFill = pick(DRUMFILLS.medium, null, fr);
+          } else if (bar % 4 === 3 && fr() < 0.3) {
+            engine.drumFill = pick(DRUMFILLS.small, null, fr);
+          }
+        }
+      }
+      if (engine.drumFill) {
+        playFill(t, engine.drumFill, pos,
+          (0.5 + 0.5 * engine.stage) * wake *
+          (engine.piece && engine.piece.mood === "deep" ? 0.8 : 1));
+      }
       // accel percussion: shaker/toms in the background, swelling with force
       if (pos % 2 === 1 && (!lean || pos % 4 === 1)) shaker(hum(t, pos), vel((0.015 + 0.1 * push) * wake));
       if ((pos === 5 || pos === 13) && push > 0.05) tom(t, pos === 5 ? 150 : 120, 0.03 + 0.15 * push);
@@ -2295,7 +2369,6 @@
       }
       // phrase-end fill, drawn from the pool once per phrase
       if (turnaround) {
-        if (engine.fill === "toms" && (pos === 11 || pos === 14)) tom(t, pos === 11 ? 170 : 135, 0.07);
         if (engine.fill === "sweep" && pos >= 12) {
           arpNote(t, F(engine.arpSeq[(pos - 12) * 2 % 8] + 12), 2400, vel(0.055), SPB * 0.9);
         }
@@ -2786,6 +2859,7 @@
     engine.prog = PROGS[0]; engine.roots = ROOTS[0]; engine.bassPat = BASSPATS[0];
     engine.arpSeq = ARPS[0]; engine.arpOct = 0;
     engine.hr = "bar"; engine.fill = "toms"; engine.ghosts = false;
+    engine.drumFill = null;
     engine.bassFill = false; engine.blips = false; engine.blipSeq = BLIPS[0]; engine.brassy = false;
     engine.lick = null; engine.bassMel = null;
     engine.syncPos = 12; engine.snare = false; engine.padStyle = "wash";
@@ -3054,6 +3128,13 @@
       pool: JSON.parse(JSON.stringify(PALETTE_POOL)),
       pieceProgs: engine.piece ? [engine.piece.parts.A.progIdx,
         engine.piece.parts.B.progIdx, engine.piece.parts.C.progIdx] : null,
+    }),
+    // test seam: the fill crate and the bar's chosen phrase, so a test can
+    // prove the hierarchy plays rather than trust the tables
+    __fills: () => ({
+      crate: JSON.parse(JSON.stringify(DRUMFILLS)),
+      current: engine.drumFill ? JSON.parse(JSON.stringify(engine.drumFill)) : null,
+      nodes: tomS ? { tom: tomS, snare: snareS, kick: kickS } : null,
     }),
     // test seam: the drive's near/far split — the warp state, the moving
     // thrust sub, and the lanes, so a test can prove the force stays near
