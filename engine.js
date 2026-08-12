@@ -847,6 +847,10 @@
     riseOn: false,    // rise-figure engagement latch (thrust hysteresis)
     warp: 0,          // auditory exclusion under hard push, 0..1
     flowOn: false,    // latched highway-harmony switch (hysteresis, barline only)
+    flowStartBar: 0,  // when the highway latched on — the lift hazard's clock
+    liftStart: -1,    // bar the current lift began, -1 = pedal phase
+    liftArm: -1,      // bar the armed lift will begin (4 build bars before it)
+    lastLiftEnd: -1e9,
     progIdx: 0,       // position in the progression graph
     piece: null,      // the current piece: form script + part bundles + hook
     partLabel: "",
@@ -1969,6 +1973,37 @@
     }
     if (pos === 0) engine.barInPart = bar % 16;
     if (pos === 0 && bar % 8 === 7) engine.fill = FILLS[Math.floor(Math.random() * FILLS.length)];
+    // the highway latch and the EARNED lift. The old lift ran on a 24-bar
+    // clock — "it always comes at the expected moment" — so now the pedal
+    // phase carries a HAZARD: the longer it carries, the likelier the lift,
+    // and every lift is preceded by the same four build bars the final
+    // chorus earns, entered through the same drop
+    if (pos === 0) {
+      const eL = clamp(engine.energy + engine.launchBoost * 0.3, 0, 1);
+      const fH = clamp((eL - 0.5) / 0.35, 0, 1);
+      const wasFlow = engine.flowOn;
+      if (!engine.flowOn && fH > 0.65) { engine.flowOn = true; engine.flowStartBar = bar; }
+      else if (engine.flowOn && fH < 0.5) engine.flowOn = false;
+      if (wasFlow !== engine.flowOn) {
+        hush(t);
+        if (!engine.flowOn) { engine.liftStart = -1; engine.liftArm = -1; }
+      }
+      if (engine.flowOn) {
+        if (engine.liftStart >= 0 && bar - engine.liftStart >= 8) {
+          engine.lastLiftEnd = bar; engine.liftStart = -1; hush(t); // the lift exhales
+        }
+        if (engine.liftStart < 0) {
+          if (engine.liftArm >= 0 && bar >= engine.liftArm) {
+            engine.liftStart = bar; engine.liftArm = -1; hush(t); // the drop owns this one
+          } else if (engine.liftArm < 0) {
+            const since = bar - Math.max(engine.lastLiftEnd, engine.flowStartBar);
+            if (since >= 8 && dicer("lift")() < clamp((since - 8) / 30, 0, 0.4)) {
+              engine.liftArm = bar + 4;
+            }
+          }
+        }
+      }
+    }
     // what comes after this section? (idx already points at the next part)
     const pieceEnd = engine.piece && engine.piece.idx >= engine.piece.form.length;
     const nextIsB = engine.piece && !pieceEnd && engine.piece.form[engine.piece.idx] === "B";
@@ -1982,17 +2017,22 @@
     // the FORM — the drive keeps its own continuous tension tools
     const finalRun = !still && nextIsB && engine.piece &&
       engine.piece.idx === engine.piece.form.lastIndexOf("B");
-    // the build window, shared by the roll, the growing room and the
-    // tremolo: bars 13-16 before the final chorus, 15-16 out of the bridge
-    const buildSeg = finalRun && bar % 16 >= 13 ? bar % 16 - 12
-      : engine.partLabel === "C" && nextIsB && bar % 16 >= 14 ? bar % 16 - 12 : 0;
-    const buildOn = !lean && buildSeg > 0;
+    // the unified build window — three roads lead into it: the form's
+    // final-chorus run-up (bars 12-15), the bridge rebuild's tail (14-15,
+    // which therefore also gets a two-bar mini-ride now), and the flow
+    // lift's four armed bars. Ride, roll, growing room and tremolo all
+    // read the same segment
+    const formSeg = finalRun && bar % 16 >= 12 ? bar % 16 - 12
+      : engine.partLabel === "C" && nextIsB && bar % 16 >= 14 ? bar % 16 - 12 : -1;
+    const liftK = engine.flowOn && engine.liftArm >= 0 ? bar - (engine.liftArm - 4) : -1;
+    const rideSeg = Math.max(formSeg, liftK >= 0 && liftK <= 3 ? liftK : -1);
+    const buildSeg = Math.max(rideSeg, 0);
+    const buildOn = !lean && rideSeg >= 1;
     if (pos === 0) {
       masterHp.frequency.cancelScheduledValues(t);
-      if (finalRun && bar % 16 >= 12) {
-        const seg = bar % 16 - 12;
-        masterHp.frequency.setValueAtTime([25, 60, 110, 170][seg], t);
-        masterHp.frequency.exponentialRampToValueAtTime([60, 110, 170, 240][seg],
+      if (rideSeg >= 0) {
+        masterHp.frequency.setValueAtTime([25, 60, 110, 170][rideSeg], t);
+        masterHp.frequency.exponentialRampToValueAtTime([60, 110, 170, 240][rideSeg],
           t + SPB * 15);
       } else {
         masterHp.frequency.setValueAtTime(25, t);
@@ -2024,8 +2064,9 @@
     // the payoff rule (field report: "after the build-up, one kick as the
     // reward"): the breath-then-impact drop is earned by BOTH exits that
     // build — the bridge's rebuild and the final chorus's ride+roll
-    if (pos === 14 && bar % 16 === 15 && !still && nextIsB &&
-        (engine.partLabel === "C" || finalRun)) {
+    if (pos === 14 && !still &&
+        ((bar % 16 === 15 && nextIsB && (engine.partLabel === "C" || finalRun)) ||
+         liftK === 3)) {
       const g = master.gain;
       g.cancelScheduledValues(t);
       g.setValueAtTime(0.9, t);
@@ -2043,17 +2084,8 @@
     // on the highway the harmony carries instead of changing.
     // The switch latches with hysteresis and only flips on a barline —
     // a threshold hovering mid-bar must never flap the harmony source
-    if (pos === 0) {
-      const was = engine.flowOn;
-      if (!engine.flowOn && flowHigh > 0.65) engine.flowOn = true;
-      else if (engine.flowOn && flowHigh < 0.5) engine.flowOn = false;
-      if (was !== engine.flowOn) hush(t);
-    }
     const flowMode = engine.flowOn;
-    const liftPhase = flowMode && bar % 24 >= 16;
-    if (pos === 0 && flowMode && (bar % 24 === 16 || bar % 24 === 0)) {
-      hush(t); // clean lift entry and exit
-    }
+    const liftPhase = flowMode && engine.liftStart >= 0;
     engine.liftActive = liftPhase;
     const progEff = !flowMode ? engine.prog : liftPhase ? LIFTPROG : PEDALPROG;
     const rootsEff = !flowMode ? engine.roots : liftPhase ? LIFTROOTS : PEDALROOTS;
@@ -2115,7 +2147,7 @@
         // patience softens the kick; the coda fades it out with the farewell
         const sceneKick = engine.scene === "patience" ? 0.75
           : engine.scene === "coda" ? 1 - 0.7 * engine.codaProgress : 1;
-        kick(t, (0.85 + 0.1 * e) * (1 - 0.18 * flowHigh) * wake
+        kick(t, (0.85 + 0.1 * e) * (1 - 0.18 * flowHigh * (liftPhase ? 0.2 : 1)) * wake
           * engine.groove.kickW * sceneKick,
           0.05 + 0.3 * push);
         duckAt(t, 0.3 * (1 - 0.3 * flowHigh) + 0.28 * push);
@@ -2139,7 +2171,8 @@
         // the mono bass would otherwise ring into the next hit and get cut
         // mid-wave — audible as a chop at every barline, worst on a square
         const dense = engine.bassPat.length >= 6;
-        const v = vel((0.16 + 0.3 * fat) * (1 - 0.4 * flowHigh) * drain * wake);
+        const v = vel((0.16 + 0.3 * fat) *
+          (1 - 0.4 * flowHigh * (liftPhase ? 0.25 : 1)) * drain * wake);
         // rootsEff, not engine.roots: during the highway lift the bass must
         // walk the LIFT roots, not the retired section progression's
         bassNote(bassT(t), F(rootsEff[ci] + mi) * oct, 500 + 700 * fat + v * 350, v,
@@ -2183,7 +2216,8 @@
       if (push > 0.55 && (pos % 4 === 1 || pos % 4 === 3)) growlNote(t, 0.3 * push, SPB * 0.8, rootsEff[ci]);
       // the stab rides the CURRENT chord — a hard-wired Am rubbed against Gadd9
       if (push > 0.06 && pos % 4 === 2) stabChord(t, progEff[ci], 0.12 * Math.pow(push, 1.3));
-      if (engine.groove.hat.includes(pos)) hat(hum(t, pos), false, vel((0.03 + 0.05 * u) * (1 - 0.55 * flowHigh) * wake));
+      if (engine.groove.hat.includes(pos)) hat(hum(t, pos), false,
+        vel((0.03 + 0.05 * u) * (1 - 0.55 * flowHigh * (liftPhase ? 0.3 : 1)) * wake));
       // snare: the groove decides WHERE, the trait decides WHETHER — except a
       // groove whose backbone is the snare (halftime's three), which speaks
       // regardless. Ghost chatter stays a trait, on the groove's ghost spots.
@@ -2232,8 +2266,14 @@
       // carries the last bars into the chorus drop
       if (engine.partLabel === "C" && bar % 16 === 13 && pos === 0) fillSwell(t, SPB * 40);
       // lift drama: a riser announces it, open hats carry the hymn, Rhodes doubles
-      if (flowMode && bar % 24 === 15 && pos === 8) fillSwell(t, SPB * 8);
+      if (liftK === 2 && pos === 8) fillSwell(t, SPB * 24);
       if (liftPhase && pos % 8 === 4) hat(t, true, 0.11);
+      // between lifts the pedal must not fall asleep: every other 8-bar
+      // phrase the Rhodes answers on the and-of-two — the carrier rotates
+      if (flowMode && !liftPhase && pos === 6 && bar % 2 === 0 &&
+          Math.floor(bar / 8) % 2 === 1 && !lean) {
+        rhodesChord(hum(t, pos), progEff[ci], 0.07);
+      }
       if (liftPhase && pos === 0 && bar % 2 === 0) {
         rhodesChord(t, progEff[ci], 0.11);
       }
@@ -2274,7 +2314,7 @@
     const onBeat = pos % 4 === 0;
     // the motorway thins the arp by letting its offbeats recede, not by
     // switching rate: a rate change under a held note is heard as a stumble
-    const offbeatLevel = lean ? 0 : 1 - ff;
+    const offbeatLevel = lean ? 0 : 1 - ff * (liftPhase ? 0.3 : 1);
     const arpHit = pos % 2 === 0 && (onBeat || offbeatLevel > 0.02);
     if (arpHit) {
       const seq = turnaround ? engine.arpSeq.slice().reverse() : engine.arpSeq;
@@ -2765,6 +2805,8 @@
     risePeak = 0; riseArrivalAt = -1;
     riseHot = 0; riseFull = false; riseLastFullAt = -Infinity;
     engine.flowOn = false; engine.piece = null; engine.partLabel = "";
+    engine.flowStartBar = 0; engine.liftStart = -1; engine.liftArm = -1;
+    engine.lastLiftEnd = -1e9;
     // resume the residency: the saved set decides where the walk starts and
     // which episode plays next. This also runs on a mid-drive rebuild(), so
     // even the last-resort graph teardown no longer resets the set
@@ -2947,7 +2989,7 @@
         [r.name, { groove: r.groove, lead: r.lead, bass: r.bass.slice() }])),
       nodes: kickS
         ? { kick: kickS, snare: snareS, guitar: hookGit, square: hookS,
-            warm: leadTri, fuzz: leadFuzz }
+            warm: leadTri, fuzz: leadFuzz, rhodes }
         : null,
     }),
     // test seam: the leitmotif — the set's melodic DNA and how the current
@@ -3017,6 +3059,8 @@
     // thrust sub, and the lanes, so a test can prove the force stays near
     // while the music recedes
     __drive: () => ({
+      lift: { active: engine.liftStart >= 0, start: engine.liftStart,
+        arm: engine.liftArm, lastEnd: engine.lastLiftEnd },
       warp: engine.warp,
       warpLpFreq: warpLp ? warpLp.frequency.value : null,
       warpGain: warpGain ? warpGain.gain.value : null,
