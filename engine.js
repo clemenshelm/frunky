@@ -284,6 +284,11 @@
   // the window. Neither major nor minor: openness reads as brightening
   // without ever leaving the A pedal
   const PEDALDAWN = [[57, 64, 71, 76], [57, 62, 69, 74], [57, 64, 71, 78], [57, 64, 69, 76]];
+  // the cliff in the beam of light: sus and quartal dawn colors ASK by
+  // construction and never answer — after two consecutive dawn windows the
+  // next window RESOLVES into the picardy major. The C# (61/73) is the
+  // light; B (71) keeps the air of the dawn voicings in it
+  const PEDALCLEAR = [[57, 61, 64, 69], [57, 64, 69, 73], [57, 61, 64, 71], [57, 64, 71, 73]];
   // the lift OPENS on the pedal's root — the drop's one lands on harmonic
   // ground the ear already stands on, and the journey (down to F, up
   // through G, home brighter) happens INSIDE the lift, closing on the
@@ -1011,6 +1016,8 @@
     liftTaper: false,  // the wave's receding half: the lift's last two bars
     dawnOn: false,     // pedal color: open/dorian-bright window vs dusk minor
     dawnWindow: -1,
+    dawnRun: 0,        // consecutive dawn windows — two earn the clearing
+    clearingOn: false, // the cliff in the light: the picardy resolution window
     shimmerStart: -1,  // micro-crest: four bars of the arp an octave up
     shimmerEnd: -1e9,
     shimmerOn: false,
@@ -2240,8 +2247,24 @@
         const win = Math.floor(bar / 12);
         if (engine.dawnWindow !== win) {
           engine.dawnWindow = win;
-          engine.dawnOn = dicer("dawn:" + win)() < 0.45;
+          // two dawn windows of questioning earn the resolution: the next
+          // window is the CLEARING — the valley opens into the picardy light
+          if (engine.dawnRun >= 2) {
+            engine.clearingOn = true; engine.dawnOn = false; engine.dawnRun = 0;
+          } else {
+            engine.clearingOn = false;
+            engine.dawnOn = dicer("dawn:" + win)() < 0.45;
+            engine.dawnRun = engine.dawnOn ? engine.dawnRun + 1 : 0;
+          }
         }
+        // the announcement: a two-bar swell into the clearing (we know it
+        // is coming — the run already stands at two), and an open hat
+        // breathes the light in on its one
+        if (pos === 0 && bar % 12 === 10 && engine.dawnRun >= 2 &&
+            engine.liftStart < 0) {
+          fillSwell(t, SPB * 32);
+        }
+        if (pos === 0 && bar % 12 === 0 && engine.clearingOn) hat(t, true, 0.12);
         // SHIMMER micro-crest: four bars of the arp an octave up with its
         // offbeats forward — a lift in miniature, arriving more often
         if (engine.shimmerStart >= 0 && bar - engine.shimmerStart >= 4) {
@@ -2254,7 +2277,7 @@
         engine.shimmerOn = engine.shimmerStart >= 0;
         // and the lap's theme drifts over the pedal — the film-score return,
         // here on the emptiest stage the session has
-        if (engine.liftStart < 0 && engine.liftArm < 0 && engine.setMotif &&
+        if (engine.liftStart < 0 && engine.liftArm < 0 && !engine.clearingOn && engine.setMotif &&
             bar % 8 === 4 && dicer("ghost:flow:" + bar)() < 0.22) {
           for (const gn of engine.setMotif) {
             padTri.triggerAttackRelease(F(69 + gn.s), gn.d * 2 * SPB * 0.9,
@@ -2265,6 +2288,7 @@
       } else {
         engine.liftTaper = false; engine.shimmerOn = false;
         engine.shimmerStart = -1; engine.dawnWindow = -1;
+        engine.clearingOn = false; engine.dawnRun = 0;
       }
     }
     // what comes after this section? (idx already points at the next part)
@@ -2380,7 +2404,9 @@
     const liftPhase = flowMode && engine.liftStart >= 0;
     engine.liftActive = liftPhase;
     const progEff = !flowMode ? engine.prog
-      : liftPhase ? LIFTPROG : engine.dawnOn ? PEDALDAWN : PEDALPROG;
+      : liftPhase ? LIFTPROG
+      : engine.clearingOn ? PEDALCLEAR
+      : engine.dawnOn ? PEDALDAWN : PEDALPROG;
     const rootsEff = !flowMode ? engine.roots : liftPhase ? LIFTROOTS : PEDALROOTS;
     const hrEff = flowMode ? "twobar" : engine.hr;
 
@@ -2678,6 +2704,10 @@
     const arpHit = pos % 2 === 0 && (onBeat || offbeatLevel > 0.02);
     if (arpHit) {
       const seq = turnaround ? engine.arpSeq.slice().reverse() : engine.arpSeq;
+      // in the clearing the arp's minor third turns major — the C natural
+      // would rub against the picardy C# one octave down
+      const arpS0 = seq[Math.floor(s / 2) % 8];
+      const arpSemi = engine.clearingOn && arpS0 % 12 === 3 ? arpS0 + 1 : arpS0;
       // At rest the cutoff used to fall to 340 Hz — on a car stereo that is
       // indistinguishable from silence, and a standstill that sounds like a
       // crash is a crash as far as the listener is concerned. The idle floor
@@ -2687,7 +2717,7 @@
       const accent = (onBeat ? 1.15 : 0.9) * (onBeat ? 1 : offbeatLevel);
       // note lengths breathe too: downbeats ring longer than offbeats —
       // a line of uniform lengths is the "stur" the field report named
-      arpNote(t, F(seq[Math.floor(s / 2) % 8] + (liftPhase || engine.shimmerOn ? 12 : engine.arpOct)),
+      arpNote(t, F(arpSemi + (liftPhase || engine.shimmerOn ? 12 : engine.arpOct)),
         idleCut * (0.8 + 0.2 * Math.sin(t * 0.3)) + 700 * push,
         vel(0.07 * accent), flowHigh > 0.6 ? SPB * 3.6 : SPB * (onBeat ? 2.2 : 1.6));
     }
@@ -2706,6 +2736,13 @@
       // "instruments seem shifted by a bar, resynced at a lift")
       const chPh = liftPhase ? bar - engine.liftStart : bar;
       if (pos === 0 && chPh % 2 === 0) chordVoice(t, progEff[ci], SPB * 40, padVol, padCut);
+      // the tear ducts: the lift and the clearing carry a HIGH string bed —
+      // the triangle pad an octave above the wash, quiet and long, riding
+      // the pad's room. Register is what euphoria was missing
+      if ((liftPhase || engine.clearingOn) && pos === 0 && chPh % 2 === 0) {
+        padTri.triggerAttackRelease(progEff[ci].map((m) => F(m + 12)),
+          SPB * 30 * 0.9, at("padTri", t), vv(padVol * 0.5, 0.4));
+      }
     } else if (hrEff === "push") {
       // anticipation is a PHRASE gesture, not a constant: pushing EVERY bar
       // re-normalizes the ear until the anticipation reads as the downbeat
@@ -3447,7 +3484,8 @@
       lift: { active: engine.liftStart >= 0, start: engine.liftStart,
         arm: engine.liftArm, lastEnd: engine.lastLiftEnd,
         len: engine.liftLen, taper: engine.liftTaper },
-      pedalColor: engine.flowOn ? (engine.dawnOn ? "dawn" : "dusk") : null,
+      pedalColor: engine.flowOn
+        ? (engine.clearingOn ? "clear" : engine.dawnOn ? "dawn" : "dusk") : null,
       shimmer: engine.shimmerOn,
       warp: engine.warp,
       warpLpFreq: warpLp ? warpLp.frequency.value : null,
@@ -3455,7 +3493,7 @@
       thrustSubFreq: thrustSub ? thrustSub.frequency.value : null,
       thrust: engine.thrust,
       nodes: warpLp
-        ? { warpLp, warpGain, busDrive, busHarm, brakeGain, masterHp, busFx }
+        ? { warpLp, warpGain, busDrive, busHarm, brakeGain, masterHp, busFx, padTri }
         : null,
     }),
     // test seam: the transition craft — the ride's filter, the throw's

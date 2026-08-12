@@ -47,6 +47,8 @@ function boot(seed) {
   const pedalColors = new Set();
   let rhodesPedalTrigs = 0, dropsTotal = 0, largeInFlow = 0;
   let taperWrong = 0, shimmerBars = 0, shimmerInLift = 0;
+  const clearAfter = [];
+  let lastColor = null, stringBedLift = 0, padTriMark = 0;
   let t = 0, s = 0, wasActive = false, lastDrops = 0, liftBegan = -1;
   let hatMark = 0, rhodesMark = 0, roomLastBar = 0.12;
   const BARS = 300;
@@ -72,7 +74,18 @@ function boot(seed) {
         const lastTwo = into >= (dr.lift.len || 8) - 2;
         if (dr.lift.taper !== lastTwo) taperWrong++;
       }
-      if (dr.pedalColor) pedalColors.add(dr.pedalColor);
+      if (dr.pedalColor) {
+        pedalColors.add(dr.pedalColor);
+        if (dr.pedalColor === "clear" && lastColor && lastColor !== "clear") {
+          clearAfter.push(lastColor);
+        }
+        lastColor = dr.pedalColor;
+      }
+      if (dr.nodes && dr.nodes.padTri) {
+        const ptNow = dr.nodes.padTri.trigs;
+        if (dr.lift.active && ptNow > padTriMark) stringBedLift++;
+        padTriMark = ptNow;
+      }
       if (dr.shimmer) {
         shimmerBars++;
         if (dr.lift.active) shimmerInLift++;
@@ -204,6 +217,31 @@ function boot(seed) {
     /pos === 0 && chPh % 2 === 0/.test(script));
   ok("dawn windows sit on the absolute 12-bar grid",
     /const win = Math\.floor\(bar \/ 12\);/.test(script));
+  // the cliff in the beam of light ("we wander questioning through the
+  // mystified valley — and suddenly it opens"): sus and quartal dawn
+  // colors ASK by construction and never answer. After two consecutive
+  // dawn windows the next window RESOLVES into the picardy major — the
+  // C# is the light — announced by a two-bar swell, entered on an open
+  // hat, with the ghost paused (the light needs no question)
+  ok("the pedal reaches the clearing across the run, saw " +
+    [...pedalColors].join(","), pedalColors.has("clear"));
+  ok("the clearing only ever follows the questioning (dawn), " +
+    clearAfter.join(","), clearAfter.length > 0 && clearAfter.every((p) => p === "dawn"));
+  ok("the clearing set carries the picardy third",
+    /PEDALCLEAR = \[\[57, 61, 64, 69\], \[57, 64, 69, 73\], \[57, 61, 64, 71\], \[57, 64, 71, 73\]\]/.test(script));
+  ok("two dawn windows earn the resolution at source",
+    /if \(engine\.dawnRun >= 2\)/.test(script));
+  ok("the ghost pauses in the light",
+    /engine\.liftStart < 0 && engine\.liftArm < 0 && !engine\.clearingOn && engine\.setMotif/.test(script));
+  ok("the arp's minor third turns major in the light",
+    /engine\.clearingOn && arpS0 % 12 === 3 \? arpS0 \+ 1 : arpS0/.test(script));
+  // the tear ducts ("the lift doesn't open euphorically — strings?"): the
+  // trance answer is the HIGH bed — the lift and the clearing layer the
+  // triangle pad an octave above the wash, quiet and long
+  ok("the lift carries the high string bed, " + stringBedLift + " refires",
+    stringBedLift >= 2);
+  ok("… pinned at source for the clearing too",
+    /if \(\(liftPhase \|\| engine\.clearingOn\) && pos === 0 && chPh % 2 === 0\)/.test(script));
   ok("the shimmer really crests, got " + shimmerBars + " bars", shimmerBars >= 4);
   ok("and never inside a lift, got " + shimmerInLift, shimmerInLift === 0);
   ok("the ghost theme drifts over the pedal too, got " +
