@@ -1035,6 +1035,8 @@
     shimmerEnd: -1e9,
     shimmerOn: false,
     ghostTheme: false, // this occurrence lets the lap's theme drift by
+    sprint: 0,         // sustained-push integrator: force theater is earned
+    forceGate: 0.25,   // how far the low force voices may open right now
     progIdx: 0,       // position in the progression graph
     piece: null,      // the current piece: form script + part bundles + hook
     partLabel: "",
@@ -2571,8 +2573,8 @@
         bassSubNote(t, F(33), 0.12 * wake * drain, SPB * 30);
       }
       // thrust: growl-bass eases in and out with force — no hard gate
-      if (push > 0.04 && pos % 4 === 2) growlNote(t, 0.62 * Math.pow(push, 1.3), SPB * 1.6, rootsEff[ci]);
-      if (push > 0.55 && (pos % 4 === 1 || pos % 4 === 3)) growlNote(t, 0.3 * push, SPB * 0.8, rootsEff[ci]);
+      if (push > 0.04 && pos % 4 === 2) growlNote(t, 0.62 * Math.pow(push, 1.3) * engine.forceGate, SPB * 1.6, rootsEff[ci]);
+      if (push > 0.55 && (pos % 4 === 1 || pos % 4 === 3)) growlNote(t, 0.3 * push * engine.forceGate, SPB * 0.8, rootsEff[ci]);
       // the stab rides the CURRENT chord — a hard-wired Am rubbed against Gadd9
       if (push > 0.06 && pos % 4 === 2) stabChord(t, progEff[ci], 0.12 * Math.pow(push, 1.3));
       if (engine.groove.hat.includes(pos)) hat(hum(t, pos), false,
@@ -3008,7 +3010,16 @@
     engine.thrust += (thrustTarget - engine.thrust) *
       (1 - Math.exp(-dt / (thrustTarget > engine.thrust ? 0.7 : 1.6)));
     const thrust = engine.thrust;
-    ctl(thrustSubGain.gain, "thrustSub", thrust * 0.3, 0.008);
+    // the force gate ("even a normal pull-away releases the whole theater,
+    // annoying in stop-and-go; GPS overcompensates"): the LOW force voices
+    // are earned by SUSTAINED push at real city speed — a departure gets a
+    // quarter, a GPS step decays before the gate opens, and a genuine
+    // launch opens it instantly (that moment is what the design exists for)
+    const sprintOn = thrust > 0.3 && speed > 25 ? 1 : 0;
+    engine.sprint += (sprintOn - engine.sprint) *
+      (1 - Math.exp(-dt / (sprintOn > engine.sprint ? 2.2 : 1.4)));
+    engine.forceGate = Math.max(0.25 + 0.75 * clamp(engine.sprint, 0, 1), engine.launchBoost);
+    ctl(thrustSubGain.gain, "thrustSub", thrust * 0.3 * engine.forceGate, 0.008);
     ctl(growlLp.frequency, "growlLp", 160 + 1000 * thrust, 15);
     // braking = force too: pressure plus the master filter closing over the mix
     const brakeTarget = clamp(-engine.accelEst / 16, 0, 1);
@@ -3068,7 +3079,7 @@
     // middle-ear reflex damps transmission), and film sound has codified
     // exactly that: the score ducks and lowpasses, the mechanical roar
     // stays near. Engages above a hard push, releases on a steady cruise
-    const warpT = clamp((thrust - 0.4) / 0.4, 0, 1);
+    const warpT = clamp((thrust * engine.forceGate - 0.4) / 0.4, 0, 1);
     engine.warp += (warpT - engine.warp) *
       (1 - Math.exp(-dt / (warpT > engine.warp ? 0.5 : 1.4)));
     const wp = engine.warp;
@@ -3558,6 +3569,7 @@
       shimmer: engine.shimmerOn,
       arias: ariaLog.slice(),
       warp: engine.warp,
+      sprint: engine.sprint, forceGate: engine.forceGate,
       warpLpFreq: warpLp ? warpLp.frequency.value : null,
       warpGain: warpGain ? warpGain.gain.value : null,
       thrustSubFreq: thrustSub ? thrustSub.frequency.value : null,

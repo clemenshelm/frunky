@@ -115,6 +115,61 @@ function boot(seed) {
   transport.clear();
 }
 
+// ---- 2b. the force gate: theater is earned, not triggered -------------------
+// Field test 2026-08-12: "even a normal pull-away releases a lot of force,
+// especially in the low range — annoying in stop-and-go. GPS reacts late
+// and overcompensates." The LOW force voices (growl, thrust sub, warp) now
+// ride a SPRINT gate: a quarter for an ordinary departure, the full
+// theater only after ~2 s of sustained push above real city speed — or a
+// genuine launch, which opens the gate instantly (that moment is what the
+// design exists for)
+{
+  const Frunky = boot(0.03);
+  await Frunky.start();
+  // stop-and-go, measured at its WORST moment: three burst-hold-brake
+  // cycles (the GPS-step departure, repeated the way a queue repeats it),
+  // tracking the gate's PEAK — a single burst decays before any end-of-run
+  // reading, and an assertion that reads after the decay cannot tell the
+  // speed clause from no clause at all (measured: peak 0.25 with the
+  // clause, 0.71 without)
+  let speed = 0, peakGate = 0;
+  for (let cycle = 0; cycle < 3; cycle++) {
+    for (let f = 0; f < 10; f++) {
+      speed = Math.min(20, speed + 4);
+      Frunky.update(0.1, { speed, lateralG: 0 });
+      peakGate = Math.max(peakGate, Frunky.__drive().forceGate);
+    }
+    for (let f = 0; f < 10; f++) {
+      Frunky.update(0.1, { speed, lateralG: 0 });
+      peakGate = Math.max(peakGate, Frunky.__drive().forceGate);
+    }
+    for (let f = 0; f < 10; f++) {
+      speed = Math.max(0, speed - 4);
+      Frunky.update(0.1, { speed, lateralG: 0 });
+    }
+    for (let f = 0; f < 10; f++) Frunky.update(0.1, { speed: 0, lateralG: 0 });
+  }
+  ok("stop-and-go never opens the gate, peak " + peakGate.toFixed(2),
+    peakGate < 0.4);
+  // the sustained sprint: through 25 km/h and onward for seconds
+  for (let f = 0; f < 60; f++) {
+    speed = Math.min(90, speed + 1.4);
+    Frunky.update(0.1, { speed, lateralG: 0 });
+  }
+  const dr2 = Frunky.__drive();
+  ok("a sustained sprint opens the gate, got " + dr2.forceGate.toFixed(2),
+    dr2.forceGate > 0.8);
+  ok("the gate is wired into the sub, the growl and the warp",
+    /thrust \* 0\.3 \* engine\.forceGate/.test(script) &&
+    /Math\.pow\(push, 1\.3\) \* engine\.forceGate/.test(script) &&
+    /const warpT = clamp\(\(thrust \* engine\.forceGate - 0\.4\) \/ 0\.4, 0, 1\)/.test(script));
+  ok("a genuine launch opens it instantly at source",
+    /engine\.forceGate = Math\.max\(0\.25 \+ 0\.75 \* clamp\(engine\.sprint, 0, 1\), engine\.launchBoost\)/.test(script));
+  ok("zero errors across the gate probe", Frunky.health().errors === 0);
+  Frunky.stop();
+  transport.clear();
+}
+
 // ---- 3. the bass steps back a touch -----------------------------------------
 {
   const Frunky = boot(0.03);
