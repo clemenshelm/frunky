@@ -61,6 +61,7 @@ async function drive(Frunky, pieces, state) {
         bassLp: w.nodes ? w.nodes.bassLp.frequency.value : null,
         padOsc: w.nodes ? w.nodes.pad.settings.oscillator.type : null,
         bassVol: w.nodes ? w.nodes.bass.volume.value : null,
+        cutScale: w.cutScale,
       });
     }
   }
@@ -139,6 +140,14 @@ async function drive(Frunky, pieces, state) {
     run.every((r) => r.bassLp === w.tables[r.world].bass.lp));
   ok("the pad oscillator carries each piece's world",
     run.every((r) => r.padOsc === w.tables[r.world].pad.osc.type));
+  // the bass cutoff is NOT a static filter value — every bassNote automates
+  // it per note (drive-dependent formula), so a world that only set the
+  // filter once recolored nothing live. The world must SCALE the per-note
+  // cut instead: factor lp/480, anchored on analog's park
+  ok("the world's bass color arrives as a cut scale, piece by piece",
+    run.every((r) => Math.abs(r.cutScale - w.tables[r.world].bass.lp / 480) < 1e-9));
+  ok("and bassNote really multiplies its per-note cut by that scale",
+    /setValueAtTime\(cut \* \(engine\.worldCutScale \|\| 1\)/.test(script));
   // the trim proof, base-free: between any two pieces, the bass volume moved
   // by exactly the difference of their worlds' trims — a trim that never
   // reaches a volume knob is a mix promise the music does not keep

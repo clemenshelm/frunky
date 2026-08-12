@@ -492,6 +492,12 @@
     hatO.set({ envelope: { decay: W.hat.open } });
     snareS.set({ envelope: { decay: W.snare.decay } });
     bassS.set({ oscillator: opts.lite ? { type: W.bass.lite } : W.bass.osc });
+    // the bass cutoff is automated per NOTE (drive-dependent formula in
+    // bassNote), so a static filter write here would be overwritten by the
+    // next note. The world recolors by SCALING that formula instead —
+    // anchored on analog's park, so analog scales by exactly 1 — and the
+    // static write below only colors the silence between notes
+    engine.worldCutScale = W.bass.lp / SOUNDWORLDS.analog.bass.lp;
     bassLp.frequency.value = W.bass.lp;
     padS.set({ oscillator: opts.lite ? { type: W.pad.lite } : W.pad.osc,
       envelope: { attack: W.pad.attack, release: W.pad.release } });
@@ -1306,6 +1312,7 @@
     worldBaseVol = { bass: bassS.volume.value, pad: padS.volume.value,
       gate: gateS.volume.value, blip: blipS.volume.value };
     engine.worldApplied = null;
+    engine.worldCutScale = 1;
     padTri = reg(new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: "triangle" },
       envelope: { attack: 1.3, decay: 0.3, sustain: 0.7, release: 1.8 },
@@ -1449,7 +1456,9 @@
   function perc(t, vol) { percS.triggerAttackRelease(0.03, at("perc", t), vv(vol, 0.25)); }
   function bassNote(t, freq, cut, vol, dur = SPB) {
     const tt = at("bass", t);
-    bassLp.frequency.setValueAtTime(cut, tt);
+    // the sound world scales the drive-dependent cut: darker worlds keep the
+    // movement, in a lower window
+    bassLp.frequency.setValueAtTime(cut * (engine.worldCutScale || 1), tt);
     bassS.triggerAttackRelease(freq, dur * 0.85, tt, vv(vol, 0.5));
   }
   function bassSubNote(t, freq, vol, dur) {
@@ -2669,6 +2678,7 @@
     __world: () => ({
       name: engine.piece ? engine.piece.world : null,
       applied: engine.worldApplied,
+      cutScale: engine.worldCutScale,
       tables: JSON.parse(JSON.stringify(SOUNDWORLDS)),
       pool: JSON.parse(JSON.stringify(WORLD_POOL)),
       nodes: kickS ? { kick: kickS, hatC, hatO, snare: snareS, bass: bassS,
