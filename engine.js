@@ -693,31 +693,52 @@
   // the lap derives its hook from: the call IS the motif, the response is
   // re-answered per piece, the recipe decides the presentation. Recognition
   // inside the lap, freshness across laps — "ah, MY theme today"
+  // hook craft v2 — the earworm rules, enforced instead of hoped for
+  // (Jakubowski et al.: common global contour plus ONE unusual feature;
+  // repeated notes and small intervals make a line singable). The motif is
+  // a home-to-home ARCH: repeated home notes carry the rhythm (economy),
+  // exactly one upward LEAP is the twist (a rising leap is an event, a
+  // falling cascade is relaxation — so the fall may cascade), then the
+  // line falls monotonically back home (Meyer's gap-fill)
   function genMotif(rnd) {
     const cell = HOOKCELLS[Math.floor(rnd() * HOOKCELLS.length)];
+    const n = cell.length;
+    // the twist sits early-middle: after one or two home statements
+    const leapAt = n >= 5 && rnd() < 0.5 ? 2 : 1;
+    const peak = rnd() < 0.6 ? 2 : 3; // pentatonic 4th or 5th up
+    const idx = [];
     let pi = 0;
-    const used = new Set([RIFFSET[0]]);
-    return cell.map(([p, d, a], i) => {
-      if (i > 0 && rnd() >= 0.55) { // 55%: repeat the pitch — economy
-        const cand = clamp(pi + (rnd() < 0.5 ? -1 : 1), 0, RIFFSET.length - 1);
-        // a hook owns at most three pitches in its run — more is a scale, not a hook
-        if (used.size < 3 || used.has(RIFFSET[cand])) { pi = cand; used.add(RIFFSET[pi]); }
+    for (let i = 0; i < n; i++) {
+      if (i < leapAt) pi = 0;            // home, repeated — rhythm does the work
+      else if (i === leapAt) pi = peak;  // the one twist
+      else {
+        // gap-fill: fall stepwise toward home, arriving by the last note
+        const left = n - 1 - i;
+        pi = Math.max(0, Math.min(pi - 1, left));
       }
-      if (i === cell.length - 1) pi = rnd() < 0.6 ? 0 : 4; // land home or b7
-      return { p, d, a, s: RIFFSET[pi] };
-    });
+      idx.push(pi);
+    }
+    return cell.map(([p, d, a], i) => ({ p, d, a, s: RIFFSET[idx[i]] }));
   }
+  // the hook splits the motif into QUESTION and ANSWER: the call ends off
+  // home (unstable — the phrase asks), the response keeps its lifted middle
+  // (a contour change you can hear) and lands home (the phrase answers).
+  // The old pair did the opposite — the call ended home and felt finished
+  // before the response, which never resolved, had said anything
   function genHook(motif, rnd) {
-    const call = motif.map((n) => ({ ...n }));
-    // response: identical rhythm, but a real answer — the middle of the line
-    // sits a pentatonic 4th higher (contour change you can HEAR), then falls
-    // to the answering tone. Changing only the last note reads as "same".
-    const resp = call.map((n, i) => {
-      if (i === 0) return { ...n };
-      if (i === call.length - 1) return { ...n, s: RIFFSET[rnd() < 0.5 ? 3 : 1] };
+    const call = motif.map((n, i) => i === motif.length - 1
+      ? { ...n, s: RIFFSET[rnd() < 0.5 ? 1 : 4] } : { ...n });
+    const resp = motif.map((n, i) => {
+      if (i === 0 || i === motif.length - 1) return { ...n };
       return { ...n, s: RIFFSET[Math.min(RIFFSET.indexOf(n.s) + 2, RIFFSET.length - 1)] };
     });
     return { call, resp };
+  }
+  // test probe for the hook craft — same dice discipline as a lap's roll
+  function craftProbe(seed) {
+    const rnd = mulberry32(hash32("craft:" + seed));
+    const m = genMotif(rnd);
+    return { motif: m.map((n) => ({ ...n })), hook: genHook(m, rnd) };
   }
   function newPiece() {
     // harmonic anchors walk the progression graph: verse where we are,
@@ -829,6 +850,11 @@
     // an octave up is the most piercing thing the hook can do; keep it rare
     engine.hookLift = occ() < 0.2;
     if (occ() < 0.3) engine.ghosts = !engine.ghosts;
+    // the ghost theme: the leitmotif returns disguised (film scoring's
+    // device — quiet, wet, augmented, another instrument) in the parts
+    // where the hook itself is silent. Never the chorus: the hook owns it
+    engine.ghostTheme = label !== "B" && occ() < 0.35;
+    if (label !== "B") ghostEligible++;
     // the story arc: the slot's stage decides which of the returning
     // materials speak THIS time. The rolled flags are recorded after every
     // per-occurrence roll — a re-rolled lick or a flipped ghost trait must
@@ -1703,6 +1729,7 @@
   // ---- voices --------------------------------------------------------------
 
   const vv = (vol, ref) => { notes++; return clamp(vol / ref, 0, 1); };
+  let ghostLog = [], ghostEligible = 0; // the disguised theme's ledger
 
   // Tone REFUSES a voice triggered at or before its own previous start time,
   // and the refusal is thrown inside the transport callback — so every voice
@@ -2440,6 +2467,20 @@
           (0.5 + 0.5 * engine.stage) * wake *
           (engine.piece && engine.piece.mood === "deep" ? 0.8 : 1));
       }
+      // the ghost theme drifts by: the lap's motif, augmented ×2 (two bars
+      // of half-speed), an octave up on the soft triangle pad — which rides
+      // the pad's reverb, so the disguise is register, instrument and room
+      // at once. One statement per rolled occurrence, mid-part (bar 6 of a
+      // verse, bar 2 of the bridge's breakdown — the empty stages)
+      if (pos === 0 && engine.ghostTheme && engine.setMotif && !still &&
+          !lean && !buildOn &&
+          engine.barInPart === (engine.partLabel === "C" ? 2 : 6)) {
+        for (const gn of engine.setMotif) {
+          padTri.triggerAttackRelease(F(69 + gn.s), gn.d * 2 * SPB * 0.9,
+            at("padTri", t + gn.p * 2 * SPB), vv(0.045 * wake, 0.4));
+        }
+        ghostLog.push({ bar, part: engine.partLabel, aug: 2, vol: 0.045 });
+      }
       // accel percussion: shaker/toms in the background, swelling with force
       if (pos % 2 === 1 && (!lean || pos % 4 === 1)) shaker(hum(t, pos), vel((0.015 + 0.1 * push) * wake));
       if ((pos === 5 || pos === 13) && push > 0.05) tom(t, pos === 5 ? 150 : 120, 0.03 + 0.15 * push);
@@ -3008,6 +3049,7 @@
     // stream anchors every keyed stream, so a test that seeds Math.random
     // still owns every composed outcome deterministically
     diceSeed = String(Math.random()); diceStreams.clear();
+    ghostLog = []; ghostEligible = 0;
     sched.clear(); ctlLast.clear(); stepCost = 0; peakCost = 0;
     strain = 0; strainSteps = 0; totalSteps = 0;
     lastStepSeen = -1; lastStepAt = 0;
@@ -3190,7 +3232,16 @@
         ? engine.setMotif.map((n) => [n.p, n.d, n.a, n.s]) : null,
       call: engine.piece ? engine.piece.hook.call.map((n) => n.s) : null,
       resp: engine.piece ? engine.piece.hook.resp.map((n) => n.s) : null,
+      ghosts: ghostLog.slice(),
+      ghostEligible,
     }),
+    // pure generator probe: hook craft is a property of the GENERATOR, and
+    // walking pieces to sample it costs minutes — this rolls a motif+hook
+    // from an explicit seed in microseconds, exactly as a lap would.
+    // (Expression-bodied on purpose: pages.test scans this export literal
+    // lazily up to its first closing-brace-semicolon, so no seam — and no
+    // comment — may carry that character pair inside the literal)
+    __craft: (seed) => craftProbe(seed),
     // test seam: the scene machine — which scene the score believes it is
     // in, what that costs the stage, and the coda's whole life cycle
     __scene: () => ({

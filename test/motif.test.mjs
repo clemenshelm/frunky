@@ -84,8 +84,17 @@ const store = makeStore();
     Frunky.__motif().cells.some((cell) => cell.some(([, d]) => !Number.isInteger(d))));
   ok("piece two carries the SAME motif — recognition inside the lap",
     run[1].motif === run[0].motif);
-  ok("and each piece's hook call IS the motif",
-    run.every((r) => JSON.parse(r.motif).map((n) => n[3]).join("·") === r.call));
+  // lifted with the question/answer craft: the call IS the motif except
+  // for its last note, which now asks the question (ends off home) — the
+  // response resolves it. Identity check therefore excludes the tail
+  ok("and each piece's hook call IS the motif (up to the question tone)",
+    run.every((r) => {
+      const m = JSON.parse(r.motif).map((n) => n[3]);
+      const c = r.call.split("·").map(Number);
+      return m.length === c.length &&
+        m.slice(0, -1).join("·") === c.slice(0, -1).join("·") &&
+        c[c.length - 1] !== 0;
+    }));
   Frunky.stop();
   transport.clear();
   const saved = JSON.parse(store.raw.get(KEY));
@@ -157,7 +166,86 @@ const store = makeStore();
   transport.clear();
 }
 
-// ---- 6. the bench shows the theme -------------------------------------------
+// ---- 6. hook craft: the earworm rules, executable ---------------------------
+// The field report said "nice, but not great", and earworm research
+// (Jakubowski et al.: common global contour + ONE unusual feature; smaller
+// intervals and repeated notes make a line singable) names what was
+// missing: the motif's walk was a drunkard's ±1 with no enforced shape.
+// The rules now: home-to-home ARCH (rise, peak, monotone fall), exactly ONE
+// upward leap (the twist — a falling cascade is relaxation, not an event),
+// repeated notes before it (economy — rhythm does the work), and the hook
+// splits it into QUESTION and ANSWER: the call ends off home, the response
+// keeps its lifted middle but lands home. The old pair did the opposite
+// (call ended home, response never resolved), which is why every hook felt
+// finished before it answered.
+{
+  const Frunky = boot(0.03, makeStore());
+  ok("the __craft probe exists", typeof Frunky.__craft === "function");
+  let arch = 0, oneLeap = 0, question = 0, answer = 0, lifted = 0, total = 0;
+  for (let seed = 1; seed <= 200; seed++) {
+    const c = Frunky.__craft(seed);
+    if (!c) break;
+    total++;
+    const RIFF = [0, 3, 5, 7, 10, 12];
+    const idx = c.motif.map((n) => RIFF.indexOf(n.s));
+    const peakV = Math.max(...idx), peakI = idx.indexOf(peakV);
+    const rises = idx.slice(1).map((v, i) => v - idx[i]).filter((d) => d > 0);
+    if (idx[0] === 0 && idx[idx.length - 1] === 0 &&
+        peakI > 0 && peakI < idx.length - 1 && peakV >= 2 &&
+        idx.slice(peakI + 1).every((v, i, a) => v <= (i === 0 ? peakV : a[i - 1])))
+      arch++;
+    if (rises.length === 1 && rises[0] >= 2) oneLeap++;
+    const callEnd = c.hook.call[c.hook.call.length - 1].s;
+    const respEnd = c.hook.resp[c.hook.resp.length - 1].s;
+    if (callEnd === 3 || callEnd === 10) question++;
+    if (respEnd === 0) answer++;
+    if (c.hook.resp.some((n, i) => i > 0 && i < c.hook.resp.length - 1 &&
+        RIFF.indexOf(n.s) > idx[i])) lifted++;
+  }
+  ok("200 motifs probed (non-vacuity), got " + total, total === 200);
+  ok("every motif is a home-to-home arch, got " + arch + "/200", arch === 200);
+  ok("every motif carries exactly one upward leap, got " + oneLeap + "/200",
+    oneLeap === 200);
+  ok("every call ends as a question (off home), got " + question + "/200",
+    question === 200);
+  ok("every response lands the answer home, got " + answer + "/200",
+    answer === 200);
+  ok("responses keep their lifted middle, got " + lifted + "/200",
+    lifted === 200);
+}
+
+// ---- 7. the ghost theme: the leitmotif returns disguised --------------------
+// Film scoring's device, requested verbatim: the theme reappears in the
+// background — quiet, wet, augmented, a different instrument — in the
+// parts where the hook itself is silent. Never in the chorus (the hook
+// owns it there), occasional rather than reliable.
+{
+  // 2/41 exact (dice-seed discipline, see curation.test): a seed whose
+  // walk would fire a CHORUS ghost as early as bar 22 if the never-in-B
+  // gate fell — without it, the only-A-or-C assertion guards a state the
+  // walk never reaches and its canary cannot bite
+  const Frunky = boot(2 / 41, makeStore());
+  await Frunky.start();
+  const state = { t: 0 };
+  await drive(Frunky, 3, state);
+  const g = Frunky.__motif().ghosts;
+  ok("the ghost ledger exists", Array.isArray(g));
+  ok("the theme really drifted by, got " + (g ? g.length : 0), g && g.length >= 1);
+  ok("only where the hook is silent (A or C), saw " +
+    (g ? [...new Set(g.map((e) => e.part))].join(",") : "-"),
+    g && g.length > 0 && g.every((e) => e.part === "A" || e.part === "C"));
+  ok("augmented and quiet (the disguise), " +
+    (g && g[0] ? `dur×${g[0].aug}, vol ${g[0].vol}` : "-"),
+    g && g.every((e) => e.aug === 2 && e.vol <= 0.06));
+  ok("occasional, not reliable: fewer ghosts than eligible parts, " +
+    (g ? g.length : 0) + " of " + (Frunky.__motif().ghostEligible || 0),
+    g && g.length < (Frunky.__motif().ghostEligible || 0));
+  ok("zero errors across the ghost walk", Frunky.health().errors === 0);
+  Frunky.stop();
+  transport.clear();
+}
+
+// ---- 8. the bench shows the theme -------------------------------------------
 {
   const Frunky = boot(0.03, makeStore());
   await Frunky.start();
