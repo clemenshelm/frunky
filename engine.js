@@ -387,14 +387,16 @@
     return p[Math.floor(rnd() * p.length)];
   };
 
-  function rollBundle(role, progIdx, mood, notLike, bassPool, rnd) {
+  function rollBundle(role, progIdx, mood, notLike, recipe, rnd) {
     // a sibling part must be tellable apart: never the same chord style or
     // bass pattern as the bundle it plays against (contrast is the form)
-    // the recipe curates which bass patterns may play under its kick
-    const bassChoices = (bassPool || [0, 1, 2]).map((i) => BASSPATS[i]);
+    // the recipe curates which bass patterns may play under its kick —
+    // and, where it declares them, which harmonic rhythms fit its pulse
+    const bassChoices = (recipe.bass || [0, 1, 2]).map((i) => BASSPATS[i]);
+    const hrPool = recipe.hrs || HRS;
     const b = {
       progIdx,
-      hr: HRS[Math.floor(rnd() * HRS.length)],
+      hr: hrPool[Math.floor(rnd() * hrPool.length)],
       bassPat: pick(bassChoices, notLike && notLike.bassPat, rnd),
       bassMel: rnd() < (role === "chorus" ? 0.5 : 0.3)
         ? BASSMELS[Math.floor(rnd() * BASSMELS.length)] : null,
@@ -425,6 +427,15 @@
     // – broken Rhodes 8ths share the arp's register: stream segregation by
     //   octave distance (Bregman) instead of two interleaved mid-range lines
     if (b.padStyle === "broken") b.arpOct = 12;
+    // – one answerer: blips and brass both answer the hook, and two
+    //   answerers at once is chatter, not a conversation. Brass only ever
+    //   rolls in the chorus, so the chorus keeps the brass; the last-chorus
+    //   payoff in loadPart stays the sanctioned everything-moment
+    if (b.blips && b.brassy) b.blips = false;
+    // – broken and gate ARE the eighth-note figure; a melodic bass line is
+    //   a second one, and two interleaved figures bury the pulse the groove
+    //   needs (Witek) — the bass melody belongs under wash and keys
+    if (b.padStyle === "broken" || b.padStyle === "gate") b.bassMel = null;
     return b;
   }
   // ---- album DNA -----------------------------------------------------------
@@ -457,15 +468,35 @@
   // bass entries are BASSPATS indices: one rhythmic protagonist per recipe —
   // a broken kick over a funk-push bass is two soloists fighting (Bregman),
   // and halftime keeps only the laid-back pattern with the holes in it
+  // palettes: the recipe curates its harmonic language the way it curates
+  // its bass patterns — the colossus is the Muse drama (lament/modal), the
+  // dub is open space (sus/modal), the strut never walks the lament; club
+  // stays the generalist (null = whatever the mood offers). hrs: the stomp
+  // lives on a straight pulse (Witek: groove is an inverted U over
+  // syncopation), so anticipated chords are the one thing it never does
   const RECIPES = [
-    { name: "club", groove: "four", lead: "guitar", bass: [0, 1, 2] },
-    { name: "strut", groove: "broken", lead: "square", bass: [0, 2] },
-    { name: "dub", groove: "half", lead: "warm", bass: [2] },
+    { name: "club", groove: "four", lead: "guitar", bass: [0, 1, 2],
+      palettes: null, hrs: null },
+    { name: "strut", groove: "broken", lead: "square", bass: [0, 2],
+      palettes: ["light", "modal"], hrs: null },
+    { name: "dub", groove: "half", lead: "warm", bass: [2],
+      palettes: ["sus", "modal"], hrs: null },
     // the Muse element: the bass is the star. The hook moves into a fuzz
     // bass an octave down, the drums stomp nearly straight, and the bass
     // pattern drives in 8ths — Bregman still holds: ONE protagonist
-    { name: "colossus", groove: "stomp", lead: "fuzz", bass: [3] },
+    { name: "colossus", groove: "stomp", lead: "fuzz", bass: [3],
+      palettes: ["lament", "modal"], hrs: ["bar", "twobar"] },
   ];
+  // the mood curates the recipes the way it curates palette, arc and world:
+  // deep never stomps or struts (introspection has no glam), anthem never
+  // drops to halftime at its peak. This ended the field-report combination
+  // "colossus in a Deep organic piece" — nothing sounded wrong, but the
+  // frame and the mood told different stories, so no groove emerged
+  const RECIPE_POOL = {
+    deep: ["club", "dub"],
+    neutral: ["club", "strut", "dub"],
+    anthem: ["club", "strut", "colossus"],
+  };
 
   // ---- story arc -----------------------------------------------------------
   // "Every piece should carry its own emotion, story, character." The craft
@@ -676,23 +707,32 @@
     const num = prev ? prev.num + 1 : 1;
     // the wave, not the dice: the episode number decides the mood
     const mood = SET_WAVE[(num - 1) % SET_WAVE.length];
-    // the palette: the piece's harmonic world, drawn from the mood's pool.
-    // The walk continues inside a palette and RESETS to home when the palette
+    // the recipe: the piece's frame, drawn from the MOOD's pool (the
+    // combination matrix — deep never stomps, anthem never drops to
+    // halftime). Never the same one twice in a row — that rotation is what
+    // makes consecutive pieces read as different SONGS. Rolled BEFORE the
+    // palette, because the frame curates its harmonic language
+    const recipePool = RECIPE_POOL[mood].map((n) => RECIPES.find((r) => r.name === n));
+    const recipe = pick(recipePool,
+      engine.piece ? RECIPES.find((r) => r.name === engine.piece.recipe) : null,
+      dicer("recipe:" + num));
+    // the palette: the piece's harmonic world — the mood's pool, narrowed
+    // by the recipe's language (a funk strut never walks the lament). The
+    // walk continues inside a palette and RESETS to home when the palette
     // changes — and the reset is what makes the change safe, because index 0
     // opens on the Am9 pivot voicing in every palette
     const prevPal = engine.piece ? engine.piece.paletteName
       : engine.setPrev ? engine.setPrev.pal : null;
-    const paletteName = pick(PALETTE_POOL[mood], null, dicer("palette:" + num));
+    const moodPal = PALETTE_POOL[mood];
+    const palPool = recipe.palettes
+      ? moodPal.filter((p) => recipe.palettes.includes(p)) : moodPal;
+    const paletteName = pick(palPool.length ? palPool : recipe.palettes,
+      null, dicer("palette:" + num));
     const P = PALETTES[paletteName];
     const walk = dicer("walk:" + num);
     const pA = paletteName === prevPal ? engine.progIdx : 0;
     const pB = pick(P.next[pA], null, walk);
     const pC = pick(P.next[pB], null, walk);
-    // the recipe: the piece's frame. Never the same one twice in a row —
-    // that rotation is what makes consecutive pieces read as different SONGS
-    const recipe = pick(RECIPES,
-      engine.piece ? RECIPES.find((r) => r.name === engine.piece.recipe) : null,
-      dicer("recipe:" + num));
     // the arc: the piece's character — where its peak lies. Chosen from the
     // mood's pool, so the wave shapes the story, not only the density
     const arcName = pick(ARC_POOL[mood], null, dicer("arc:" + num));
@@ -701,9 +741,9 @@
     // sound, exactly the recipe's rotation rule
     const world = pick(WORLD_POOL[mood], engine.piece ? engine.piece.world : null,
       dicer("world:" + num));
-    const A = rollBundle("verse", pA, mood, null, recipe.bass, dicer("bundle:A:" + num));
-    const B = rollBundle("chorus", pB, mood, A, recipe.bass, dicer("bundle:B:" + num)); // chorus must contrast the verse
-    const C = rollBundle("bridge", pC, mood, B, recipe.bass, dicer("bundle:C:" + num)); // bridge must contrast the chorus
+    const A = rollBundle("verse", pA, mood, null, recipe, dicer("bundle:A:" + num));
+    const B = rollBundle("chorus", pB, mood, A, recipe, dicer("bundle:B:" + num)); // chorus must contrast the verse
+    const C = rollBundle("bridge", pC, mood, B, recipe, dicer("bundle:C:" + num)); // bridge must contrast the chorus
     // the leitmotif renews with the LAP, never with the piece: a fresh set
     // and every return to the wave's start roll a new theme, everything in
     // between inherits — across drives, via the residency
@@ -3200,6 +3240,22 @@
     } : null),
     // test seam: the set arc and the running episode, so a test can assert
     // the dramaturgy (wave, numbering, resume) rather than trust the gesture
+    // test seam: the combination matrix — who may play with whom, and what
+    // the current piece actually rolled, bundle flags included
+    __curation: () => ({
+      pool: JSON.parse(JSON.stringify(RECIPE_POOL)),
+      recipes: Object.fromEntries(RECIPES.map((r) => [r.name, {
+        palettes: r.palettes ? r.palettes.slice() : null,
+        hrs: r.hrs ? r.hrs.slice() : null,
+      }])),
+      piece: engine.piece ? {
+        num: engine.piece.num, mood: engine.piece.mood,
+        recipe: engine.piece.recipe, palette: engine.piece.paletteName,
+        parts: Object.fromEntries(Object.entries(engine.piece.parts).map(
+          ([k, b]) => [k, { hr: b.hr, padStyle: b.padStyle,
+            bassMel: !!b.bassMel, blips: b.blips, brassy: b.brassy }])),
+      } : null,
+    }),
     __set: () => ({
       wave: SET_WAVE.slice(),
       resumed: engine.setPrev ? { ...engine.setPrev } : null,
