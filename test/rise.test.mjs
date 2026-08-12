@@ -374,7 +374,13 @@ await Frunky.start();
       nodes.voices.every((v, i) => v.outs && v.outs.has(nodes.lps[i])));
     ok("every lowpass reaches the shared highpass",
       nodes.lps.every((lp) => lp.outs.has(nodes.hp)));
-    ok("the figure reaches its bus", nodes.hp.outs.has(nodes.busHarm));
+    // the rise is a FORCE voice: since the warp (build 41) it lives on the
+    // drive lane, so a hard push can never muffle the acceleration's own
+    // figure — it must reach the mix through busDrive, and NOT through the
+    // warped harmony band it used to share
+    const dn = Frunky.__drive ? Frunky.__drive().nodes : null;
+    ok("the figure reaches the mix through the drive lane",
+      !!dn && nodes.hp.outs.has(dn.busDrive) && !nodes.hp.outs.has(nodes.busHarm));
     ok("and feeds the shared delay — the genre glue", nodes.hp.outs.has(nodes.delaySend));
   }
   // brightness follows the climb: within a voice the cutoff opens

@@ -156,7 +156,11 @@ console.log(`notes per bar: median ${median}, busiest ${busiest}`);
 if (!(hMax - hMin > 0.02)) failures.push("harmony bus never re-levels — density compensation is not wired");
 if (!(mMax - mMin > 0.02)) failures.push("scene makeup never moves — speed compensation is not wired");
 if (hMin < 0.7 || hMax > 1.25) failures.push(`harmony bus left its band: ${hMin}–${hMax}`);
-if (dMin < 0.85 || dMax > 1.05) failures.push(`drum bus left its band: ${dMin}–${dMax}`);
+// the floor is the warp's designed duck: (1 - 0.08 urban) * (1 - 0.22 warp)
+// bottoms out at ~0.72 under a hard push in town — the band still catches a
+// runaway (a stuck duck, a compounding bug), it just no longer calls the
+// intended acceleration gesture a fault
+if (dMin < 0.7 || dMax > 1.05) failures.push(`drum bus left its band: ${dMin}–${dMax}`);
 if (mMin < 0.95 || mMax > 1.25) failures.push(`scene makeup left its band: ${mMin}–${mMax}`);
 // levelling cannot rescue an arrangement that piles everything on at once
 if (median > 0 && busiest > median * 2.5) {
@@ -186,4 +190,13 @@ if (failures.length) {
   for (const f of failures) console.error("  -", f);
   process.exit(1);
 }
+// the anticipated harmonic rhythms (push/sync) must be BAND gestures: an
+// anticipation only the chords play reads as a wrong early entry, not as a
+// push. The bass plays the pickup with them — new root, an octave up (the
+// one keeps the low register and stays the anchor). Pinned as source: the
+// stub does not record trigger frequencies
+if ((script.match(/bassNote\(bassT\(t\), F\(rootsEff\[ciNext\] \+ 12\)/g) || []).length < 2) {
+  failures.push("the push and sync anticipations lack the bass pickup that makes them a band gesture");
+}
+
 console.log("SEQUENCER_OK");

@@ -108,6 +108,13 @@ async function drive(Frunky, pieces, state) {
     // world must stay a color, not a mute
     ok(`${name} keeps its bass window in the pleasant range`,
       !a || (W.bass.lp / a.bass.lp >= 0.6 && W.bass.lp / a.bass.lp <= 1.25));
+    // "still piercing, a foreign body": cold must not mean saw-on-saw. A
+    // saw wall is what clashed with this record's warm Rhodes and washes —
+    // one voice may carry the glass, the rest of the world stays round or
+    // hollow. Executable: at most ONE tonal slot per world is saw-family
+    ok(`${name} keeps the saw a single pane of glass`,
+      ["bass", "pad", "gate", "blip"].filter((s) =>
+        (W[s].osc.type || "").includes("saw")).length <= 1);
     // lite devices must have a plain-oscillator variant for every fat voice —
     // a world that forgets one silently loses that voice on the car unit
     ok(`${name} names a lite oscillator for bass, pad and gate`,

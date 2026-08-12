@@ -121,6 +121,26 @@ function boot(seed, store) {
   ok("and closed again after the rest window",
     throwLate.length > 0 && throwLate.every((v) => v === 0));
 
+  // the payoff: after the ride and the roll, a bar of filter release is not
+  // a reward. EVERY piece now earns at least one real drop (gap, impact,
+  // downlifter, a fast chord stab and the open hat on the one) — the final
+  // chorus included, not only the bridge exit
+  ok("two pieces earn at least two real drops, got " + seam().drops,
+    seam().drops >= 2);
+  ok("the final chorus earns the same breath-then-impact as the bridge exit",
+    /engine\.partLabel === "C" \|\| finalRun/.test(script));
+  ok("the drop strikes a chord on the one, not only a kick",
+    /stabChord\(t, progEff\[ci\], 0\.16\)/.test(script) &&
+    /hat\(t, true, 0\.14\)/.test(script));
+  // snare v2 (field report: thin and mechanical, worst in the build): a
+  // full backbeat strikes a snap layer on top of noise and body; ghosts and
+  // roll hits stay soft AND vary their color per hit, so sixteen of them
+  // read as a drummer, not a machine gun
+  const sn = seam().nodes || {};
+  ok("full snares carry the snap layer, ghosts do not",
+    !!sn.snap && sn.snap.trigs > 0 && sn.snap.trigs < sn.snare.trigs);
+  ok("roll hits vary their color per hit",
+    /snareBp\.frequency\.setValueAtTime\(1500/.test(script));
   ok("two pieces of transitions, zero engine errors", Frunky.health().errors === 0);
   Frunky.stop();
   transport.clear();

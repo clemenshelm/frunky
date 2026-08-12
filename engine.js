@@ -120,18 +120,20 @@
       gate: { osc: { type: "fattriangle", count: 2, spread: 8 }, lite: "triangle", trim: 0.5 },
       blip: { osc: { type: "triangle" }, trim: 2 },
     },
-    neon: { // tight and cold — clicky kick, crisp hats, wide saw glass.
-      // The first cut was much hotter (lp 700, light trims) and the field
-      // report was unambiguous: too sharp, and louder than analog. Cold is a
-      // color, not a level — the saws keep the character, the window and the
-      // trims keep it pleasant next to the reference world
-      kick: { pitchDecay: 0.05, octaves: 2.2, decay: 0.2 },
-      hat: { closed: 0.028, open: 0.2 },
+    neon: { // tight and cold — hollow squares, one pane of glass, crisp air.
+      // v2 after "still piercing, a foreign body": cold must not mean
+      // saw-on-saw next to this record's warm Rhodes and washes. The bass
+      // and the gate go HOLLOW (plain squares), exactly ONE voice keeps the
+      // glass (the pad's saw — the world.test rule pins that ceiling), the
+      // kick clicks a touch less, and the room opens from bone-dry 0.7 to
+      // 0.85. Cold is a stance now, not an assault
+      kick: { pitchDecay: 0.06, octaves: 2.05, decay: 0.2 },
+      hat: { closed: 0.03, open: 0.2 },
       snare: { decay: 0.1 },
-      room: 0.7, // close and dry: cold stands right in front of you
-      bass: { osc: { type: "fatsawtooth", count: 2, spread: 10 }, lite: "sawtooth", lp: 560, trim: -4 },
-      pad: { osc: { type: "fatsawtooth", count: 3, spread: 18 }, lite: "sawtooth", attack: 0.7, release: 1.2, trim: -2 },
-      gate: { osc: { type: "fatsquare", count: 2, spread: 10 }, lite: "square", trim: -2.5 },
+      room: 0.85,
+      bass: { osc: { type: "square" }, lite: "square", lp: 520, trim: -2.5 },
+      pad: { osc: { type: "fatsawtooth", count: 3, spread: 14 }, lite: "sawtooth", attack: 0.8, release: 1.2, trim: -2 },
+      gate: { osc: { type: "square" }, lite: "square", trim: -2 },
       blip: { osc: { type: "square" }, trim: -1 },
     },
   };
@@ -817,6 +819,7 @@
     dropAt: -1,        // step index of a scheduled drop-gap release
     liftActive: false,
     riseOn: false,    // rise-figure engagement latch (thrust hysteresis)
+    warp: 0,          // auditory exclusion under hard push, 0..1
     flowOn: false,    // latched highway-harmony switch (hysteresis, barline only)
     progIdx: 0,       // position in the progression graph
     piece: null,      // the current piece: form script + part bundles + hook
@@ -913,6 +916,10 @@
   let padS, padTri, padHp, padLp, arpS, arpLp, stabS, stabLp;
   // staging: depth sends, static stage placement, and the air bed
   let padRevG, gateRevG, snareSendG;
+  // the warp: the music band's own filter + gain, and the drive voices' own
+  // dry lane past it — auditory exclusion needs a near/far split by ROLE
+  let warpLp, warpGain, busDrive;
+  let snareSnap, snareBp; // snare v2: the crack, and the wandering band-pass
   let hatPan, shakerPan, percPan, tomPan, blipPan, arpPan, rhodesPan;
   let atmoNoise, atmoLp, atmoGain;
   let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS, leadTri, gateS, gateAmp, gateLp;
@@ -1130,8 +1137,16 @@
     busDrums.connect(dry);
     busFx.connect(dry);
     busBass.connect(duck);
-    busHarm.chain(harmHp, harmComp, duck);
-    busLead.chain(leadHp, duck);
+    // the warp band: harmony and lead run through one shared lowpass+gain
+    // that a hard push closes (the music recedes); the drive voices get
+    // their own lane (busDrive) past it, so the force stays NEAR while the
+    // world blurs — the acoustic version of stars becoming streaks
+    warpLp = reg(new Tone.Filter(16000, "lowpass"));
+    warpGain = reg(new Tone.Gain(1)); warpGain.gain.value = 1;
+    busHarm.chain(harmHp, harmComp, warpLp);
+    busLead.chain(leadHp, warpLp);
+    warpLp.connect(warpGain); warpGain.connect(duck);
+    busDrive = reg(new Tone.Gain(1)); busDrive.connect(duck);
 
     // space: real convolution reverb, returned through the duck so it pumps
     reverb = reg(new Tone.Reverb({ decay: opts.lite ? 1.2 : 2.6, preDelay: 0.02, wet: 1 }));
@@ -1193,12 +1208,19 @@
     // snare: noise crack + a short 185 Hz body; ghosts use the noise alone.
     // A whisper of the shared room glues it in — a bone-dry snare next to
     // wet pads reads as a preset, not a band
-    const snareBp = reg(new Tone.Filter({ frequency: 1800, type: "bandpass", Q: 0.9 }));
+    snareBp = reg(new Tone.Filter({ frequency: 1800, type: "bandpass", Q: 0.9 }));
     snareBp.connect(busDrums);
     snareSendG = reg(new Tone.Gain(0.12)); snareSendG.gain.value = 0.12;
     snareBp.connect(snareSendG); snareSendG.connect(revSend);
     snareS = reg(new Tone.NoiseSynth({ envelope: { attack: 0.001, decay: 0.13, sustain: 0 } }));
     snareS.volume.value = db(0.3); snareS.connect(snareBp);
+    // snare v2 ("thin and mechanical, worst in the build"): a real snare is
+    // noise + shell body + a bright CRACK. The snap layer is that crack —
+    // highpassed noise, full backbeats only, so ghosts and rolls stay soft
+    const snapHp = reg(new Tone.Filter(3800, "highpass")); snapHp.connect(busDrums);
+    snapHp.connect(snareSendG);
+    snareSnap = reg(new Tone.NoiseSynth({ envelope: { attack: 0.001, decay: 0.07, sustain: 0 } }));
+    snareSnap.volume.value = db(0.22); snareSnap.connect(snapHp);
     snareBody = reg(new Tone.MembraneSynth({
       pitchDecay: 0.03, octaves: 0.5,
       envelope: { attack: 0.001, decay: 0.09, sustain: 0, release: 0.02 },
@@ -1212,7 +1234,7 @@
       oscillator: opts.lite ? { type: "triangle" } : { type: "fattriangle", count: 2, spread: 8 },
       envelope: { attack: 0.008, decay: 0.06, sustain: 0.85, release: 0.12 },
     }));
-    bassS.volume.value = db(1.2); bassS.connect(bassLp); bassLp.connect(busBass);
+    bassS.volume.value = db(1.05); bassS.connect(bassLp); bassLp.connect(busBass);
     const bassSubLp = reg(new Tone.Filter({ frequency: 320, type: "lowpass", Q: 0.7 }));
     bassSubS = reg(new Tone.Synth({
       oscillator: { type: "sawtooth" },
@@ -1342,7 +1364,9 @@
     // drone under it. The shared dotted-8th delay carries the connection
     // between the plucks, exactly as it does for the hook and the arp
     riseHp = reg(new Tone.Filter(400, "highpass"));
-    riseHp.connect(busHarm); riseHp.connect(revSend); riseHp.connect(delaySend);
+    // the rise is a FORCE voice: it lives on the drive lane, so the warp
+    // that pulls the music back never muffles the acceleration's own figure
+    riseHp.connect(busDrive); riseHp.connect(revSend); riseHp.connect(delaySend);
     riseS = []; riseLp = [];
     for (let i = 0; i < (opts.lite ? 2 : 3); i++) {
       const lp = reg(new Tone.Filter({ frequency: 1200, type: "lowpass", Q: 0.7 }));
@@ -1360,10 +1384,13 @@
     brakeLp = reg(new Tone.Filter({ frequency: 300, type: "lowpass", Q: 2 }));
     brakeGain = reg(new Tone.Gain(0));
     brakeNoise = reg(new Tone.Noise("brown").start());
-    brakeNoise.chain(brakeLp, brakeGain, busFx);
+    // past the tension lowpass on purpose: under braking the MUSIC muffles
+    // (tensionLp) while the brake's own pressure stays crisp and near —
+    // same near/far split as the warp, on the braking side
+    brakeNoise.chain(brakeLp, brakeGain, masterHp);
     brakeOscGain = reg(new Tone.Gain(0));
     brakeOsc = reg(new Tone.Oscillator(88, "sine").start());
-    brakeOsc.connect(brakeOscGain); brakeOscGain.connect(busFx);
+    brakeOsc.connect(brakeOscGain); brakeOscGain.connect(masterHp);
 
     // the air bed: a very quiet, dark noise floor that breathes with the
     // drive — atmosphere in the literal sense. It ducks under braking so it
@@ -1560,8 +1587,16 @@
   }
   function shaker(t, vol) { shakerS.triggerAttackRelease(0.055, at("shaker", t), vv(vol, 0.16)); }
   function snare(t, vol, ghost = false) {
-    snareS.triggerAttackRelease(ghost ? 0.045 : 0.13, at("snare", t), vv(vol, 0.3));
-    if (!ghost) snareBody.triggerAttackRelease(185, 0.09, at("snareBody", t), vv(vol * 0.7, 0.25));
+    const tt = at("snare", t);
+    // per-hit color: the band-pass wanders a little on every hit, so a
+    // sixteen-hit roll reads as a drummer working the head, not a machine
+    // gun repeating one sample. The write follows the slot's own time
+    snareBp.frequency.setValueAtTime(1500 + 500 * Math.random(), tt);
+    snareS.triggerAttackRelease(ghost ? 0.045 : 0.13, tt, vv(vol, 0.3));
+    if (!ghost) {
+      snareBody.triggerAttackRelease(185, 0.09, at("snareBody", t), vv(vol * 0.7, 0.25));
+      snareSnap.triggerAttackRelease(0.07, at("snareSnap", t), vv(vol * 0.8, 0.3));
+    }
   }
   function perc(t, vol) { percS.triggerAttackRelease(0.03, at("perc", t), vv(vol, 0.25)); }
   function bassNote(t, freq, cut, vol, dur = SPB) {
@@ -1574,8 +1609,12 @@
   function bassSubNote(t, freq, vol, dur) {
     bassSubS.triggerAttackRelease(freq, dur, at("bassSub", t), vv(vol, 0.4));
   }
-  function growlNote(t, vol, dur) {
-    growlS.triggerAttackRelease(F(33), dur * 0.85, at("growl", t), vv(vol, 0.6));
+  function growlNote(t, vol, dur, rootMidi) {
+    // the growl rides the CURRENT chord root. It droned the tonic before,
+    // and a fixed pitch under a walking bass lands both in one critical
+    // band below ~100 Hz — heard as two basses fighting, chord by chord
+    growlS.triggerAttackRelease(F(rootMidi != null ? rootMidi : 33),
+      dur * 0.85, at("growl", t), vv(vol, 0.6));
   }
   function riseNote(slot, t, midi, vol, dur = SPB * 1.5, tight = false) {
     // a pluck, not a wash — the delay carries the connection between notes.
@@ -1929,23 +1968,16 @@
     // reading as a drop and starts reading as the music cutting out, which is
     // indistinguishable from a fault. And it holds back a little rather than
     // going fully silent, for the same reason
-    if (pos === 14 && bar % 16 === 15 && !still && nextIsB && engine.partLabel === "C") {
+    // the payoff rule (field report: "after the build-up, one kick as the
+    // reward"): the breath-then-impact drop is earned by BOTH exits that
+    // build — the bridge's rebuild and the final chorus's ride+roll
+    if (pos === 14 && bar % 16 === 15 && !still && nextIsB &&
+        (engine.partLabel === "C" || finalRun)) {
       const g = master.gain;
       g.cancelScheduledValues(t);
       g.setValueAtTime(0.9, t);
       g.linearRampToValueAtTime(0.12, t + SPB * 1.6);
       engine.dropAt = s + 2;
-    }
-    if (s === engine.dropAt) {
-      engine.dropAt = -1;
-      master.gain.cancelScheduledValues(t);
-      // ramp back over ~8 ms, never step: a gain jump from 0.03 to 0.9 between
-      // two samples is a discontinuity in the waveform, and a discontinuity is
-      // a click. Too short to hear as a fade, long enough to not snap
-      master.gain.setValueAtTime(0.12, t);
-      master.gain.linearRampToValueAtTime(0.9, t + 0.008);
-      if (!still) { impact(t); fallSweep(t, SPB * 6); }
-      dropCount++;
     }
     // breather: every 48 bars the kick and bass step aside for 4 bars —
     // only while cruising, so it never fights a driving event
@@ -1979,7 +2011,32 @@
     // is exactly the moment the figure exists for
     const ci = chordIdx(bar, hrEff);
     const ciNext = chordIdx(bar + 1, hrEff);
+    // the thrust sub follows the bar's root — the other half of the
+    // one-bass rule (see growlNote). A short glide, never a step; roots[0]
+    // is always 33 (the pivot rule), so loadPart's anchor stays true
+    if (thrustSub && pos === 0) {
+      ctl(thrustSub.frequency, "thrustSubF", F(rootsEff[ci]), 0.3, 0.08);
+    }
     riseStep(t, s, push, lean, rootsEff[ci], progEff[ci]);
+
+    if (s === engine.dropAt) {
+      engine.dropAt = -1;
+      master.gain.cancelScheduledValues(t);
+      // ramp back over ~8 ms, never step: a gain jump from 0.03 to 0.9 between
+      // two samples is a discontinuity in the waveform, and a discontinuity is
+      // a click. Too short to hear as a fade, long enough to not snap
+      master.gain.setValueAtTime(0.12, t);
+      master.gain.linearRampToValueAtTime(0.9, t + 0.008);
+      // the reward is a WALL, not a kick: the sub impact, the falling
+      // sweep, a fast chord stab and the open hat land together on the one
+      // (the pad's slow attack blooms too late to count as a payoff)
+      if (!still) {
+        impact(t); fallSweep(t, SPB * 6);
+        stabChord(t, progEff[ci], 0.16);
+        hat(t, true, 0.14);
+      }
+      dropCount++;
+    }
 
     // the coda's last word: everything hushes and one long chord rings out
     // alone — a drive that ends now ends on a resolution instead of
@@ -2065,8 +2122,8 @@
         bassSubNote(t, F(33), 0.12 * wake * drain, SPB * 30);
       }
       // thrust: growl-bass eases in and out with force — no hard gate
-      if (push > 0.04 && pos % 4 === 2) growlNote(t, 0.62 * Math.pow(push, 1.3), SPB * 1.6);
-      if (push > 0.55 && (pos % 4 === 1 || pos % 4 === 3)) growlNote(t, 0.3 * push, SPB * 0.8);
+      if (push > 0.04 && pos % 4 === 2) growlNote(t, 0.62 * Math.pow(push, 1.3), SPB * 1.6, rootsEff[ci]);
+      if (push > 0.55 && (pos % 4 === 1 || pos % 4 === 3)) growlNote(t, 0.3 * push, SPB * 0.8, rootsEff[ci]);
       // the stab rides the CURRENT chord — a hard-wired Am rubbed against Gadd9
       if (push > 0.06 && pos % 4 === 2) stabChord(t, progEff[ci], 0.12 * Math.pow(push, 1.3));
       if (engine.groove.hat.includes(pos)) hat(hum(t, pos), false, vel((0.03 + 0.05 * u) * (1 - 0.55 * flowHigh) * wake));
@@ -2182,20 +2239,35 @@
     if (hrEff === "twobar") {
       if (pos === 0 && bar % 2 === 0) chordVoice(t, progEff[ci], SPB * 32, padVol, padCut);
     } else if (hrEff === "push") {
-      if (pos === 0 && bar % 16 === 0) chordVoice(t, progEff[ci], SPB * 14, padVol, padCut);
-      // never anticipate across a section boundary — the next section owns its one
-      if (pos === 14 && bar % 16 !== 15) {
+      // anticipation is a PHRASE gesture, not a constant: pushing EVERY bar
+      // re-normalizes the ear until the anticipation reads as the downbeat
+      // and the one dissolves (field report). Only the change INTO each
+      // 4-bar phrase leans in early; every other chord lands on its one
+      if (pos === 0 && (bar % 4 !== 0 || bar % 16 === 0)) {
+        chordVoice(t, progEff[ci], SPB * (bar % 16 === 0 ? 14 : 16), padVol, padCut);
+      }
+      if (pos === 14 && bar % 4 === 3 && bar % 16 !== 15) {
         chordVoice(t, progEff[ciNext], SPB * 16, padVol, padCut);
         // the pad's slow attack smears the anticipation — Rhodes announces it.
         // Only for the wash: the keys style already rolls its own Rhodes
         if (engine.padStyle === "wash") rhodesChord(t, progEff[ciNext], 0.08 + 0.05 * e);
+        // and the BAND plays the push: a quiet bass pickup on the new root,
+        // an octave up — the one keeps the low register and stays the anchor
+        if (!still && !breather && !bridgeDown && !lean) {
+          bassNote(bassT(t), F(rootsEff[ciNext] + 12), 700, vel(0.09 * wake), SPB * 0.9);
+        }
       }
     } else if (hrEff === "sync") {
-      // the next bar's chord arrives at an odd spot — anticipation, not displacement
-      if (pos === 0 && bar % 16 === 0) chordVoice(t, progEff[ci], SPB * engine.syncPos, padVol, padCut);
-      if (pos === engine.syncPos && bar % 16 !== 15) {
+      // the next phrase's chord arrives at an odd spot — same sparseness rule
+      if (pos === 0 && (bar % 4 !== 0 || bar % 16 === 0)) {
+        chordVoice(t, progEff[ci], SPB * (bar % 16 === 0 ? engine.syncPos : 16), padVol, padCut);
+      }
+      if (pos === engine.syncPos && bar % 4 === 3 && bar % 16 !== 15) {
         chordVoice(t, progEff[ciNext], SPB * (16 + 16 - engine.syncPos), padVol, padCut);
         if (engine.padStyle === "wash") rhodesChord(t, progEff[ciNext], 0.08 + 0.05 * e);
+        if (!still && !breather && !bridgeDown && !lean) {
+          bassNote(bassT(t), F(rootsEff[ciNext] + 12), 700, vel(0.09 * wake), SPB * 0.9);
+        }
       }
     } else {
       if (pos === 0) chordVoice(t, progEff[ci], SPB * 16, padVol, padCut);
@@ -2433,10 +2505,23 @@
     ctl(atmoGain.gain, "atmo",
       0.022 * engine.wake * moodAtmo * (1 - 0.6 * engine.brake), 0.002);
 
+    // the warp — auditory exclusion, simulated: under high sympathetic
+    // arousal hearing narrows (sounds report muffled and distant, the
+    // middle-ear reflex damps transmission), and film sound has codified
+    // exactly that: the score ducks and lowpasses, the mechanical roar
+    // stays near. Engages above a hard push, releases on a steady cruise
+    const warpT = clamp((thrust - 0.45) / 0.4, 0, 1);
+    engine.warp += (warpT - engine.warp) *
+      (1 - Math.exp(-dt / (warpT > engine.warp ? 0.5 : 1.4)));
+    const wp = engine.warp;
+    ctl(warpLp.frequency, "warpLp", 16000 * Math.pow(0.12, wp), 120);
+    ctl(warpGain.gain, "warpGain", 1 - 0.35 * wp, 0.006);
+
     const eNow = clamp(engine.energy + engine.launchBoost * 0.3, 0, 1);
     const flowHigh = clamp((eNow - 0.5) / 0.35, 0, 1);
     ctl(makeup.gain, "makeup", 1 + 0.16 * flowHigh, 0.006, 0.2);
-    ctl(busDrums.gain, "busDrums", 1 - 0.08 * engine.urban, 0.006, 0.2);
+    ctl(busDrums.gain, "busDrums",
+      (1 - 0.08 * engine.urban) * (1 - 0.22 * wp), 0.006, 0.2);
     // the car voicing (see the node comments): dB gains, flat when A/B'd off
     ctl(carLow.gain, "carLow", opts.carMix ? -4.5 : 0, 0.05, 0.2);
     ctl(carPres.gain, "carPres", opts.carMix ? 2.5 : 0, 0.05, 0.2);
@@ -2612,6 +2697,7 @@
     engine.cruiseHold = 0; engine.stopLog = []; engine.wasMoving = false;
     engine.revArmedUntil = -1; engine.codaAt = null; engine.codaProgress = 0;
     engine.codaResolved = false; engine.susVoiced = 0;
+    engine.warp = 0;
     engine.riseOn = false; riseVoices = []; riseLog = []; riseNextAt = 0;
     risePeak = 0; riseArrivalAt = -1;
     riseHot = 0; riseFull = false; riseLastFullAt = -Infinity;
@@ -2862,6 +2948,19 @@
       pieceProgs: engine.piece ? [engine.piece.parts.A.progIdx,
         engine.piece.parts.B.progIdx, engine.piece.parts.C.progIdx] : null,
     }),
+    // test seam: the drive's near/far split — the warp state, the moving
+    // thrust sub, and the lanes, so a test can prove the force stays near
+    // while the music recedes
+    __drive: () => ({
+      warp: engine.warp,
+      warpLpFreq: warpLp ? warpLp.frequency.value : null,
+      warpGain: warpGain ? warpGain.gain.value : null,
+      thrustSubFreq: thrustSub ? thrustSub.frequency.value : null,
+      thrust: engine.thrust,
+      nodes: warpLp
+        ? { warpLp, warpGain, busDrive, busHarm, brakeGain, masterHp, busFx }
+        : null,
+    }),
     // test seam: the transition craft — the ride's filter, the throw's
     // send and the drop counter, so a test can watch tension build and
     // release rather than trust the gesture
@@ -2869,7 +2968,9 @@
       masterHpFreq: masterHp ? masterHp.frequency.value : null,
       throwGain: hookThrowG ? hookThrowG.gain.value : null,
       drops: dropCount,
-      nodes: masterHp ? { masterHp, snare: snareS, hookThrow: hookThrowG } : null,
+      nodes: masterHp
+        ? { masterHp, snare: snareS, snap: snareSnap, hookThrow: hookThrowG }
+        : null,
     }),
     // test seam: the stage — depth sends, static placement, the world's
     // room factor and the air bed, so a test can prove the mix has a stage
