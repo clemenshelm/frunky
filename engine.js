@@ -254,6 +254,38 @@
     { name: "dub", groove: "half", lead: "warm", bass: [2] },
   ];
 
+  // ---- story arc -----------------------------------------------------------
+  // "Every piece should carry its own emotion, story, character." The craft
+  // gap was INSIDE the piece: parts returned with identical density, so verse
+  // one and verse three stood on the same stage — the piece RAN instead of
+  // TELLING. Composers stage a piece (sparse open, growth, peak near the end,
+  // strip-back before it), and the cheapest, strongest tool for that is the
+  // arrangement ladder: WHICH materials speak is decided by where the piece
+  // stands, not only by what the bundle rolled. So every piece rolls an ARC —
+  // one stage value per form slot — and the stage gates the ornament family
+  // when a part is loaded. The materials still return; the arc decides which
+  // of them are on stage THIS time. The drive keeps modulating vertically
+  // inside the scene, untouched — same two-axis layering as film scoring.
+  const ARCS = {
+    // the classic silhouette: sparse open, growth, peak at two thirds
+    classic: [0.3, 0.5, 0.7, 0.55, 0.85, 0.7, 1],
+    // patience — each part adds, nothing leaves, the peak is the end
+    slowburn: [0.2, 0.35, 0.5, 0.6, 0.75, 0.9, 1],
+    // opens hot, breathes mid-piece, double peak at the end
+    banger: [0.7, 1, 0.8, 1, 0.6, 0.9, 1],
+  };
+  // the mood picks the character: deep never opens hot, anthem never crawls —
+  // the set wave gets narrative teeth beyond density
+  const ARC_POOL = {
+    deep: ["slowburn", "classic"],
+    neutral: ["classic", "slowburn", "banger"],
+    anthem: ["banger", "classic"],
+  };
+  // which stage a material needs before it may speak. Kick, bass, hats and
+  // the chord bed are NEVER gated here — even the barest part must groove
+  const ARC_GATE = { brassy: 0.6, blips: 0.5, ghosts: 0.45, bassFill: 0.35,
+    lick: 0.4, snareGhosts: 0.55, hookLift: 0.8 };
+
   // hook riff: the piece's identity. Earworm research says simple — small
   // range, plain contour, ONE twist; songwriting craft says rhythm-first,
   // 3–5 notes, the rests ARE the hook. This is NOT a melody, on purpose.
@@ -305,12 +337,17 @@
     // that rotation is what makes consecutive pieces read as different SONGS
     const recPool = RECIPES.filter((r) => !engine.piece || r.name !== engine.piece.recipe);
     const recipe = recPool[Math.floor(Math.random() * recPool.length)];
+    // the arc: the piece's character — where its peak lies. Chosen from the
+    // mood's pool, so the wave shapes the story, not only the density
+    const arcPool = ARC_POOL[mood];
+    const arcName = arcPool[Math.floor(Math.random() * arcPool.length)];
     const A = rollBundle("verse", pA, mood, null, recipe.bass);
     const B = rollBundle("chorus", pB, mood, A, recipe.bass); // chorus must contrast the verse
     const C = rollBundle("bridge", pC, mood, B, recipe.bass); // bridge must contrast the chorus
     engine.piece = {
       num,
       recipe: recipe.name, groove: recipe.groove, lead: recipe.lead,
+      arcName,
       // a COPY: a launch rewrites this piece's script, and mutating the shared
       // pool entry would corrupt the form for every piece that follows
       form: FORMS[Math.floor(Math.random() * FORMS.length)].slice(),
@@ -356,6 +393,18 @@
     // an octave up is the most piercing thing the hook can do; keep it rare
     engine.hookLift = Math.random() < 0.2;
     if (Math.random() < 0.3) engine.ghosts = !engine.ghosts;
+    // the story arc: the slot's stage decides which of the returning
+    // materials speak THIS time. Gates run after every per-occurrence roll —
+    // a re-rolled lick or a flipped ghost trait must not sneak past the arc —
+    // and before rebalance(), which reads the surviving flags
+    engine.stage = ARCS[piece.arcName][piece.idx];
+    if (engine.stage < ARC_GATE.brassy) engine.brassy = false;
+    if (engine.stage < ARC_GATE.blips) engine.blips = false;
+    if (engine.stage < ARC_GATE.ghosts) engine.ghosts = false;
+    if (engine.stage < ARC_GATE.bassFill) engine.bassFill = false;
+    if (engine.stage < ARC_GATE.lick) engine.lick = null;
+    if (engine.stage < ARC_GATE.hookLift) engine.hookLift = false;
+    engine.snareGhosts = engine.stage >= ARC_GATE.snareGhosts;
     rebalance();
     // lingering notes must not carry the old harmony — or, at a piece
     // boundary, the old KEY — into the new part. The pads were released here
@@ -428,6 +477,8 @@
     brokenPat: null,
     gatePat: null,
     barInPart: 0,
+    stage: 1,        // the story arc's stage for the current part, 0..1
+    snareGhosts: false, // ghost chatter needs the stage, not only the trait
     lean: false,     // the device is overloaded: play less, not nothing
     hookLift: false,
     pullChorus: false, // a launch pulls the chorus forward at the next boundary
@@ -1547,7 +1598,9 @@
       // regardless. Ghost chatter stays a trait, on the groove's ghost spots.
       if ((engine.snare || engine.groove.coreSnare) && !breather && !bridgeDown) {
         if (engine.groove.snareAt.includes(pos)) snare(hum(t, pos), vel((0.12 + 0.05 * e) * wake));
-        if (engine.snare && engine.groove.ghostAt.includes(pos)) snare(hum(t, pos), vel((0.035 + 0.025 * u) * wake), true);
+        // chatter is an ornament: the trait says whether this part rolled it,
+        // the arc's stage says whether the part has earned it yet
+        if (engine.snare && engine.snareGhosts && engine.groove.ghostAt.includes(pos)) snare(hum(t, pos), vel((0.035 + 0.025 * u) * wake), true);
       }
       // accel percussion: shaker/toms in the background, swelling with force
       if (pos % 2 === 1 && (!lean || pos % 4 === 1)) shaker(hum(t, pos), vel((0.015 + 0.1 * push) * wake));
@@ -1959,6 +2012,7 @@
     const chips = [
       ["Key", KEYNAMES[String(p.tp)] || "Am"],
       ["Rezept", engine.recipe],
+      ["Bogen", p.arcName],
       p.mood !== "neutral" ? ["Mood", p.mood === "deep" ? "Deep" : "Anthem"] : null,
       ["Akkorde", engine.hr === "sync" ? "sync·" + (engine.syncPos === 12 ? "4" : "3+") : engine.hr],
       ["Chords", engine.padStyle],
@@ -2025,6 +2079,7 @@
     engine.lean = false;
     engine.recipe = "club"; engine.grooveName = "four";
     engine.groove = GROOVES.four; engine.lead = "guitar";
+    engine.stage = 1; engine.snareGhosts = false;
     engine.riseOn = false; riseVoices = []; riseLog = []; riseNextAt = 0;
     risePeak = 0; riseArrivalAt = -1;
     riseHot = 0; riseFull = false; riseLastFullAt = -Infinity;
@@ -2208,6 +2263,24 @@
         ? { kick: kickS, snare: snareS, guitar: hookGit, square: hookS, warm: leadTri }
         : null,
     }),
+    // test seam: the story arc — the piece's character, the current stage,
+    // the gated flags AND the bundle's raw rolls, so a test can prove the
+    // gate did real work (a gate nothing ever rolled against proves nothing)
+    __arc: () => {
+      const label = engine.partLabel;
+      const b = engine.piece && label ? engine.piece.parts[label] : null;
+      return {
+        arcs: JSON.parse(JSON.stringify(ARCS)),
+        pool: JSON.parse(JSON.stringify(ARC_POOL)),
+        name: engine.piece ? engine.piece.arcName : null,
+        stage: engine.stage,
+        flags: { brassy: engine.brassy, blips: engine.blips, ghosts: engine.ghosts,
+          bassFill: engine.bassFill, lick: !!engine.lick,
+          snareGhosts: engine.snareGhosts, hookLift: engine.hookLift },
+        rolled: b ? { brassy: b.brassy, blips: b.blips } : null,
+        nodes: blipS ? { blip: blipS, brass: brassS } : null,
+      };
+    },
     // test seam: the set arc and the running episode, so a test can assert
     // the dramaturgy (wave, numbering, resume) rather than trust the gesture
     __set: () => ({
