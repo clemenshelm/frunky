@@ -134,20 +134,22 @@
       gate: { osc: { type: "fattriangle", count: 2, spread: 8 }, lite: "triangle", trim: 0.5 },
       blip: { osc: { type: "triangle" }, trim: 2 },
     },
-    neon: { // tight and cold — hollow squares, one pane of glass, crisp air.
-      // v2 after "still piercing, a foreign body": cold must not mean
-      // saw-on-saw next to this record's warm Rhodes and washes. The bass
-      // and the gate go HOLLOW (plain squares), exactly ONE voice keeps the
-      // glass (the pad's saw — the world.test rule pins that ceiling), the
-      // kick clicks a touch less, and the room opens from bone-dry 0.7 to
-      // 0.85. Cold is a stance now, not an assault
+    neon: { // tight and cold — clarity, one pane of glass, crisp air.
+      // v3 after the third field report ("much too loud, unbearable"): the
+      // square bass was wrong physics twice over — ~4.8 dB more RMS than
+      // analog's fattriangle at equal peak, with the energy in the
+      // fundamental and low harmonics, exactly the band the bass lowpass
+      // PASSES. No trim wins that fight. Cold now means CLARITY: the tight
+      // kick, crisp hats and small room carry the identity, the bass goes
+      // triangle in a window darker than analog's, the gate goes hollow,
+      // and only the pad keeps the glass (the world.test saw ceiling)
       kick: { pitchDecay: 0.06, octaves: 2.05, decay: 0.2 },
       hat: { closed: 0.03, open: 0.2 },
       snare: { decay: 0.1 },
       room: 0.85,
-      bass: { osc: { type: "square" }, lite: "square", lp: 430, trim: -4 },
+      bass: { osc: { type: "triangle" }, lite: "triangle", lp: 380, trim: -1 },
       pad: { osc: { type: "fatsawtooth", count: 3, spread: 14 }, lite: "sawtooth", attack: 0.8, release: 1.2, trim: -2 },
-      gate: { osc: { type: "square" }, lite: "square", trim: -3 },
+      gate: { osc: { type: "fattriangle", count: 2, spread: 10 }, lite: "triangle", trim: -1 },
       blip: { osc: { type: "square" }, trim: -1 },
     },
   };
@@ -1569,10 +1571,12 @@
   function impact(t) {
     const o = raw.createOscillator();
     o.type = "sine";
-    o.frequency.setValueAtTime(85, t);
+    o.frequency.setValueAtTime(70, t);
     o.frequency.exponentialRampToValueAtTime(33, t + 0.4);
     const g = raw.createGain();
-    g.gain.setValueAtTime(0.85, t);
+    // the body under the drop's kick, no longer the whole hit — a naked
+    // sine sweep at 0.85 read as "cheap" the moment it stood alone
+    g.gain.setValueAtTime(0.55, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
     o.connect(g);
     Tone.connect(g, busDrums);
@@ -1597,6 +1601,21 @@
     g.gain.linearRampToValueAtTime(0.11, t + dur);
     g.gain.setValueAtTime(0.0001, t + dur + 0.01);
     n.connect(bp).connect(g);
+    Tone.connect(g, busFx);
+  }
+
+  // the drop's top layer: a crash-style splash — high noise with a real
+  // decay, sent into the fx bus so the room answers the hit. A payoff reads
+  // as expensive when the whole spectrum returns at once; the crash is the
+  // marker every produced drop carries and ours lacked
+  function crash(t) {
+    const n = noiseSrc(t, 1.4);
+    const hp = raw.createBiquadFilter();
+    hp.type = "highpass"; hp.frequency.value = 5200;
+    const g = raw.createGain();
+    g.gain.setValueAtTime(0.3, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.4);
+    n.connect(hp).connect(g);
     Tone.connect(g, busFx);
   }
 
@@ -2163,11 +2182,15 @@
       // a click. Too short to hear as a fade, long enough to not snap
       master.gain.setValueAtTime(0.12, t);
       master.gain.linearRampToValueAtTime(0.9, t + 0.008);
-      // the reward is a WALL, not a kick: the sub impact, the falling
-      // sweep, a fast chord stab and the open hat land together on the one
-      // (the pad's slow attack blooms too late to count as a payoff)
+      // the reward is a WALL, not a kick — and a wall is the whole spectrum
+      // landing at once: the real kick for the attack, the sub impact for
+      // the body, a crash for the top (with the room answering), the bass
+      // root back on the ground, chord stab and downlifter. The naked sine
+      // sweep alone was the "cheap" hit of the field report
       if (!still) {
-        impact(t); fallSweep(t, SPB * 6);
+        kick(t, 1, 0.5);
+        impact(t); crash(t); fallSweep(t, SPB * 6);
+        bassNote(bassT(t), F(rootsEff[ci]), 900, 0.4, SPB * 4);
         stabChord(t, progEff[ci], 0.16);
         hat(t, true, 0.14);
       }

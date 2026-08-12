@@ -164,9 +164,22 @@ function boot(seed, store) {
     stabOrd.length > 0 && Math.max(...stabOrd.map((r) => r.delta)) <= 2);
   ok("the final chorus earns the same breath-then-impact as the bridge exit",
     /engine\.partLabel === "C" \|\| finalRun/.test(script));
+  // drop wall v2 (field report: "the kick on the one after the build just
+  // sounds cheap"): the naked sine sweep WAS the cheapness — no attack, no
+  // top, no ground. A payoff reads as expensive when the whole spectrum
+  // returns at once: the real kick (attack), the sub impact (body), a crash
+  // with a reverb tail (top), the bass root (ground), stab and downlifter
+  const dropBlock = script.slice(script.indexOf("s === engine.dropAt"),
+    script.indexOf("dropCount++"));
+  ok("the drop wall opens with the real kick", /kick\(t/.test(dropBlock));
+  ok("… carries the sub impact underneath", /impact\(t\)/.test(dropBlock));
+  ok("… splashes a crash on top", /crash\(t/.test(dropBlock));
+  ok("… and puts the bass root back on the one", /bassNote\(/.test(dropBlock));
   ok("the drop strikes a chord on the one, not only a kick",
     /stabChord\(t, progEff\[ci\], 0\.16\)/.test(script) &&
     /hat\(t, true, 0\.14\)/.test(script));
+  ok("the crash is high noise with a real tail into the room",
+    /function crash\(t\)[\s\S]{0,700}?highpass[\s\S]{0,700}?busFx/.test(script));
   // snare v2 (field report: thin and mechanical, worst in the build): a
   // full backbeat strikes a snap layer on top of noise and body; ghosts and
   // roll hits stay soft AND vary their color per hit, so sixteen of them

@@ -121,6 +121,22 @@ async function drive(Frunky, pieces, state) {
       ["bass", "pad", "gate"].every((s) => typeof W[s].lite === "string" && W[s].lite.length > 0));
   }
 
+  // neon v3, after the third field report ("much too loud, unbearable — no
+  // improvement"): the square bass was the wrong physics twice over. A square
+  // carries ~4.8 dB more RMS than analog's fattriangle at equal peak, and its
+  // energy sits in the fundamental and low harmonics — exactly the band a
+  // bass lowpass PASSES — so no trim wins that fight. Cold now means CLARITY
+  // (tight kick, crisp hats, small room), not hardness: the bass goes
+  // triangle in a window darker than analog's, the gate goes hollow, and
+  // only the pad keeps the one pane of glass
+  const n = t ? t.neon : null;
+  ok("neon bass is a triangle, never a square again",
+    !!n && n.bass.osc.type === "triangle" && n.bass.lite === "triangle");
+  ok("neon bass window sits clearly below analog's",
+    !!n && n.bass.lp <= 400);
+  ok("neon gate is hollow, not hard",
+    !!n && n.gate.osc.type === "fattriangle" && n.gate.lite === "triangle");
+
   // the mood chooses the world the way it chooses arc and palette
   ok("deep is round: organic and analog",
     JSON.stringify(w.pool.deep) === JSON.stringify(["organic", "analog"]));
