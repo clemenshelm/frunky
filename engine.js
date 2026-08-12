@@ -916,6 +916,7 @@
   let hatPan, shakerPan, percPan, tomPan, blipPan, arpPan, rhodesPan;
   let atmoNoise, atmoLp, atmoGain;
   let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS, leadTri, gateS, gateAmp, gateLp;
+  let hookThrowG; // the delay throw's dedicated send — a gesture, not a level
   // the rise figure: its own pool of mono voices — overlapping entries on one
   // synth would collide on the per-voice timeline (see the stub's rule)
   let riseS = [], riseLp = [], riseHp;
@@ -952,7 +953,7 @@
   // "it stopped" and "I cannot hear it" are different faults. If notes are
   // still being triggered while nothing is audible, the sequencer is fine and
   // the problem is downstream — no report could tell those apart before
-  let notes = 0, idleCut = 0;
+  let notes = 0, idleCut = 0, dropCount = 0;
   // A ring of what actually went wrong, on the device it went wrong on. There
   // is no console to read in a car, so the engine keeps its own short record
   const events = [];
@@ -1303,6 +1304,11 @@
     // overdubbed onto it. The delay keeps carrying the phrase's rhythm
     const hookRev = reg(new Tone.Gain(0.8));
     hookLp.connect(busLead); hookLp.connect(delaySend);
+    // the delay throw: a second, normally-closed path into the shared delay.
+    // It opens for ONE note (the hook's tail before its rest window) and the
+    // next barline closes it — the feedback carries the answer on
+    hookThrowG = reg(new Tone.Gain(0)); hookThrowG.gain.value = 0;
+    hookLp.connect(hookThrowG); hookThrowG.connect(delaySend);
     hookLp.connect(hookRev); hookRev.connect(revSend);
 
     // Parov seasoning: brass-like stab — filter snaps open and shuts
@@ -1479,6 +1485,21 @@
     g.gain.setValueAtTime(0.0001, t);
     g.gain.linearRampToValueAtTime(0.11, t + dur);
     g.gain.setValueAtTime(0.0001, t + dur + 0.01);
+    n.connect(bp).connect(g);
+    Tone.connect(g, busFx);
+  }
+
+  // the drop's release half: the riser's mirror — a falling sweep after
+  // the impact, so the arrival also EXHALES instead of only hitting
+  function fallSweep(t, dur) {
+    const n = noiseSrc(t, dur);
+    const bp = raw.createBiquadFilter();
+    bp.type = "bandpass"; bp.Q.value = 1.2;
+    bp.frequency.setValueAtTime(2400, t);
+    bp.frequency.exponentialRampToValueAtTime(320, t + dur);
+    const g = raw.createGain();
+    g.gain.setValueAtTime(0.1, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     n.connect(bp).connect(g);
     Tone.connect(g, busFx);
   }
@@ -1873,15 +1894,34 @@
     const nextIsB = engine.piece && !pieceEnd && engine.piece.form[engine.piece.idx] === "B";
     // DJ turnover: pulls the lows out of the whole mix so the new downbeat can
     // drop them back in. Only where it EARNS something — into a chorus or a
-    // new piece. Every 16 bars it stops being a gesture and becomes a tic
+    // new piece. Every 16 bars it stops being a gesture and becomes a tic.
+    // The FINAL chorus earns more: a four-bar ride instead of the one-bar
+    // turnover — the highpass climbs bar by bar (anchored per bar, so a late
+    // scheduler can never wedge it) and releases on the one. A build-up is a
+    // promise with a known payoff instant, which is why these devices ride
+    // the FORM — the drive keeps its own continuous tension tools
+    const finalRun = !still && nextIsB && engine.piece &&
+      engine.piece.idx === engine.piece.form.lastIndexOf("B");
     if (pos === 0) {
       masterHp.frequency.cancelScheduledValues(t);
-      masterHp.frequency.setValueAtTime(25, t);
-      if (bar % 16 === 15 && !still && (nextIsB || pieceEnd)) {
-        masterHp.frequency.setValueAtTime(30, t);
-        masterHp.frequency.exponentialRampToValueAtTime(240, t + SPB * 15);
-        // a piece ends here: a long swell carries into the next piece's one
-        if (pieceEnd) fillSwell(t, SPB * 14);
+      if (finalRun && bar % 16 >= 12) {
+        const seg = bar % 16 - 12;
+        masterHp.frequency.setValueAtTime([25, 60, 110, 170][seg], t);
+        masterHp.frequency.exponentialRampToValueAtTime([60, 110, 170, 240][seg],
+          t + SPB * 15);
+      } else {
+        masterHp.frequency.setValueAtTime(25, t);
+        if (bar % 16 === 15 && !still && (nextIsB || pieceEnd)) {
+          masterHp.frequency.setValueAtTime(30, t);
+          masterHp.frequency.exponentialRampToValueAtTime(240, t + SPB * 15);
+          // a piece ends here: a long swell carries into the next piece's one
+          if (pieceEnd) fillSwell(t, SPB * 14);
+        }
+      }
+      // whatever opened the throw, the barline closes it
+      if (hookThrowG) {
+        hookThrowG.gain.cancelScheduledValues(t);
+        hookThrowG.gain.setValueAtTime(0, t);
       }
     }
     // the GAP: a breath of near-silence, then the impact on the one. It only
@@ -1904,7 +1944,8 @@
       // a click. Too short to hear as a fade, long enough to not snap
       master.gain.setValueAtTime(0.12, t);
       master.gain.linearRampToValueAtTime(0.9, t + 0.008);
-      if (!still) impact(t);
+      if (!still) { impact(t); fallSweep(t, SPB * 6); }
+      dropCount++;
     }
     // breather: every 48 bars the kick and bass step aside for 4 bars —
     // only while cruising, so it never fights a driving event
@@ -2037,6 +2078,26 @@
         // chatter is an ornament: the trait says whether this part rolled it,
         // the arc's stage says whether the part has earned it yet
         if (engine.snare && engine.snareGhosts && engine.groove.ghostAt.includes(pos)) snare(hum(t, pos), vel((0.035 + 0.025 * u) * wake), true);
+      }
+      // the drums steer toward the peak: on the run-up to the final chorus
+      // and out of the bridge rebuild the snare tightens — 8ths, then a 16th
+      // roll with rising velocity. Density is the oldest "we are going
+      // somewhere" signal there is; deep pieces roll it softer. It plays
+      // THROUGH the breather on purpose: the 48-bar breather always lands on
+      // exactly these bars (48 = three 16-bar parts), and kick and bass
+      // stepping aside under a tightening roll IS the classic pre-drop
+      // strip-back — the collision is the arrangement
+      const buildOn = !lean &&
+        ((finalRun && bar % 16 >= 13) ||
+         (engine.partLabel === "C" && nextIsB && bar % 16 >= 14));
+      if (buildOn) {
+        const seg = bar % 16 - 12;
+        const stride = seg >= 3 ? 1 : 2;
+        if (pos % stride === 0) {
+          const v = (0.04 + 0.02 * seg + 0.006 * pos) *
+            (engine.piece.mood === "deep" ? 0.7 : 1);
+          snare(hum(t, pos), vel(v * wake), pos % 4 !== 0);
+        }
       }
       // accel percussion: shaker/toms in the background, swelling with force
       if (pos % 2 === 1 && (!lean || pos % 4 === 1)) shaker(hum(t, pos), vel((0.015 + 0.1 * push) * wake));
@@ -2210,6 +2271,11 @@
         // that also shouts is the thing you end up wanting to turn down
         const gain = (answering ? 0.82 : 1) * (hb === 12 ? 1.12 : 1);
         if (!flowMode || PENTA.includes(fr % 12)) {
+          if (isLast && hb === 7 && hookThrowG) {
+            // the throw: this tail note answers from the empty rest bars —
+            // the send opens for it alone, the next barline closes it
+            hookThrowG.gain.setValueAtTime(1.4, t);
+          }
           if (isLast && (hb === 7 || hb === 15)) {
             // tail flourish: the ending splits and falls into the turnaround
             hookNote(hum(t, pos), F(Math.min(fr + 12, 81)), SPB * 0.9, vel(0.11 * n.a * gain));
@@ -2505,7 +2571,7 @@
     // load that times out, a context that refuses to resume) is exactly what a
     // slow start needs explained, and clearing afterwards erased it
     events.length = 0; errCount = 0; resumes = 0; lastResumeAt = 0;
-    stalls = 0; lateSteps = 0; worstLate = 0;
+    stalls = 0; lateSteps = 0; worstLate = 0; dropCount = 0;
     try {
       configureContext();
       await Tone.start();
@@ -2795,6 +2861,15 @@
       pool: JSON.parse(JSON.stringify(PALETTE_POOL)),
       pieceProgs: engine.piece ? [engine.piece.parts.A.progIdx,
         engine.piece.parts.B.progIdx, engine.piece.parts.C.progIdx] : null,
+    }),
+    // test seam: the transition craft — the ride's filter, the throw's
+    // send and the drop counter, so a test can watch tension build and
+    // release rather than trust the gesture
+    __transition: () => ({
+      masterHpFreq: masterHp ? masterHp.frequency.value : null,
+      throwGain: hookThrowG ? hookThrowG.gain.value : null,
+      drops: dropCount,
+      nodes: masterHp ? { masterHp, snare: snareS, hookThrow: hookThrowG } : null,
     }),
     // test seam: the stage — depth sends, static placement, the world's
     // room factor and the air bed, so a test can prove the mix has a stage

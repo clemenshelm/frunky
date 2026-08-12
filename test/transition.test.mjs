@@ -1,0 +1,158 @@
+// Transition craft. The DJ's tension tools, form-anchored on purpose: a
+// build-up is a PROMISE with a known payoff instant, so these devices ride
+// the form (the engine knows when the final chorus lands) — the drive keeps
+// its own continuous tension tools (rise canon, brake filter, growl).
+// Four devices:
+//   ride   the last four bars before the FINAL chorus pull the lows out
+//          slowly (masterHp climbs bar by bar), released on the one — the
+//          classic multi-bar DJ filter move; the old one-bar turnover keeps
+//          serving every other transition
+//   build  the drums steer toward the peak: snare density doubles toward
+//          the final chorus and out of the bridge rebuild (8ths, then 16ths,
+//          velocity rising) — the oldest "we are going somewhere" signal
+//   throw  the hook's last note before its rest window is thrown into the
+//          shared delay (a dedicated send opens for one note, closes at the
+//          next barline) — the tail answers from the empty bars
+//   fall   the drop's release half: a falling sweep after the impact, the
+//          mirror of the riser that led in
+import { readFileSync } from "node:fs";
+import { transport } from "./tone-stub.mjs";
+
+const script = readFileSync(new URL("../engine.js", import.meta.url), "utf8");
+const SPB = 60 / 132 / 4;
+const failures = [];
+const ok = (label, cond) => { if (!cond) failures.push(label); };
+
+function makeStore(initial) {
+  const m = new Map(Object.entries(initial || {}));
+  return {
+    getItem: (k) => (m.has(k) ? m.get(k) : null),
+    setItem: (k, v) => { m.set(k, String(v)); },
+    removeItem: (k) => { m.delete(k); },
+    raw: m,
+  };
+}
+function boot(seed, store) {
+  let rc = 0;
+  Math.random = () => (rc = (rc + seed) % 1);
+  transport.manual = true;
+  const w = { Tone: globalThis.Tone };
+  if (store) w.localStorage = store;
+  globalThis.window = w;
+  eval(script);
+  return globalThis.window.Frunky;
+}
+
+// ---- 1. ride, build and throw, observed across two full pieces --------------
+{
+  const Frunky = boot(0.03, makeStore());
+  await Frunky.start();
+  ok("the __transition seam exists", typeof Frunky.__transition === "function");
+  const seam = () => (typeof Frunky.__transition === "function"
+    ? Frunky.__transition() : {});
+
+  // drive two full pieces step by step and record what the devices do
+  const rideBars = new Map(); // barInPart -> masterHp value in the ride window
+  let baselineHp = null;      // masterHp in an ordinary mid-part bar
+  let releaseHp = null;       // masterHp on the final chorus's first bar
+  let maxThrow = 0, throwLate = [];
+  const snareByBar = [];      // {window, label, barInPart, delta}
+  let prevTrigs = 0, windowsSeen = 0;
+  let prevBarMeta = null;     // the delta read at a barline belongs to the PREVIOUS bar
+  let t = 0, s = 0;
+  const snareNode = () => (seam().nodes ? seam().nodes.snare : null);
+  while (s < 16 * 16 * 15 && (!Frunky.__set().piece || Frunky.__set().piece.num < 3)) {
+    for (let f = 0; f < 4; f++) Frunky.update(SPB / 4, { speed: 60, lateralG: 0 });
+    transport.cb(t); t += SPB;
+    const pos = s % 16;
+    const d = Frunky.describe();
+    if (d) {
+      const finalNext = d.form[d.idx] === "B" && d.idx === d.form.lastIndexOf("B");
+      const tr = seam();
+      if (pos === 0 && snareNode()) {
+        const now = snareNode().trigs;
+        if (prevBarMeta) snareByBar.push({ ...prevBarMeta, delta: now - prevTrigs });
+        prevTrigs = now;
+        prevBarMeta = { window: finalNext, label: d.partLabel, barInPart: d.bar };
+      }
+      if (pos === 8) {
+        if (finalNext && d.bar >= 13) {
+          windowsSeen++;
+          rideBars.set(d.bar, tr.masterHpFreq);
+        }
+        if (!finalNext && d.bar === 6 && baselineHp === null) baselineHp = tr.masterHpFreq;
+        if (d.partLabel === "B" && d.idx - 1 === d.form.lastIndexOf("B") && d.bar === 1) {
+          releaseHp = tr.masterHpFreq;
+        }
+      }
+      if (typeof tr.throwGain === "number") {
+        maxThrow = Math.max(maxThrow, tr.throwGain);
+        if (d.bar >= 10) throwLate.push(tr.throwGain);
+      }
+    }
+    s++;
+  }
+
+  ok("the run reached a final-chorus run-up (non-vacuity)", windowsSeen > 0);
+  const rb = [13, 14, 15, 16].map((b) => rideBars.get(b)).filter((v) => v != null);
+  ok("the ride pulls the lows out over MULTIPLE bars, saw " +
+    rb.map((v) => Math.round(v)).join("→"),
+    rb.length >= 3 && rb.every((v) => v > 40));
+  ok("and it climbs bar by bar — tension, not a switch",
+    rb.length >= 3 && rb.every((v, i) => i === 0 || v > rb[i - 1]));
+  ok("an ordinary bar keeps the lows in (masterHp at 25), got " + baselineHp,
+    baselineHp === 25);
+  ok("the release lands on the one of the final chorus, got " + releaseHp,
+    releaseHp === 25);
+
+  // the drum build: the last bar before the final chorus carries clearly
+  // more snare hits than any ordinary bar — density is the message
+  const buildBar = snareByBar.find((r) => r.window && r.barInPart === 16);
+  const ordinary = snareByBar.filter((r) => !r.window && r.barInPart > 2 && r.barInPart < 12);
+  const ordMax = Math.max(...ordinary.map((r) => r.delta));
+  ok("the build's final bar rolls (≥ 12 snare hits), got " +
+    (buildBar && buildBar.delta), !!buildBar && buildBar.delta >= 12);
+  ok("ordinary bars stay a groove, not a roll (max " + ordMax + " ≤ 8)",
+    ordinary.length > 0 && ordMax <= 8);
+
+  // the throw: it opened for the tail note (≥ 1.2), and it is closed again
+  // well after the rest window — a throw is a gesture, not a level
+  ok("the hook throw really opened, max " + maxThrow.toFixed(2), maxThrow >= 1.2);
+  ok("and closed again after the rest window",
+    throwLate.length > 0 && throwLate.every((v) => v === 0));
+
+  ok("two pieces of transitions, zero engine errors", Frunky.health().errors === 0);
+  Frunky.stop();
+  transport.clear();
+}
+
+// ---- 2. the drop's release half exists and the drop path stays healthy ------
+{
+  const Frunky = boot(0.03, makeStore());
+  await Frunky.start();
+  // the downlifter lives on native one-shot nodes the stub cannot count, so
+  // the wiring is pinned at source level (canary-verified) and the drop path
+  // is driven for real to prove it does not hurt the step
+  ok("the falling sweep exists and mirrors the riser",
+    /function fallSweep\(/.test(script) && /fallSweep\(t, SPB \* 6\)/.test(script));
+  let t = 0, s = 0, drops = 0;
+  while (s < 16 * 16 * 16) {
+    for (let f = 0; f < 4; f++) Frunky.update(SPB / 4, { speed: 60, lateralG: 0 });
+    transport.cb(t); t += SPB;
+    const tr = Frunky.__transition ? Frunky.__transition() : {};
+    drops = tr.drops || 0;
+    if (drops > 0 && s % 16 === 15) break;
+    s++;
+  }
+  ok("the run really dropped (non-vacuity), got " + drops, drops >= 1);
+  ok("and the drop with its downlifter cost zero errors", Frunky.health().errors === 0);
+  Frunky.stop();
+  transport.clear();
+}
+
+if (failures.length) {
+  console.error("FAILURES:");
+  for (const f of failures) console.error("  -", f);
+  process.exit(1);
+}
+console.log("TRANSITION_OK");
