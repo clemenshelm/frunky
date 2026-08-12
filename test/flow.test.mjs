@@ -40,11 +40,13 @@ function boot(seed) {
   ok("the 24-bar lift clock is gone", !script.includes("bar % 24"));
 
   const liftStarts = [];
+  const liftLens = [];
   const roomBeforeLift = [];
   const dropsAtLift = [];
   const hatPerBar = { lift: [], pedal: [] };
-  let rhodesPedalTrigs = 0;
-  let t = 0, s = 0, wasActive = false, lastDrops = 0;
+  const formSeen = new Set();
+  let rhodesPedalTrigs = 0, dropsTotal = 0, largeInFlow = 0;
+  let t = 0, s = 0, wasActive = false, lastDrops = 0, liftBegan = -1;
   let hatMark = 0, rhodesMark = 0, roomLastBar = 0.12;
   const BARS = 300;
   while (s < BARS * 16) {
@@ -61,10 +63,25 @@ function boot(seed) {
       const flowOn = bar > 30; // energy has long settled at 150 km/h
       if (dr.lift.active && !wasActive) {
         liftStarts.push(bar);
+        liftBegan = dr.lift.start;
         roomBeforeLift.push(roomLastBar);
         dropsAtLift.push(tr.drops - lastDrops);
       }
+      if (!dr.lift.active && wasActive && liftBegan >= 0) {
+        liftLens.push(dr.lift.lastEnd - liftBegan);
+      }
       lastDrops = tr.drops;
+      dropsTotal = tr.drops;
+      // the FORM must hold still on the highway: part changes perform a
+      // ceremony (hush, statement fill, at piece boundaries a new key and
+      // a new orchestra) whose payoff the pedal harmony deliberately never
+      // delivers — announcements without arrivals read as random
+      if (flowOn) {
+        const d = Frunky.describe();
+        if (d) formSeen.add(Frunky.__set().piece.num + ":" + d.partLabel);
+      }
+      if (flowOn && Frunky.__fills().current &&
+          Frunky.__fills().current.length >= 7) largeInFlow++;
       roomLastBar = st.sends.snare;
       if (flowOn) {
         (dr.lift.active ? hatPerBar.lift : hatPerBar.pedal).push(hats - hatMark);
@@ -81,8 +98,52 @@ function boot(seed) {
   const gaps = liftStarts.slice(1).map((b, i) => b - liftStarts[i]);
   ok("and their spacing VARIES — earned, never metronomic, gaps " + gaps.join(","),
     gaps.length >= 1 && (new Set(gaps).size >= 2 || gaps.length < 2));
-  ok("every gap leaves room to breathe (≥ 12 bars), gaps " + gaps.join(","),
-    gaps.every((g) => g >= 12));
+  ok("every gap leaves room to breathe (≥ 24 bars — 'too often' was the " +
+    "field report), gaps " + gaps.join(","),
+    gaps.every((g) => g >= 24));
+  // "too samey": the lift's length is diced per lift now — 8 or 12 bars —
+  // and a 300-bar run must see both
+  ok("lift lengths stay in the vocabulary {8, 12}, got " + liftLens.join(","),
+    liftLens.length > 0 && liftLens.every((l) => l === 8 || l === 12));
+  ok("and really vary across the run, got " + liftLens.join(","),
+    new Set(liftLens).size >= 2);
+  // "a puzzling chord change right after the build": the lift used to read
+  // its progression off the ABSOLUTE bar number, so it entered at a random
+  // point of its own cycle — and its first chord differed from the pedal's.
+  // Anchored now, and it opens on the pedal's root: the drop's one lands
+  // on harmonic ground the ear already stands on, the journey (F, G, home)
+  // happens INSIDE the lift
+  ok("the lift progression is anchored to the lift's own start",
+    /liftPhase \? Math\.floor\(\(bar - engine\.liftStart\) \/ 2\) % 4/.test(script));
+  ok("and opens on the pedal's root",
+    /LIFTROOTS = \[33, 29, 31, 33\]/.test(script));
+  // "buildups into nothing": the form kept announcing on the highway —
+  // ride/gap/swell for a final chorus the pedal harmony never delivers,
+  // and with the form clock frozen those announcements repeated every 16
+  // bars. The form holds still in flow, so every drop belongs to a lift
+  ok("the form holds still on the highway, saw " + [...formSeen].join(","),
+    formSeen.size === 1);
+  ok("every drop on the highway belongs to a lift: " + dropsTotal +
+    " drops for " + liftStarts.length + " lifts",
+    dropsTotal === liftStarts.length && dropsTotal > 0);
+  ok("the 48-bar breather stays off the highway (the pedal IS the breath)",
+    /!engine\.flowOn && bar % 48 >= 44/.test(script));
+  // frozen-state defense: even with the form paused, the frozen
+  // finalRun/nextIsB flags must not keep announcing — pinned as source
+  // because the walk's freeze point (part A) cannot reach those states
+  ok("the form's build window is silenced in flow",
+    /const formSeg = engine\.flowOn \? -1/.test(script));
+  ok("the form's drop gap is silenced in flow",
+    /!engine\.flowOn && bar % 16 === 15 && nextIsB/.test(script));
+  // a full-bar statement announces a new part, and on the highway no new
+  // part arrives — behavioral count plus source pin (the walk's frozen
+  // part may sit below the stage the large fill needs)
+  ok("no full-bar statement fills on the highway, got " + largeInFlow,
+    largeInFlow === 0);
+  ok("… pinned at source",
+    /!engine\.flowOn && bar % 16 === 15 && engine\.stage >= 0\.5/.test(script));
+  ok("the phrase-tail swell stays off the highway too",
+    /!engine\.flowOn && \(nextIsB \|\| pieceEnd\)/.test(script));
   ok("every lift was preceded by the build (the roll's room was open), saw " +
     roomBeforeLift.map((r) => r.toFixed(2)).join(","),
     roomBeforeLift.length > 0 && roomBeforeLift.every((r) => r > 0.3));

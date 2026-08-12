@@ -248,8 +248,13 @@
   // 24 bars the anthem lift — bVI–bVII–i, F G Am — opens the sky for 8 bars.
   const PEDALPROG = [[57, 64, 67, 71], [57, 65, 67, 72], [57, 64, 67, 71], [57, 64, 69, 74]];
   const PEDALROOTS = [33, 33, 33, 33];
-  const LIFTPROG = [[53, 60, 65, 69], [55, 62, 67, 71], [57, 64, 69, 72], [57, 64, 69, 76]];
-  const LIFTROOTS = [29, 31, 33, 33];
+  // the lift OPENS on the pedal's root — the drop's one lands on harmonic
+  // ground the ear already stands on, and the journey (down to F, up
+  // through G, home brighter) happens INSIDE the lift, closing on the
+  // built-in G→Am dominant return. Starting anywhere else made the drop
+  // itself a puzzling modulation (field report)
+  const LIFTPROG = [[57, 64, 69, 72], [53, 60, 65, 69], [55, 62, 67, 71], [57, 64, 69, 76]];
+  const LIFTROOTS = [33, 29, 31, 33];
   const PENTA = [9, 0, 2, 4, 7]; // A C D E G — safe over the lift cadence
   // A-minor-pentatonic arps: consonant over every chord in the pools
   const ARPS = [
@@ -2049,7 +2054,13 @@
     // song form: a PIECE is a fixed script of named parts (Strophe/Refrain/
     // Bridge) whose materials are rolled once and RETURN — repetition builds
     // familiarity, small per-occurrence variation keeps attention
-    if (pos === 0 && bar % 16 === 0) {
+    // the form holds STILL on the highway: a part change performs a
+    // ceremony (hush, statement fill, at piece boundaries a new key and a
+    // new orchestra) whose payoff the pedal harmony deliberately never
+    // delivers — announcements without arrivals read as random (field
+    // report: "the sequence of parts sounds unnatural"). The lift is the
+    // highway's form; the piece resumes at the next boundary after flow
+    if (pos === 0 && bar % 16 === 0 && !(engine.flowOn && engine.piece)) {
       if (!engine.piece || engine.piece.idx >= engine.piece.form.length) newPiece();
       // the drive steers the FORM, not only the layers: a launch brings the
       // next chorus forward. It SWAPS with the part that was due, so nothing
@@ -2099,7 +2110,7 @@
         if (!engine.flowOn) { engine.liftStart = -1; engine.liftArm = -1; }
       }
       if (engine.flowOn) {
-        if (engine.liftStart >= 0 && bar - engine.liftStart >= 8) {
+        if (engine.liftStart >= 0 && bar - engine.liftStart >= (engine.liftLen || 8)) {
           engine.lastLiftEnd = bar; engine.liftStart = -1; hush(t); // the lift exhales
         }
         if (engine.liftStart < 0) {
@@ -2107,8 +2118,12 @@
             engine.liftStart = bar; engine.liftArm = -1; hush(t); // the drop owns this one
           } else if (engine.liftArm < 0) {
             const since = bar - Math.max(engine.lastLiftEnd, engine.flowStartBar);
-            if (since >= 8 && dicer("lift")() < clamp((since - 8) / 30, 0, 0.4)) {
+            // "too often": the pedal phase must breathe long enough to make
+            // the lift an event — hazard from bar 16, capped low. And "too
+            // samey": each lift dices its own length
+            if (since >= 16 && dicer("lift")() < clamp((since - 16) / 48, 0, 0.25)) {
               engine.liftArm = bar + 4;
+              engine.liftLen = dicer("liftlen")() < 0.5 ? 8 : 12;
             }
           }
         }
@@ -2132,7 +2147,12 @@
     // which therefore also gets a two-bar mini-ride now), and the flow
     // lift's four armed bars. Ride, roll, growing room and tremolo all
     // read the same segment
-    const formSeg = finalRun && bar % 16 >= 12 ? bar % 16 - 12
+    // in flow the form's announcements are silenced along with the form
+    // itself: with the clock frozen, the frozen finalRun/nextIsB state
+    // would otherwise re-announce a chorus every 16 bars that the pedal
+    // harmony never delivers — the "buildup into nothing"
+    const formSeg = engine.flowOn ? -1
+      : finalRun && bar % 16 >= 12 ? bar % 16 - 12
       : engine.partLabel === "C" && nextIsB && bar % 16 >= 14 ? bar % 16 - 12 : -1;
     const liftK = engine.flowOn && engine.liftArm >= 0 ? bar - (engine.liftArm - 4) : -1;
     const rideSeg = Math.max(formSeg, liftK >= 0 && liftK <= 3 ? liftK : -1);
@@ -2146,7 +2166,7 @@
           t + SPB * 15);
       } else {
         masterHp.frequency.setValueAtTime(25, t);
-        if (bar % 16 === 15 && !still && (nextIsB || pieceEnd)) {
+        if (bar % 16 === 15 && !still && !engine.flowOn && (nextIsB || pieceEnd)) {
           masterHp.frequency.setValueAtTime(30, t);
           masterHp.frequency.exponentialRampToValueAtTime(240, t + SPB * 15);
           // a piece ends here: a long swell carries into the next piece's one
@@ -2175,7 +2195,8 @@
     // reward"): the breath-then-impact drop is earned by BOTH exits that
     // build — the bridge's rebuild and the final chorus's ride+roll
     if (pos === 14 && !still &&
-        ((bar % 16 === 15 && nextIsB && (engine.partLabel === "C" || finalRun)) ||
+        ((!engine.flowOn && bar % 16 === 15 && nextIsB &&
+          (engine.partLabel === "C" || finalRun)) ||
          liftK === 3)) {
       const g = master.gain;
       g.cancelScheduledValues(t);
@@ -2185,7 +2206,10 @@
     }
     // breather: every 48 bars the kick and bass step aside for 4 bars —
     // only while cruising, so it never fights a driving event
-    const breather = bar % 48 >= 44 && push < 0.15 && engine.brake < 0.2;
+    // no breather on the highway: the pedal phase IS the breath there, and
+    // kick and bass stepping aside on top of the thinned flow layers reads
+    // as a dropout, not a rest
+    const breather = !engine.flowOn && bar % 48 >= 44 && push < 0.15 && engine.brake < 0.2;
     const turnaround = bar % 8 === 7; // phrase ends earn a variation
     // the bridge is a real BREAKDOWN: rhythm section out for its first half,
     // the harmonic bed carries, then the rebuild rises into the final chorus.
@@ -2204,8 +2228,14 @@
     // engine feedback: the rise figure reads the push and the current chord.
     // Deliberately outside the still/cruise split — a launch from standstill
     // is exactly the moment the figure exists for
-    const ci = chordIdx(bar, hrEff);
-    const ciNext = chordIdx(bar + 1, hrEff);
+    // the lift's progression is anchored to ITS OWN start, never to the
+    // absolute bar number — read off the global clock it entered at a
+    // random point of its own cycle, and the drop's one became a puzzling
+    // modulation instead of an arrival
+    const ci = liftPhase ? Math.floor((bar - engine.liftStart) / 2) % 4
+      : chordIdx(bar, hrEff);
+    const ciNext = liftPhase ? Math.floor((bar + 1 - engine.liftStart) / 2) % 4
+      : chordIdx(bar + 1, hrEff);
     // the thrust sub follows the bar's root — the other half of the
     // one-bass rule (see growlNote). A short glide, never a step; roots[0]
     // is always 33 (the pivot rule), so loadPart's anchor stays true
@@ -2373,7 +2403,9 @@
         if (!buildOn && !breather && !bridgeDown && !lean &&
             engine.piece && engine.stage >= 0.35) {
           const fr = dicer("fill:" + engine.piece.num + ":" + bar);
-          if (bar % 16 === 15 && engine.stage >= 0.5) {
+          // no full-bar statement on the highway: it announces a new part,
+          // and with the form holding still there, no new part arrives
+          if (!engine.flowOn && bar % 16 === 15 && engine.stage >= 0.5) {
             engine.drumFill = pick(DRUMFILLS.large, null, fr);
           } else if (bar % 8 === 7 && engine.fill === "toms") {
             engine.drumFill = pick(DRUMFILLS.medium, null, fr);
