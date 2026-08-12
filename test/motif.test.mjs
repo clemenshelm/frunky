@@ -78,6 +78,10 @@ const store = makeStore();
   const state = { t: 0 };
   const run = await drive(Frunky, 2, state);
   ok("a fresh set rolls a motif", run[0].motif !== "null");
+  // note lengths breathe: at least one hook cell carries a DOTTED duration,
+  // so lines are not condemned to straight quarters and halves forever
+  ok("the hook-cell pool carries dotted rhythms",
+    Frunky.__motif().cells.some((cell) => cell.some(([, d]) => !Number.isInteger(d))));
   ok("piece two carries the SAME motif — recognition inside the lap",
     run[1].motif === run[0].motif);
   ok("and each piece's hook call IS the motif",

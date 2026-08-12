@@ -135,6 +135,11 @@ function toneNode() {
       for (const a of args) if (typeof a === "number" && !Number.isFinite(a)) throw new Error("non-finite trigger arg");
       meter.notes++;
       n.trigs++;
+      // the raw call, remembered: coverage checks (does a wash chord ring
+      // through the barline?) can only be asked of a stub that knows what
+      // each voice was told. Capped so a long fuzz cannot grow unbounded
+      n.calls.push(args.slice(0, 4));
+      if (n.calls.length > 400) n.calls.splice(0, 200);
       const t = args.length >= 3 ? args[args.length - 2] : null;
       if (typeof t === "number") {
         if (lastStart !== null && t <= lastStart) {
@@ -145,6 +150,7 @@ function toneNode() {
       }
     },
     triggerAttack() {}, triggerRelease() {}, releaseAll() {},
+    calls: [],
     ready: Promise.resolve(),
     gain: param(1), frequency: param(440), Q: param(1), pan: param(0),
     volume: param(0), feedback: param(0), delayTime: param(0), wet: param(1),

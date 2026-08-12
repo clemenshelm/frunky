@@ -145,7 +145,7 @@
       hat: { closed: 0.03, open: 0.2 },
       snare: { decay: 0.1 },
       room: 0.85,
-      bass: { osc: { type: "square" }, lite: "square", lp: 520, trim: -3.5 },
+      bass: { osc: { type: "square" }, lite: "square", lp: 430, trim: -4 },
       pad: { osc: { type: "fatsawtooth", count: 3, spread: 14 }, lite: "sawtooth", attack: 0.8, release: 1.2, trim: -2 },
       gate: { osc: { type: "square" }, lite: "square", trim: -3 },
       blip: { osc: { type: "square" }, trim: -1 },
@@ -599,7 +599,10 @@
     [[0, 2, 1], [3, 1, 0.7], [6, 2, 0.9], [10, 2, 0.8], [12, 3, 1]],
     [[0, 1, 1], [2, 1, 0.7], [4, 2, 0.9], [10, 2, 1], [14, 2, 0.8]],
     [[0, 3, 1], [4, 1, 0.7], [6, 2, 1], [12, 3, 0.9]],
-  ]; // [pos, dur16, accent]
+    // dotted lengths: lines must not live on straight halves and quarters
+    // alone — the lilt of a dotted 8th is variance the ear counts as intent
+    [[0, 1.5, 1], [3, 1.5, 0.7], [6, 2, 0.9], [12, 3.5, 1]],
+  ]; // [pos, dur16, accent — dur may be dotted (fractional)]
   const RIFFSET = [0, 3, 5, 7, 10, 12]; // A minor pentatonic over the root
   // the LEITMOTIF: film scoring's strongest device — one motif, returning
   // transformed by the scene. Rolled once per SET LAP (the 8-episode wave)
@@ -1346,12 +1349,14 @@
     // below the other leads. It lives on the hook chain ON PURPOSE — the
     // lead highpass eats fundamentals below ~190 Hz, and that is authentic:
     // a fuzz bass reads through its harmonics, not its fundamental
-    const fuzzDist = reg(new Tone.Distortion(0.55));
+    const fuzzDist = reg(new Tone.Distortion(0.4));
     leadFuzz = reg(new Tone.Synth({
       oscillator: opts.lite ? { type: "square" } : { type: "fatsquare", count: 2, spread: 8 },
       envelope: { attack: 0.004, decay: 0.14, sustain: 0.4, release: 0.08 },
     }));
-    leadFuzz.volume.value = db(0.5);
+    // a waveshaper compresses and therefore LOUDENS — the level makes
+    // room for that, or the fuzz reads as a penetrating bass, not a lead
+    leadFuzz.volume.value = db(0.3);
     leadFuzz.chain(fuzzDist, hookPres);
     // the sampled muted guitar shares the hook chain — square is the fallback
     hookGit.disconnect(); hookGit.volume.value = db(0.72);
@@ -2129,12 +2134,16 @@
           ? engine.bassMel[engine.bassPat.indexOf(pos) % engine.bassMel.length] : 0;
         // Daði pop: one hit per bar jumps up an octave when the section is playful
         const oct = !engine.bassMel && engine.bassFill && pos === 10 ? 2 : 1;
-        // natural correlation: louder notes ring brighter, lengths breathe
+        // natural correlation: louder notes ring brighter, lengths breathe.
+        // A DENSE pattern (the straight-8ths drive) plays DETACHED instead:
+        // the mono bass would otherwise ring into the next hit and get cut
+        // mid-wave — audible as a chop at every barline, worst on a square
+        const dense = engine.bassPat.length >= 6;
         const v = vel((0.16 + 0.3 * fat) * (1 - 0.4 * flowHigh) * drain * wake);
         // rootsEff, not engine.roots: during the highway lift the bass must
         // walk the LIFT roots, not the retired section progression's
         bassNote(bassT(t), F(rootsEff[ci] + mi) * oct, 500 + 700 * fat + v * 350, v,
-          SPB * (1.5 + Math.random() * 0.4));
+          SPB * (dense ? 0.95 : 1.5 + Math.random() * 0.4));
       }
       if (lickBar) {
         if (pos === 10) engine.lickFlashUntil = Date.now() + 2200;
@@ -2276,9 +2285,11 @@
       idleCut = 900 + 1600 * clamp(e, 0, 0.8);
       // accent contour: downbeats lean forward, offbeats sit back — not uniform
       const accent = (onBeat ? 1.15 : 0.9) * (onBeat ? 1 : offbeatLevel);
+      // note lengths breathe too: downbeats ring longer than offbeats —
+      // a line of uniform lengths is the "stur" the field report named
       arpNote(t, F(seq[Math.floor(s / 2) % 8] + (liftPhase ? 12 : engine.arpOct)),
         idleCut * (0.8 + 0.2 * Math.sin(t * 0.3)) + 700 * push,
-        vel(0.07 * accent), flowHigh > 0.6 ? SPB * 3.6 : SPB * 1.8);
+        vel(0.07 * accent), flowHigh > 0.6 ? SPB * 3.6 : SPB * (onBeat ? 2.2 : 1.6));
     }
     // harmonic rhythm: per bar, held two bars, or pushed in ahead of the one.
     // During the lift the pad grows brighter and half again as large
@@ -2288,17 +2299,20 @@
       * moodF * (bridgeDown ? 1.35 : 1);
     const padCut = 950 + 350 * Math.sin(bar * 0.37) + (liftPhase ? 350 : 0);
     if (hrEff === "twobar") {
-      if (pos === 0 && bar % 2 === 0) chordVoice(t, progEff[ci], SPB * 32, padVol, padCut);
+      if (pos === 0 && bar % 2 === 0) chordVoice(t, progEff[ci], SPB * 40, padVol, padCut);
     } else if (hrEff === "push") {
       // anticipation is a PHRASE gesture, not a constant: pushing EVERY bar
       // re-normalizes the ear until the anticipation reads as the downbeat
       // and the one dissolves (field report). Only the change INTO each
       // 4-bar phrase leans in early; every other chord lands on its one
-      if (pos === 0 && (bar % 4 !== 0 || bar % 16 === 0)) {
-        chordVoice(t, progEff[ci], SPB * (bar % 16 === 0 ? 14 : 16), padVol, padCut);
-      }
+      // every bar re-voices on its one, and the chord RINGS PAST the next
+      // barline (pad() shaves durations by 0.85, so SPB*22 is ~1.17 bars):
+      // the crossfade is the transition — a wash that dies before the one
+      // reads as a hole, and the field report heard exactly that. The
+      // anticipation became a short lead-in the one then confirms
+      if (pos === 0) chordVoice(t, progEff[ci], SPB * 22, padVol, padCut);
       if (pos === 14 && bar % 4 === 3 && bar % 16 !== 15) {
-        chordVoice(t, progEff[ciNext], SPB * 16, padVol, padCut);
+        chordVoice(t, progEff[ciNext], SPB * 6, padVol * 0.8, padCut);
         // the pad's slow attack smears the anticipation — Rhodes announces it.
         // Only for the wash: the keys style already rolls its own Rhodes
         if (engine.padStyle === "wash") rhodesChord(t, progEff[ciNext], 0.08 + 0.05 * e);
@@ -2310,18 +2324,16 @@
       }
     } else if (hrEff === "sync") {
       // the next phrase's chord arrives at an odd spot — same sparseness rule
-      if (pos === 0 && (bar % 4 !== 0 || bar % 16 === 0)) {
-        chordVoice(t, progEff[ci], SPB * (bar % 16 === 0 ? engine.syncPos : 16), padVol, padCut);
-      }
+      if (pos === 0) chordVoice(t, progEff[ci], SPB * 22, padVol, padCut);
       if (pos === engine.syncPos && bar % 4 === 3 && bar % 16 !== 15) {
-        chordVoice(t, progEff[ciNext], SPB * (16 + 16 - engine.syncPos), padVol, padCut);
+        chordVoice(t, progEff[ciNext], SPB * (18 - engine.syncPos), padVol * 0.8, padCut);
         if (engine.padStyle === "wash") rhodesChord(t, progEff[ciNext], 0.08 + 0.05 * e);
         if (!still && !breather && !bridgeDown && !lean) {
           bassNote(bassT(t), F(rootsEff[ciNext] + 12), 700, vel(0.09 * wake), SPB * 0.9);
         }
       }
     } else {
-      if (pos === 0) chordVoice(t, progEff[ci], SPB * 16, padVol, padCut);
+      if (pos === 0) chordVoice(t, progEff[ci], SPB * 20, padVol, padCut);
     }
     // broken/gate styles: the chords live as figures, not as a carpet
     if (!engine.flowOn && !still && !lean) {
@@ -2941,6 +2953,7 @@
     // test seam: the leitmotif — the set's melodic DNA and how the current
     // piece derives its hook from it, so a test can prove the recognition
     __motif: () => ({
+      cells: JSON.parse(JSON.stringify(HOOKCELLS)),
       motif: engine.setMotif
         ? engine.setMotif.map((n) => [n.p, n.d, n.a, n.s]) : null,
       call: engine.piece ? engine.piece.hook.call.map((n) => n.s) : null,
