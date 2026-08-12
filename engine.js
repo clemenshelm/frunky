@@ -257,6 +257,11 @@
   // 24 bars the anthem lift — bVI–bVII–i, F G Am — opens the sky for 8 bars.
   const PEDALPROG = [[57, 64, 67, 71], [57, 65, 67, 72], [57, 64, 67, 71], [57, 64, 69, 74]];
   const PEDALROOTS = [33, 33, 33, 33];
+  // the DAWN set ("the minor pedal turns depressing over time"): thirdless,
+  // open voicings — sus2, quartal, and one dorian F# (78) as the light in
+  // the window. Neither major nor minor: openness reads as brightening
+  // without ever leaving the A pedal
+  const PEDALDAWN = [[57, 64, 71, 76], [57, 62, 69, 74], [57, 64, 71, 78], [57, 64, 69, 76]];
   // the lift OPENS on the pedal's root — the drop's one lands on harmonic
   // ground the ear already stands on, and the journey (down to F, up
   // through G, home brighter) happens INSIDE the lift, closing on the
@@ -980,6 +985,14 @@
     liftStart: -1,    // bar the current lift began, -1 = pedal phase
     liftArm: -1,      // bar the armed lift will begin (4 build bars before it)
     lastLiftEnd: -1e9,
+    liftLen: 8,
+    liftTaper: false,  // the wave's receding half: the lift's last two bars
+    dawnOn: false,     // pedal color: open/dorian-bright window vs dusk minor
+    dawnWindow: -1,
+    shimmerStart: -1,  // micro-crest: four bars of the arp an octave up
+    shimmerEnd: -1e9,
+    shimmerOn: false,
+    ghostTheme: false, // this occurrence lets the lap's theme drift by
     progIdx: 0,       // position in the progression graph
     piece: null,      // the current piece: form script + part bundles + hook
     partLabel: "",
@@ -1793,16 +1806,24 @@
       at(open ? "hatO" : "hatC", t), vv(vol, 0.2));
   }
   function shaker(t, vol) { shakerS.triggerAttackRelease(0.055, at("shaker", t), vv(vol, 0.16)); }
-  function snare(t, vol, ghost = false) {
+  function snare(t, vol, ghost = false, roll = -1) {
     const tt = at("snare", t);
     // per-hit color: the band-pass wanders a little on every hit, so a
     // sixteen-hit roll reads as a drummer working the head, not a machine
-    // gun repeating one sample. The write follows the slot's own time
-    snareBp.frequency.setValueAtTime(1500 + 500 * Math.random(), tt);
+    // gun repeating one sample. The write follows the slot's own time.
+    // Roll v3 ("the build snare sounds like a tin can"): a noise burst
+    // ringing at 1500–2000 IS a tin can once sixteen of them stand in the
+    // foreground — the roll starts DARK and opens with the build segment
+    snareBp.frequency.setValueAtTime(
+      roll >= 0 ? 950 + 150 * roll + 200 * Math.random()
+        : 1500 + 500 * Math.random(), tt);
     snareS.triggerAttackRelease(ghost ? 0.045 : 0.13, tt, vv(vol, 0.3));
     if (!ghost) {
       snareBody.triggerAttackRelease(185, 0.09, at("snareBody", t), vv(vol * 0.7, 0.25));
       snareSnap.triggerAttackRelease(0.07, at("snareSnap", t), vv(vol * 0.8, 0.3));
+    } else if (roll >= 0) {
+      // a whisper of body under every roll hit grounds the noise
+      snareBody.triggerAttackRelease(150, 0.05, at("snareBody", t), vv(vol * 0.35, 0.25));
     }
   }
   function perc(t, vol) { percS.triggerAttackRelease(0.03, at("perc", t), vv(vol, 0.25)); }
@@ -2158,12 +2179,15 @@
         if (!engine.flowOn) { engine.liftStart = -1; engine.liftArm = -1; }
       }
       if (engine.flowOn) {
+        // v3: waves, not events. The lift's boundaries carry no hush — the
+        // crescendo crests INTO it (a crash marks the one, orchestral
+        // cymbal style) and the wave RECEDES at its end (taper below)
         if (engine.liftStart >= 0 && bar - engine.liftStart >= (engine.liftLen || 8)) {
-          engine.lastLiftEnd = bar; engine.liftStart = -1; hush(t); // the lift exhales
+          engine.lastLiftEnd = bar; engine.liftStart = -1;
         }
         if (engine.liftStart < 0) {
           if (engine.liftArm >= 0 && bar >= engine.liftArm) {
-            engine.liftStart = bar; engine.liftArm = -1; hush(t); // the drop owns this one
+            engine.liftStart = bar; engine.liftArm = -1; crash(t);
           } else if (engine.liftArm < 0) {
             const since = bar - Math.max(engine.lastLiftEnd, engine.flowStartBar);
             // "too often": the pedal phase must breathe long enough to make
@@ -2175,6 +2199,42 @@
             }
           }
         }
+        // the wave recedes: the lift's last two bars thin back toward the
+        // pedal instead of stopping on a hush
+        engine.liftTaper = engine.liftStart >= 0 &&
+          bar - engine.liftStart >= (engine.liftLen || 8) - 2;
+        // the brightening palette — the small lights between the big ones.
+        // DAWN windows: every 12 pedal bars the color may turn open and
+        // dorian-bright (one draw per window, cached — a per-bar draw would
+        // flap inside the window)
+        const win = Math.floor((bar - engine.flowStartBar) / 12);
+        if (engine.dawnWindow !== win) {
+          engine.dawnWindow = win;
+          engine.dawnOn = dicer("dawn:" + win)() < 0.45;
+        }
+        // SHIMMER micro-crest: four bars of the arp an octave up with its
+        // offbeats forward — a lift in miniature, arriving more often
+        if (engine.shimmerStart >= 0 && bar - engine.shimmerStart >= 4) {
+          engine.shimmerEnd = bar; engine.shimmerStart = -1;
+        }
+        if (engine.shimmerStart < 0 && engine.liftStart < 0 && engine.liftArm < 0 &&
+            bar - engine.shimmerEnd > 6 && dicer("shimmer:" + bar)() < 0.12) {
+          engine.shimmerStart = bar;
+        }
+        engine.shimmerOn = engine.shimmerStart >= 0;
+        // and the lap's theme drifts over the pedal — the film-score return,
+        // here on the emptiest stage the session has
+        if (engine.liftStart < 0 && engine.liftArm < 0 && engine.setMotif &&
+            bar % 8 === 4 && dicer("ghost:flow:" + bar)() < 0.22) {
+          for (const gn of engine.setMotif) {
+            padTri.triggerAttackRelease(F(69 + gn.s), gn.d * 2 * SPB * 0.9,
+              at("padTri", t + gn.p * 2 * SPB), vv(0.045, 0.4));
+          }
+          ghostLog.push({ bar, part: "flow", aug: 2, vol: 0.045 });
+        }
+      } else {
+        engine.liftTaper = false; engine.shimmerOn = false;
+        engine.shimmerStart = -1; engine.dawnWindow = -1;
       }
     }
     // what comes after this section? (idx already points at the next part)
@@ -2242,10 +2302,11 @@
     // the payoff rule (field report: "after the build-up, one kick as the
     // reward"): the breath-then-impact drop is earned by BOTH exits that
     // build — the bridge's rebuild and the final chorus's ride+roll
+    // v3: the lift no longer arms a gap — build→drop is EDM grammar, an
+    // event, and the highway wants waves. The gap stays a FORM device
     if (pos === 14 && !still &&
-        ((!engine.flowOn && bar % 16 === 15 && nextIsB &&
-          (engine.partLabel === "C" || finalRun)) ||
-         liftK === 3)) {
+        !engine.flowOn && bar % 16 === 15 && nextIsB &&
+        (engine.partLabel === "C" || finalRun)) {
       const g = master.gain;
       g.cancelScheduledValues(t);
       g.setValueAtTime(0.9, t);
@@ -2269,7 +2330,8 @@
     const flowMode = engine.flowOn;
     const liftPhase = flowMode && engine.liftStart >= 0;
     engine.liftActive = liftPhase;
-    const progEff = !flowMode ? engine.prog : liftPhase ? LIFTPROG : PEDALPROG;
+    const progEff = !flowMode ? engine.prog
+      : liftPhase ? LIFTPROG : engine.dawnOn ? PEDALDAWN : PEDALPROG;
     const rootsEff = !flowMode ? engine.roots : liftPhase ? LIFTROOTS : PEDALROOTS;
     const hrEff = flowMode ? "twobar" : engine.hr;
 
@@ -2339,7 +2401,7 @@
         // patience softens the kick; the coda fades it out with the farewell
         const sceneKick = engine.scene === "patience" ? 0.75
           : engine.scene === "coda" ? 1 - 0.7 * engine.codaProgress : 1;
-        kick(t, (0.85 + 0.1 * e) * (1 - 0.18 * flowHigh * (liftPhase ? 0.2 : 1)) * wake
+        kick(t, (0.85 + 0.1 * e) * (1 - 0.18 * flowHigh * (liftPhase ? (engine.liftTaper ? 0.6 : 0.2) : 1)) * wake
           * engine.groove.kickW * sceneKick,
           0.05 + 0.3 * push);
         duckAt(t, 0.3 * (1 - 0.3 * flowHigh) + 0.28 * push);
@@ -2364,7 +2426,7 @@
         // mid-wave — audible as a chop at every barline, worst on a square
         const dense = engine.bassPat.length >= 6;
         const v = vel((0.16 + 0.3 * fat) *
-          (1 - 0.4 * flowHigh * (liftPhase ? 0.25 : 1)) * drain * wake);
+          (1 - 0.4 * flowHigh * (liftPhase ? (engine.liftTaper ? 0.65 : 0.25) : 1)) * drain * wake);
         // rootsEff, not engine.roots: during the highway lift the bass must
         // walk the LIFT roots, not the retired section progression's
         bassNote(bassT(t), F(rootsEff[ci] + mi) * oct, 500 + 700 * fat + v * 350, v,
@@ -2409,7 +2471,7 @@
       // the stab rides the CURRENT chord — a hard-wired Am rubbed against Gadd9
       if (push > 0.06 && pos % 4 === 2) stabChord(t, progEff[ci], 0.12 * Math.pow(push, 1.3));
       if (engine.groove.hat.includes(pos)) hat(hum(t, pos), false,
-        vel((0.03 + 0.05 * u) * (1 - 0.55 * flowHigh * (liftPhase ? 0.3 : 1)) * wake));
+        vel((0.03 + 0.05 * u) * (1 - 0.55 * flowHigh * (liftPhase ? (engine.liftTaper ? 0.7 : 0.3) : 1)) * wake));
       // snare: the groove decides WHERE, the trait decides WHETHER — except a
       // groove whose backbone is the snare (halftime's three), which speaks
       // regardless. Ghost chatter stays a trait, on the groove's ghost spots.
@@ -2432,7 +2494,7 @@
         if (pos % stride === 0) {
           const v = (0.04 + 0.02 * buildSeg + 0.006 * pos) *
             (engine.piece.mood === "deep" ? 0.7 : 1);
-          snare(hum(t, pos), vel(v * wake), pos % 4 !== 0);
+          snare(hum(t, pos), vel(v * wake), pos % 4 !== 0, buildSeg);
         }
         // the opera tremolo: a quiet string-style crescendo on the current
         // chord through the last build bars — rapid soft restrikes, the
@@ -2544,7 +2606,7 @@
     const onBeat = pos % 4 === 0;
     // the motorway thins the arp by letting its offbeats recede, not by
     // switching rate: a rate change under a held note is heard as a stumble
-    const offbeatLevel = lean ? 0 : 1 - ff * (liftPhase ? 0.3 : 1);
+    const offbeatLevel = lean ? 0 : 1 - ff * (liftPhase ? (engine.liftTaper ? 0.7 : 0.3) : engine.shimmerOn ? 0.55 : 1);
     const arpHit = pos % 2 === 0 && (onBeat || offbeatLevel > 0.02);
     if (arpHit) {
       const seq = turnaround ? engine.arpSeq.slice().reverse() : engine.arpSeq;
@@ -2557,7 +2619,7 @@
       const accent = (onBeat ? 1.15 : 0.9) * (onBeat ? 1 : offbeatLevel);
       // note lengths breathe too: downbeats ring longer than offbeats —
       // a line of uniform lengths is the "stur" the field report named
-      arpNote(t, F(seq[Math.floor(s / 2) % 8] + (liftPhase ? 12 : engine.arpOct)),
+      arpNote(t, F(seq[Math.floor(s / 2) % 8] + (liftPhase || engine.shimmerOn ? 12 : engine.arpOct)),
         idleCut * (0.8 + 0.2 * Math.sin(t * 0.3)) + 700 * push,
         vel(0.07 * accent), flowHigh > 0.6 ? SPB * 3.6 : SPB * (onBeat ? 2.2 : 1.6));
     }
@@ -3308,7 +3370,10 @@
     // while the music recedes
     __drive: () => ({
       lift: { active: engine.liftStart >= 0, start: engine.liftStart,
-        arm: engine.liftArm, lastEnd: engine.lastLiftEnd },
+        arm: engine.liftArm, lastEnd: engine.lastLiftEnd,
+        len: engine.liftLen, taper: engine.liftTaper },
+      pedalColor: engine.flowOn ? (engine.dawnOn ? "dawn" : "dusk") : null,
+      shimmer: engine.shimmerOn,
       warp: engine.warp,
       warpLpFreq: warpLp ? warpLp.frequency.value : null,
       warpGain: warpGain ? warpGain.gain.value : null,

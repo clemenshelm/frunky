@@ -42,10 +42,11 @@ function boot(seed) {
   const liftStarts = [];
   const liftLens = [];
   const roomBeforeLift = [];
-  const dropsAtLift = [];
   const hatPerBar = { lift: [], pedal: [] };
   const formSeen = new Set();
+  const pedalColors = new Set();
   let rhodesPedalTrigs = 0, dropsTotal = 0, largeInFlow = 0;
+  let taperWrong = 0, shimmerBars = 0, shimmerInLift = 0;
   let t = 0, s = 0, wasActive = false, lastDrops = 0, liftBegan = -1;
   let hatMark = 0, rhodesMark = 0, roomLastBar = 0.12;
   const BARS = 300;
@@ -65,7 +66,16 @@ function boot(seed) {
         liftStarts.push(bar);
         liftBegan = dr.lift.start;
         roomBeforeLift.push(roomLastBar);
-        dropsAtLift.push(tr.drops - lastDrops);
+      }
+      if (dr.lift.active) {
+        const into = bar - dr.lift.start;
+        const lastTwo = into >= (dr.lift.len || 8) - 2;
+        if (dr.lift.taper !== lastTwo) taperWrong++;
+      }
+      if (dr.pedalColor) pedalColors.add(dr.pedalColor);
+      if (dr.shimmer) {
+        shimmerBars++;
+        if (dr.lift.active) shimmerInLift++;
       }
       if (!dr.lift.active && wasActive && liftBegan >= 0) {
         liftLens.push(dr.lift.lastEnd - liftBegan);
@@ -93,6 +103,7 @@ function boot(seed) {
     s++;
   }
 
+  const ghostsInFlow = Frunky.__motif().ghosts.filter((e) => e.part === "flow").length;
   ok("the highway earned at least two lifts, got " + liftStarts.length,
     liftStarts.length >= 2);
   const gaps = liftStarts.slice(1).map((b, i) => b - liftStarts[i]);
@@ -123,9 +134,8 @@ function boot(seed) {
   // bars. The form holds still in flow, so every drop belongs to a lift
   ok("the form holds still on the highway, saw " + [...formSeen].join(","),
     formSeen.size === 1);
-  ok("every drop on the highway belongs to a lift: " + dropsTotal +
-    " drops for " + liftStarts.length + " lifts",
-    dropsTotal === liftStarts.length && dropsTotal > 0);
+  // (the B48 assertion "every drop belongs to a lift" is superseded by
+  // "the highway knows no drops at all" above — v3 removed the lift's drop)
   ok("the 48-bar breather stays off the highway (the pedal IS the breath)",
     /!engine\.flowOn && bar % 48 >= 44/.test(script));
   // frozen-state defense: even with the form paused, the frozen
@@ -133,8 +143,9 @@ function boot(seed) {
   // because the walk's freeze point (part A) cannot reach those states
   ok("the form's build window is silenced in flow",
     /const formSeg = engine\.flowOn \? -1/.test(script));
-  ok("the form's drop gap is silenced in flow",
-    /!engine\.flowOn && bar % 16 === 15 && nextIsB/.test(script));
+  ok("the form's drop gap is silenced in flow — and no lift arms one",
+    /!engine\.flowOn && bar % 16 === 15 && nextIsB/.test(script) &&
+    !script.includes("liftK === 3"));
   // a full-bar statement announces a new part, and on the highway no new
   // part arrives — behavioral count plus source pin (the walk's frozen
   // part may sit below the stage the large fill needs)
@@ -147,19 +158,45 @@ function boot(seed) {
   ok("every lift was preceded by the build (the roll's room was open), saw " +
     roomBeforeLift.map((r) => r.toFixed(2)).join(","),
     roomBeforeLift.length > 0 && roomBeforeLift.every((r) => r > 0.3));
-  ok("every lift entered through the drop, saw " + dropsAtLift.join(","),
-    dropsAtLift.length > 0 && dropsAtLift.every((d) => d >= 1));
+  // LIFTED with v3 ("the buildup still doesn't feel right — maybe the form
+  // doesn't fit the highway at all"): build→drop is EDM grammar, an EVENT.
+  // Sustained music wants WAVES — the crescendo crests INTO the lift (no
+  // breath, no impact; a crash marks the arrival like an orchestral cymbal)
+  // and the lift recedes instead of stopping. So: the highway knows no
+  // drops at all now, and the old every-lift-has-a-drop assertion inverts
+  ok("the highway knows no drops at all: " + dropsTotal + " drops across " +
+    liftStarts.length + " lifts", dropsTotal === 0 && liftStarts.length > 0);
+  ok("the lift's one is marked by the crash, not a gap",
+    /engine\.liftStart = bar; engine\.liftArm = -1; crash\(t\);/.test(script));
+  ok("no hush at the lift's boundaries — the wave recedes, never stops",
+    !/engine\.lastLiftEnd = bar; engine\.liftStart = -1; hush/.test(script) &&
+    !/engine\.liftStart = bar; engine\.liftArm = -1; hush/.test(script));
+  ok("the lift tapers over its last two bars (seam tracks the walk), " +
+    taperWrong + " mismatches", taperWrong === 0);
   // the trigs ratio above proves the ADDED density (open hats); the volume
   // restore of the thinned layers is velocity, which the stub's counters
-  // cannot see — pinned as source, one per layer
-  ok("the kick comes back in the lift",
-    /1 - 0\.18 \* flowHigh \* \(liftPhase \? 0\.2 : 1\)/.test(script));
-  ok("the bass comes back in the lift",
-    /1 - 0\.4 \* flowHigh \* \(liftPhase \? 0\.25 : 1\)/.test(script));
-  ok("the hats come back in the lift",
-    /1 - 0\.55 \* flowHigh \* \(liftPhase \? 0\.3 : 1\)/.test(script));
-  ok("the arp's offbeats come back in the lift",
-    /1 - ff \* \(liftPhase \? 0\.3 : 1\)/.test(script));
+  // cannot see — pinned as source, one per layer, taper included
+  ok("the kick comes back in the lift, then recedes",
+    /1 - 0\.18 \* flowHigh \* \(liftPhase \? \(engine\.liftTaper \? 0\.6 : 0\.2\) : 1\)/.test(script));
+  ok("the bass comes back in the lift, then recedes",
+    /1 - 0\.4 \* flowHigh \* \(liftPhase \? \(engine\.liftTaper \? 0\.65 : 0\.25\) : 1\)/.test(script));
+  ok("the hats come back in the lift, then recede",
+    /1 - 0\.55 \* flowHigh \* \(liftPhase \? \(engine\.liftTaper \? 0\.7 : 0\.3\) : 1\)/.test(script));
+  ok("the arp's offbeats come back in the lift, then recede",
+    /1 - ff \* \(liftPhase \? \(engine\.liftTaper \? 0\.7 : 0\.3\) : engine\.shimmerOn \? 0\.55 : 1\)/.test(script));
+  // the brightening palette ("the minor pedal turns depressing over time"):
+  // between lifts the pedal breathes between its dusk voicings and a DAWN
+  // set — thirdless, open, one dorian F# — in long diced windows; and a
+  // SHIMMER micro-crest (arp up an octave, offbeats forward, four bars)
+  // arrives more often than the lift, as the small light between the big ones
+  ok("the pedal breathes both colors across the run, saw " +
+    [...pedalColors].join(","), pedalColors.has("dusk") && pedalColors.has("dawn"));
+  ok("the dawn set is open, not minor",
+    /PEDALDAWN = \[\[57, 64, 71, 76\], \[57, 62, 69, 74\], \[57, 64, 71, 78\], \[57, 64, 69, 76\]\]/.test(script));
+  ok("the shimmer really crests, got " + shimmerBars + " bars", shimmerBars >= 4);
+  ok("and never inside a lift, got " + shimmerInLift, shimmerInLift === 0);
+  ok("the ghost theme drifts over the pedal too, got " +
+    ghostsInFlow + " flow ghosts", ghostsInFlow >= 1);
   const avg = (a) => a.reduce((x, y) => x + y, 0) / Math.max(a.length, 1);
   ok("the lift is the DENSE reward: hats per bar " + avg(hatPerBar.lift).toFixed(1) +
     " in the lift vs " + avg(hatPerBar.pedal).toFixed(1) + " on the pedal",

@@ -198,8 +198,19 @@ function boot(seed, store) {
   const sn = seam().nodes || {};
   ok("full snares carry the snap layer, ghosts do not",
     !!sn.snap && sn.snap.trigs > 0 && sn.snap.trigs < sn.snare.trigs);
-  ok("roll hits vary their color per hit",
-    /snareBp\.frequency\.setValueAtTime\(1500/.test(script));
+  // roll v3 ("the build snare sounds like a tin can"): a bandpassed noise
+  // burst ringing at 1500–2000 Hz IS a tin can once sixteen of them stand
+  // in the foreground. The producer's classic: the roll STARTS dark and
+  // opens with the build — and every roll hit gets a whisper of body so
+  // the noise is grounded, not hollow
+  ok("roll hits start dark and open with the build",
+    /roll >= 0 \? 950 \+ 150 \* roll \+ 200 \* Math\.random\(\)/.test(script));
+  ok("groove hits keep their wandering color",
+    /: 1500 \+ 500 \* Math\.random\(\)/.test(script));
+  ok("roll hits carry a whisper of body",
+    /snareBody\.triggerAttackRelease\(150, 0\.05/.test(script));
+  ok("the build's roll really passes its segment",
+    /snare\(hum\(t, pos\), vel\(v \* wake\), pos % 4 !== 0, buildSeg\)/.test(script));
   ok("two pieces of transitions, zero engine errors", Frunky.health().errors === 0);
   Frunky.stop();
   transport.clear();
