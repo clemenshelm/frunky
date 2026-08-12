@@ -49,6 +49,7 @@ function boot(seed) {
   let taperWrong = 0, shimmerBars = 0, shimmerInLift = 0;
   const clearAfter = [];
   let lastColor = null, stringBedLift = 0, padTriMark = 0;
+  let arias = [];
   let t = 0, s = 0, wasActive = false, lastDrops = 0, liftBegan = -1;
   let hatMark = 0, rhodesMark = 0, roomLastBar = 0.12;
   const BARS = 300;
@@ -86,6 +87,7 @@ function boot(seed) {
         if (dr.lift.active && ptNow > padTriMark) stringBedLift++;
         padTriMark = ptNow;
       }
+      if (dr.arias) arias = dr.arias;
       if (dr.shimmer) {
         shimmerBars++;
         if (dr.lift.active) shimmerInLift++;
@@ -242,6 +244,21 @@ function boot(seed) {
     stringBedLift >= 2);
   ok("… pinned at source for the clearing too",
     /if \(\(liftPhase \|\| engine\.clearingOn\) && pos === 0 && chPh % 2 === 0\)/.test(script));
+  // the Freudensturm (Puccini's unison climax — Vincerò: the melody
+  // doubled across octaves through the whole orchestra): the ARIA lift.
+  // Diced per lift, GUARANTEED when the lift rises out of a clearing
+  // (light + lift = the storm): the lap's theme sings augmented over the
+  // lift — the hook voice an octave up, the string bed doubling below —
+  // call in bars 2-3, answer in bars 6-7, and the answer lands home
+  ok("arias really sang across the run, got " + arias.length, arias.length >= 1);
+  ok("every aria sang inside a lift, " +
+    arias.map((a) => a.bar - a.liftStart).join(","),
+    arias.every((a) => a.liftStart >= 0 && a.bar - a.liftStart >= 2));
+  ok("a lift out of the clearing always sings",
+    /engine\.liftAria = engine\.clearingOn \|\| dicer\("aria:" \+ bar\)\(\) < 0\.35;/.test(script));
+  ok("the aria is the theme in octaves (voice up, strings doubling below)",
+    /hookNote\(t \+ an\.p \* 2 \* SPB, F\(69 \+ an\.s\)/.test(script) &&
+    /padTri\.triggerAttackRelease\(F\(57 \+ an\.s\)/.test(script));
   ok("the shimmer really crests, got " + shimmerBars + " bars", shimmerBars >= 4);
   ok("and never inside a lift, got " + shimmerInLift, shimmerInLift === 0);
   ok("the ghost theme drifts over the pedal too, got " +

@@ -1776,6 +1776,7 @@
 
   const vv = (vol, ref) => { notes++; return clamp(vol / ref, 0, 1); };
   let ghostLog = [], ghostEligible = 0; // the disguised theme's ledger
+  let ariaLog = []; // the Freudensturm's ledger — every sung lift phrase
 
   // Tone REFUSES a voice triggered at or before its own previous start time,
   // and the refusal is thrown inside the transport callback — so every voice
@@ -2221,6 +2222,9 @@
         if (engine.liftStart < 0) {
           if (engine.liftArm >= 0 && bar >= engine.liftArm) {
             engine.liftStart = bar; engine.liftArm = -1; crash(t);
+            // the Freudensturm: some lifts SING — and a lift rising out of
+            // the clearing always does (light + lift = the storm)
+            engine.liftAria = engine.clearingOn || dicer("aria:" + bar)() < 0.35;
           } else if (engine.liftArm < 0) {
             const since = bar - Math.max(engine.lastLiftEnd, engine.flowStartBar);
             // "too often": the pedal phase must breathe long enough to make
@@ -2743,6 +2747,24 @@
         padTri.triggerAttackRelease(progEff[ci].map((m) => F(m + 12)),
           SPB * 30 * 0.9, at("padTri", t), vv(padVol * 0.5, 0.4));
       }
+      // the ARIA: Puccini's unison climax — the lap's theme sings
+      // augmented over the lift, the hook voice an octave up with the
+      // string bed doubling an octave below. Call in bars 2-3, the answer
+      // in bars 6-7 — and the answer lands home (hook craft): Vincerò
+      if (liftPhase && engine.liftAria && engine.piece && pos === 0) {
+        const off = bar - engine.liftStart;
+        const phrase = off === 2 ? engine.piece.hook.call
+          : off === 6 ? engine.piece.hook.resp : null;
+        if (phrase) {
+          for (const an of phrase) {
+            hookNote(t + an.p * 2 * SPB, F(69 + an.s), an.d * 2 * SPB * 0.9,
+              vel(0.13 * wake));
+            padTri.triggerAttackRelease(F(57 + an.s), an.d * 2 * SPB * 0.85,
+              at("padTri", t + an.p * 2 * SPB), vv(0.06 * wake, 0.4));
+          }
+          ariaLog.push({ bar, liftStart: engine.liftStart });
+        }
+      }
     } else if (hrEff === "push") {
       // anticipation is a PHRASE gesture, not a constant: pushing EVERY bar
       // re-normalizes the ear until the anticipation reads as the downbeat
@@ -3222,7 +3244,7 @@
     // stream anchors every keyed stream, so a test that seeds Math.random
     // still owns every composed outcome deterministically
     diceSeed = String(Math.random()); diceStreams.clear();
-    ghostLog = []; ghostEligible = 0;
+    ghostLog = []; ghostEligible = 0; ariaLog = [];
     sched.clear(); ctlLast.clear(); stepCost = 0; peakCost = 0;
     strain = 0; strainSteps = 0; totalSteps = 0;
     lastStepSeen = -1; lastStepAt = 0;
@@ -3487,6 +3509,7 @@
       pedalColor: engine.flowOn
         ? (engine.clearingOn ? "clear" : engine.dawnOn ? "dawn" : "dusk") : null,
       shimmer: engine.shimmerOn,
+      arias: ariaLog.slice(),
       warp: engine.warp,
       warpLpFreq: warpLp ? warpLp.frequency.value : null,
       warpGain: warpGain ? warpGain.gain.value : null,
