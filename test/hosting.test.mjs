@@ -89,6 +89,17 @@ ok("it refuses changed files under an unchanged build",
 ok("it verifies no-store on the page", /check "\/" *"cache-control: no-store"/i.test(script));
 ok("it verifies immutability on the engine", /engine\.js\?v=.*immutable/i.test(script));
 ok("it verifies the collector still answers", /api\/health/.test(script));
+// the origin lesson (field test 2026-08-12: two drives' traces met a 403 and
+// survived only in the devices' pending slots): the app moved to its own
+// domain, and the collector's allowed origin silently did not — every upload
+// from the new origin was refused. The compose definition must name the
+// origin the app is actually served from
+{
+  const compose = readFileSync(
+    new URL("../collector/deploy/frunky-trace.compose.yml", import.meta.url), "utf8");
+  ok("the collector accepts the canonical app origin",
+    /TRACE_ORIGINS:.*https:\/\/frunky\.clemenshelm\.com/.test(compose));
+}
 ok("the verification cannot be shrugged off", !/\|\|\s*true/.test(
   script.split("\n").filter((l) => /curl|check /.test(l)).join("\n")));
 

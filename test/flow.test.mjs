@@ -234,7 +234,7 @@ function boot(seed) {
   ok("two dawn windows earn the resolution at source",
     /if \(engine\.dawnRun >= 2\)/.test(script));
   ok("the ghost pauses in the light",
-    /engine\.liftStart < 0 && engine\.liftArm < 0 && !engine\.clearingOn && engine\.setMotif/.test(script));
+    /engine\.liftStart < 0 && engine\.liftArm < 0 && !engine\.clearingOn &&\s*\n\s*!engine\.lean && engine\.setMotif/.test(script));
   ok("the arp's minor third turns major in the light",
     /engine\.clearingOn && arpS0 % 12 === 3 \? arpS0 \+ 1 : arpS0/.test(script));
   // the tear ducts ("the lift doesn't open euphorically — strings?"): the
@@ -242,8 +242,20 @@ function boot(seed) {
   // triangle pad an octave above the wash, quiet and long
   ok("the lift carries the high string bed, " + stringBedLift + " refires",
     stringBedLift >= 2);
-  ok("… pinned at source for the clearing too",
-    /if \(\(liftPhase \|\| engine\.clearingOn\) && pos === 0 && chPh % 2 === 0\)/.test(script));
+  ok("… pinned at source for the clearing too — and shed on lite and lean",
+    /if \(\(liftPhase \|\| engine\.clearingOn\) && pos === 0 && chPh % 2 === 0 &&\s*\n\s*!opts\.lite && !lean\)/.test(script));
+  // stability (field test: Tesla dies in seconds, the phone degrades):
+  // BOTH field devices run the lite graph (coarse pointer), and the extra
+  // polyphony of the string bed and the aria doubling ran past it. The
+  // hook voice always sings; the octave luxuries are shed statically on
+  // lite and dynamically under strain
+  ok("the aria's doubling is a luxury (lite and lean skip it)",
+    /if \(!opts\.lite && !lean\) \{\s*\n\s*padTri\.triggerAttackRelease\(F\(57 \+ an\.s\)/.test(script));
+  ok("the flow ghost sheds under strain",
+    /!engine\.lean && engine\.setMotif/.test(script));
+  ok("per-bar dice streams are pruned on hour-long drives",
+    /if \(diceStreams\.size >= 4000\)/.test(script) &&
+    /if \(\/:\\d\+\$\/\.test\(k\)\) diceStreams\.delete\(k\);/.test(script));
   // the Freudensturm (Puccini's unison climax — Vincerò: the melody
   // doubled across octaves through the whole orchestra): the ARIA lift.
   // Diced per lift, GUARANTEED when the lift rises out of a clearing

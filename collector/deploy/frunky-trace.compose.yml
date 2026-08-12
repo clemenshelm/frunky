@@ -21,9 +21,13 @@ services:
       TRACE_PORT: "8099"
       TRACE_DIR: /data
       TRACE_RETENTION_DAYS: "30"
-      # the GitHub Pages origin the driver page is served from; a browser
-      # elsewhere is refused rather than answered
-      TRACE_ORIGINS: "https://clemenshelm.github.io"
+      # the origins the driver page is served from; a browser elsewhere is
+      # refused rather than answered. The app moved to frunky.clemenshelm.com
+      # (2026-08-11) — github.io stays listed for stragglers on the redirect
+      # page. Field-test lesson 2026-08-12: this list silently NOT following
+      # the app's move cost two drives' uploads (they survived only in the
+      # devices' pending slots)
+      TRACE_ORIGINS: "https://frunky.clemenshelm.com,https://clemenshelm.github.io"
       TRACE_VIEW_USER: "${FRUNKY_VIEW_USER}"
       TRACE_VIEW_PASS: "${FRUNKY_VIEW_PASS}"
     # it needs no network access of its own and no privileges; the only thing

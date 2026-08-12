@@ -178,6 +178,45 @@ const drive = (tr, seconds, speedKmh) => {
     re.ok === true && re.dropped.length === 0);
 }
 
+// ---- growth diagnostics: heap and voices ride the sample --------------------
+// Field test 2026-08-12: "fine at first, crackles and dropouts accumulate over
+// the drive." A leak's signature is a monotonic climb, and no devtools ever
+// attach in the field — so the sample carries the JS heap (MB) and the count
+// of ringing voices. About the ENGINE, never about the person.
+{
+  const fetchSpy = fakeFetch();
+  const tr = makeTracer({ fetch: fetchSpy });
+  tr.setConsent(true);
+  tr.begin();
+  const base = { speed: 30, scene: "city", load: 0.05, notes: 20, strain: 0,
+    late: 0, stalls: 0, errors: 0, resumes: 0, fixAge: 800, gps: "coords", lt: 0,
+    audio: "running" };
+  clock += 1000;
+  tr.sample({ ...base, heap: 123.6, voices: 17 });
+  clock += 1000;
+  tr.sample(base); // a caller that never heard of the fields
+  await tr.flush();
+  const body = fetchSpy.calls[0].body;
+  eq("the heap rides the sample, rounded to MB", body.samples[0].heap, 124);
+  eq("the voices ride the sample", body.samples[0].voices, 17);
+  eq("a missing heap probe stays -1, not zero", body.samples[1].heap, -1);
+  eq("missing voices default to zero", body.samples[1].voices, 0);
+  const re = S.redactTrace(body);
+  ok("the grown sample is accepted by the schema unchanged",
+    re.ok === true && re.dropped.length === 0);
+  // the wiring, pinned end to end: the engine must EXPOSE the probes and
+  // the page must PASS them — the mapping tests above feed sample()
+  // directly and cannot see either side of that chain
+  const engineSrc = readFileSync(new URL("../engine.js", import.meta.url), "utf8");
+  const pageSrc = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  ok("the engine reports its heap",
+    /heap: \(\(\) => \{/.test(engineSrc) && /usedJSHeapSize/.test(engineSrc));
+  ok("the engine reports its ringing voices",
+    /voices: \(\(padS && padS\.activeVoices\) \|\| 0\)/.test(engineSrc));
+  ok("the page passes both into the sample",
+    /heap: h\.heap, voices: h\.voices,/.test(pageSrc));
+}
+
 // ---- 3. every drive is a new identity -------------------------------------
 {
   const tr = makeTracer({});

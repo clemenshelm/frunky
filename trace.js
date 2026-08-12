@@ -171,6 +171,11 @@
           rload: typeof state.rload === "number" && Number.isFinite(state.rload) &&
             state.rload >= 0 ? Math.round(state.rload * 100) : -1,
           under: Math.round(n(state.under)),
+          // growth diagnostics: a leak's signature is a monotonic climb
+          // across the drive — "not measured" stays distinct from "zero"
+          heap: typeof state.heap === "number" && Number.isFinite(state.heap) &&
+            state.heap >= 0 ? Math.round(state.heap) : -1,
+          voices: Math.round(n(state.voices)),
         });
       } catch (err) { void err; }
     }

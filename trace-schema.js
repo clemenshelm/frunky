@@ -238,6 +238,14 @@
     // crackle. -1 = this browser has no probe — a different fact from "idle"
     rload: int(-1, 100, -1),    // render-thread load, percent
     under: int(0, 1e5),         // cumulative underrun windows
+    // Growth diagnostics (field test 2026-08-12: "fine at first, crackles
+    // and dropouts accumulate over the drive"). Both are ABOUT THE ENGINE,
+    // never about the person: heap is Chrome's JS heap in megabytes (-1
+    // where the browser has no probe), voices counts what currently rings.
+    // They exist to catch a monotonic climb — a leak's signature — in the
+    // field, where no devtools ever attach
+    heap: int(-1, 100000, -1),  // used JS heap, MB (-1 = no probe)
+    voices: int(0, 10000),      // ringing synth voices right now
   });
 
   const EVENT = obj({

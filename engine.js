@@ -424,7 +424,20 @@
   }
   function dicer(tag) {
     let s = diceStreams.get(tag);
-    if (!s) { s = mulberry32(hash32(diceSeed + ":" + tag)); diceStreams.set(tag, s); }
+    if (!s) {
+      // hygiene for hour-long drives: per-bar keys (":<number>" suffix)
+      // accumulate forever and are never asked for again — prune them once
+      // the map grows. Persistent streams ("lift", "liftlen") survive:
+      // re-creating those would REPLAY their sequence from the start
+      if (diceStreams.size >= 4000) {
+        for (const k of diceStreams.keys()) {
+          if (/:\d+$/.test(k)) diceStreams.delete(k);
+          if (diceStreams.size < 2000) break;
+        }
+      }
+      s = mulberry32(hash32(diceSeed + ":" + tag));
+      diceStreams.set(tag, s);
+    }
     return s;
   }
   // one pick, everywhere: pool minus what must be avoided, from a given stream
@@ -2281,7 +2294,8 @@
         engine.shimmerOn = engine.shimmerStart >= 0;
         // and the lap's theme drifts over the pedal — the film-score return,
         // here on the emptiest stage the session has
-        if (engine.liftStart < 0 && engine.liftArm < 0 && !engine.clearingOn && engine.setMotif &&
+        if (engine.liftStart < 0 && engine.liftArm < 0 && !engine.clearingOn &&
+            !engine.lean && engine.setMotif &&
             bar % 8 === 4 && dicer("ghost:flow:" + bar)() < 0.22) {
           for (const gn of engine.setMotif) {
             padTri.triggerAttackRelease(F(69 + gn.s), gn.d * 2 * SPB * 0.9,
@@ -2743,7 +2757,11 @@
       // the tear ducts: the lift and the clearing carry a HIGH string bed —
       // the triangle pad an octave above the wash, quiet and long, riding
       // the pad's room. Register is what euphoria was missing
-      if ((liftPhase || engine.clearingOn) && pos === 0 && chPh % 2 === 0) {
+      // static and dynamic shedding both: the lite graph (Tesla, phones —
+      // coarse pointer) skips the extra polyphony entirely, and a straining
+      // device sheds it at the barline like every other ornament
+      if ((liftPhase || engine.clearingOn) && pos === 0 && chPh % 2 === 0 &&
+          !opts.lite && !lean) {
         padTri.triggerAttackRelease(progEff[ci].map((m) => F(m + 12)),
           SPB * 30 * 0.9, at("padTri", t), vv(padVol * 0.5, 0.4));
       }
@@ -2759,8 +2777,12 @@
           for (const an of phrase) {
             hookNote(t + an.p * 2 * SPB, F(69 + an.s), an.d * 2 * SPB * 0.9,
               vel(0.13 * wake));
-            padTri.triggerAttackRelease(F(57 + an.s), an.d * 2 * SPB * 0.85,
-              at("padTri", t + an.p * 2 * SPB), vv(0.06 * wake, 0.4));
+            // the octave doubling is the aria's luxury: the lite graph and a
+            // straining device keep the voice and skip the doubling
+            if (!opts.lite && !lean) {
+              padTri.triggerAttackRelease(F(57 + an.s), an.d * 2 * SPB * 0.85,
+                at("padTri", t + an.p * 2 * SPB), vv(0.06 * wake, 0.4));
+            }
           }
           ariaLog.push({ bar, liftStart: engine.liftStart });
         }
@@ -3359,6 +3381,20 @@
       // the render thread's own account, where the browser gives one:
       // -1 means "no probe here", which is a different fact from "idle"
       renderLoad, renderPeak, underruns: underrunWins,
+      // growth diagnostics (field test: "fine at first, dropouts
+      // accumulate"): a leak's signature is a monotonic climb across a
+      // drive, and no devtools ever attach in the field
+      heap: (() => {
+        try {
+          const m = typeof performance !== "undefined" && performance.memory;
+          return m && Number.isFinite(m.usedJSHeapSize)
+            ? Math.round(m.usedJSHeapSize / 1048576) : -1;
+        } catch (err) { void err; return -1; }
+      })(),
+      voices: ((padS && padS.activeVoices) || 0) +
+        ((padTri && padTri.activeVoices) || 0) +
+        ((gateS && gateS.activeVoices) || 0),
+      dice: diceStreams.size,
       strain, strainPct: totalSteps ? (strainSteps / totalSteps) * 100 : 0,
       lean: engine.lean,
       rise: riseVoices.filter(Boolean).length,
