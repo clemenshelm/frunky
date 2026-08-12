@@ -169,13 +169,26 @@
       if (!Number.isInteger(d.num) || d.num < 1) return null;
       if (!TRANSPOSES.includes(d.tp)) return null;
       if (!Number.isInteger(d.progIdx) || !PROGS[d.progIdx]) return null;
-      return { num: d.num, tp: d.tp, progIdx: d.progIdx };
+      // the motif is OPTIONAL: a pre-motif payload (old data, new code) must
+      // resume its episode and simply roll a fresh theme, and a corrupt
+      // motif is discarded on its own — it must never cost the residency
+      let motif = null;
+      if (Array.isArray(d.m) && d.m.length >= 3 && d.m.length <= 8 &&
+          d.m.every((r) => Array.isArray(r) && r.length === 4 &&
+            r.every((x) => Number.isFinite(x)) &&
+            Number.isInteger(r[0]) && r[0] >= 0 && r[0] <= 15 &&
+            r[1] >= 1 && r[1] <= 8 && r[2] >= 0 && r[2] <= 2 &&
+            RIFFSET.includes(r[3]))) {
+        motif = d.m.map(([p, dd, a, s]) => ({ p, d: dd, a, s }));
+      }
+      return { num: d.num, tp: d.tp, progIdx: d.progIdx, motif };
     } catch (err) { void err; return null; }
   }
-  function saveSet(num, tpv, progIdx) {
+  function saveSet(num, tpv, progIdx, motif) {
     try {
       const st = setStore();
-      if (st) st.setItem(SET_KEY, JSON.stringify({ v: 1, num, tp: tpv, progIdx }));
+      if (st) st.setItem(SET_KEY, JSON.stringify({ v: 1, num, tp: tpv, progIdx,
+        m: motif ? motif.map((n) => [n.p, n.d, n.a, n.s]) : undefined }));
     } catch (err) { void err; }
   }
   function rollBundle(role, progIdx, mood, notLike, bassPool) {
@@ -386,11 +399,17 @@
     [[0, 3, 1], [4, 1, 0.7], [6, 2, 1], [12, 3, 0.9]],
   ]; // [pos, dur16, accent]
   const RIFFSET = [0, 3, 5, 7, 10, 12]; // A minor pentatonic over the root
-  function genHook() {
+  // the LEITMOTIF: film scoring's strongest device — one motif, returning
+  // transformed by the scene. Rolled once per SET LAP (the 8-episode wave)
+  // and persisted with the residency, it is the melodic DNA every piece of
+  // the lap derives its hook from: the call IS the motif, the response is
+  // re-answered per piece, the recipe decides the presentation. Recognition
+  // inside the lap, freshness across laps — "ah, MY theme today"
+  function genMotif() {
     const cell = HOOKCELLS[Math.floor(Math.random() * HOOKCELLS.length)];
     let pi = 0;
     const used = new Set([RIFFSET[0]]);
-    const call = cell.map(([p, d, a], i) => {
+    return cell.map(([p, d, a], i) => {
       if (i > 0 && Math.random() >= 0.55) { // 55%: repeat the pitch — economy
         const cand = clamp(pi + (Math.random() < 0.5 ? -1 : 1), 0, RIFFSET.length - 1);
         // a hook owns at most three pitches in its run — more is a scale, not a hook
@@ -399,6 +418,9 @@
       if (i === cell.length - 1) pi = Math.random() < 0.6 ? 0 : 4; // land home or b7
       return { p, d, a, s: RIFFSET[pi] };
     });
+  }
+  function genHook(motif) {
+    const call = motif.map((n) => ({ ...n }));
     // response: identical rhythm, but a real answer — the middle of the line
     // sits a pentatonic 4th higher (contour change you can HEAR), then falls
     // to the answering tone. Changing only the last note reads as "same".
@@ -435,6 +457,12 @@
     const A = rollBundle("verse", pA, mood, null, recipe.bass);
     const B = rollBundle("chorus", pB, mood, A, recipe.bass); // chorus must contrast the verse
     const C = rollBundle("bridge", pC, mood, B, recipe.bass); // bridge must contrast the chorus
+    // the leitmotif renews with the LAP, never with the piece: a fresh set
+    // and every return to the wave's start roll a new theme, everything in
+    // between inherits — across drives, via the residency
+    if (!engine.setMotif || (num - 1) % SET_WAVE.length === 0) {
+      engine.setMotif = genMotif();
+    }
     engine.piece = {
       num,
       recipe: recipe.name, groove: recipe.groove, lead: recipe.lead,
@@ -447,12 +475,12 @@
       tp: tpPool[Math.floor(Math.random() * tpPool.length)],
       mood,
       parts: { A, B, C },
-      hook: genHook(),
+      hook: genHook(engine.setMotif),
     };
     // persist the episode as it BEGINS: a drive can end anywhere inside it,
     // and the next drive should resume as if this piece finished. Every form
     // closes on the chorus, so pB is where the walk stands when it ends
-    saveSet(num, engine.piece.tp, pB);
+    saveSet(num, engine.piece.tp, pB, engine.setMotif);
   }
   function loadPart(t) {
     const piece = engine.piece;
@@ -1899,8 +1927,11 @@
     // (the listener sings it), and sometimes an octave lift for the return.
     // Bars 8–11 REST: a hook that never leaves has nothing to return to,
     // and the arrangement (brass, fills) gets a window to answer in
+    // dub presents the motif as a FRAGMENT: the horn states the call and the
+    // response bars stay empty — the room answers. Same DNA, other hand
     if (engine.partLabel === "B" && !still && !breather && engine.piece &&
-        (bar % 16 < 8 || bar % 16 >= 12) && bar % 16 !== 13) {
+        (bar % 16 < 8 || bar % 16 >= 12) && bar % 16 !== 13 &&
+        !(engine.lead === "warm" && bar % 2 === 1)) {
       const hb = bar % 16;
       const answering = bar % 2 === 1;
       const full = answering ? engine.piece.hook.resp : engine.piece.hook.call;
@@ -2176,6 +2207,7 @@
       ["Key", KEYNAMES[String(p.tp)] || "Am"],
       ["Rezept", engine.recipe],
       ["Bogen", p.arcName],
+      ["Motiv", p.hook.call.map((n) => n.s).join("·")],
       p.mood !== "neutral" ? ["Mood", p.mood === "deep" ? "Deep" : "Anthem"] : null,
       ["Akkorde", engine.hr === "sync" ? "sync·" + (engine.syncPos === 12 ? "4" : "3+") : engine.hr],
       ["Chords", engine.padStyle],
@@ -2258,6 +2290,7 @@
     // even the last-resort graph teardown no longer resets the set
     engine.setPrev = loadSet();
     engine.progIdx = engine.setPrev ? engine.setPrev.progIdx : 0;
+    engine.setMotif = engine.setPrev ? engine.setPrev.motif : null;
     stepIdx = 0; pendingLaunchAt = -1; tp = 0; clock = 0;
     sched.clear(); ctlLast.clear(); stepCost = 0; peakCost = 0;
     strain = 0; strainSteps = 0; totalSteps = 0;
@@ -2431,6 +2464,14 @@
       nodes: kickS
         ? { kick: kickS, snare: snareS, guitar: hookGit, square: hookS, warm: leadTri }
         : null,
+    }),
+    // test seam: the leitmotif — the set's melodic DNA and how the current
+    // piece derives its hook from it, so a test can prove the recognition
+    __motif: () => ({
+      motif: engine.setMotif
+        ? engine.setMotif.map((n) => [n.p, n.d, n.a, n.s]) : null,
+      call: engine.piece ? engine.piece.hook.call.map((n) => n.s) : null,
+      resp: engine.piece ? engine.piece.hook.resp.map((n) => n.s) : null,
     }),
     // test seam: the scene machine — which scene the score believes it is
     // in, what that costs the stage, and the coda's whole life cycle
