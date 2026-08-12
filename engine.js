@@ -1138,6 +1138,7 @@
   let atmoNoise, atmoLp, atmoGain;
   let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS, leadTri, gateS, gateAmp, gateLp;
   let hookLp, hookPres; // module scope: applySoundWorld shades the hook per world
+  let crashS, crashLp;  // the cymbal: a MetalSynth, not filtered noise
   let hookThrowG; // the delay throw's dedicated send — a gesture, not a level
   let leadFuzz;   // colossus: the hook in the hands of a fuzz bass
   // the rise figure: its own pool of mono voices — overlapping entries on one
@@ -1442,6 +1443,16 @@
       envelope: { attack: 0.001, decay: 0.09, sustain: 0, release: 0.02 },
     }));
     snareBody.volume.value = db(0.25); snareBody.connect(busDrums);
+    // the cymbal (crash v3): inharmonic metallic partials, the thing
+    // filtered noise never was — its top rolled off so the shimmer sits
+    // behind the wall instead of hissing in front of it
+    crashS = reg(new Tone.MetalSynth({
+      envelope: { attack: 0.001, decay: 1.6, release: 0.5 },
+      harmonicity: 5.1, modulationIndex: 24, resonance: 3600, octaves: 1.2,
+    }));
+    crashS.volume.value = db(0.16);
+    crashLp = reg(new Tone.Filter({ frequency: 8500, type: "lowpass" }));
+    crashS.chain(crashLp, busFx);
 
     // warm bass: triangle core (round, never rasping) — but triangles carry
     // ~6 dB less energy than saws, so the level and filter make up for it
@@ -1550,7 +1561,11 @@
     // the sampled muted guitar shares the hook chain — square is the fallback
     hookGit.disconnect(); hookGit.volume.value = db(0.72);
     hookGit.connect(hookPres);
-    hookPres.connect(hookAir); hookAir.connect(hookLp);
+    // the hook trim ("much too loud", field test): ONE gain before hookLp
+    // scales the dry path and every send (delay, reverb, throw) together,
+    // so the balance inside the hook's room survives the step back
+    const hookTrim = reg(new Tone.Gain(0.74));
+    hookPres.connect(hookAir); hookAir.connect(hookTrim); hookTrim.connect(hookLp);
     // the same room as the pads: a dry lead over a wet arrangement reads as
     // overdubbed onto it. The delay keeps carrying the phrase's rhythm
     const hookRev = reg(new Tone.Gain(0.8));
@@ -1756,18 +1771,11 @@
   // as expensive when the whole spectrum returns at once; the crash is the
   // marker every produced drop carries and ours lacked
   function crash(t) {
-    // v2 ("sounds like a small splash"): a highpass at 5200 removed ALL
-    // body, which is exactly the difference between a splash and a crash.
-    // The body starts at 3400, the tail rings a full two seconds, and the
-    // level steps back so the wall carries the hit, not the cymbal
-    const n = noiseSrc(t, 2);
-    const hp = raw.createBiquadFilter();
-    hp.type = "highpass"; hp.frequency.value = 3400;
-    const g = raw.createGain();
-    g.gain.setValueAtTime(0.22, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 2);
-    n.connect(hp).connect(g);
-    Tone.connect(g, busFx);
+    // v3 ("a torn tin roof, the hiss foreground and penetrant"): filtered
+    // noise IS a tin roof — a cymbal's identity lives in inharmonic
+    // metallic partials, which is what MetalSynth is built from. The
+    // synth rings behind a lowpass so the shimmer sits behind the wall
+    if (crashS) crashS.triggerAttackRelease(0.7, at("crash", t), 0.75);
   }
 
   // the drop's release half: the riser's mirror — a falling sweep after
@@ -3073,8 +3081,11 @@
     ctl(busDrums.gain, "busDrums",
       (1 - 0.08 * engine.urban) * (1 - 0.3 * wp), 0.006, 0.2);
     // the car voicing (see the node comments): dB gains, flat when A/B'd off
-    ctl(carLow.gain, "carLow", opts.carMix ? -4.5 : 0, 0.05, 0.2);
-    ctl(carPres.gain, "carPres", opts.carMix ? 2.5 : 0, 0.05, 0.2);
+    // v2 after the 2026-08-12 field test ("still very bass-heavy, details
+    // disappear under the driving noise"): the cabin adds its own low end
+    // at speed — deeper shelf, detail band further forward
+    ctl(carLow.gain, "carLow", opts.carMix ? -6.5 : 0, 0.05, 0.2);
+    ctl(carPres.gain, "carPres", opts.carMix ? 4 : 0, 0.05, 0.2);
   }
 
   // Silence has exactly two shapes and they need different answers: the clock
@@ -3563,7 +3574,7 @@
       throwGain: hookThrowG ? hookThrowG.gain.value : null,
       drops: dropCount,
       nodes: masterHp
-        ? { masterHp, snare: snareS, snap: snareSnap, stab: stabS,
+        ? { masterHp, snare: snareS, snap: snareSnap, stab: stabS, crash: crashS,
             hookThrow: hookThrowG }
         : null,
     }),

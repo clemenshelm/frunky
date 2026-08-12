@@ -197,19 +197,23 @@ function boot(seed, store) {
   ok("the drop strikes a chord on the one, not only a kick",
     /stabChord\(t, progEff\[ci\], 0\.16\)/.test(script) &&
     /hat\(t, true, 0\.14\)/.test(script));
-  ok("the crash is high noise with a real tail into the room",
-    /function crash\(t\)[\s\S]{0,700}?highpass[\s\S]{0,700}?busFx/.test(script));
-  // crash v2 (field report: "sounds like a small splash, not a solid
-  // crash — and a bit too present"): a highpass at 5200 removed ALL body,
-  // which is exactly the difference between a splash and a crash. The
-  // body starts at 3400, the tail rings a full two seconds, and the level
-  // steps back so the wall carries the hit, not the cymbal
-  ok("the crash keeps its body (highpass at 3400, not splash-high)",
-    /function crash\(t\)[\s\S]{0,400}?hp\.frequency\.value = 3400/.test(script));
-  ok("… rings a real tail (2 s)",
-    /function crash\(t\)[\s\S]{0,700}?exponentialRampToValueAtTime\(0\.0001, t \+ 2\)/.test(script));
-  ok("… and steps back in the mix",
-    /function crash\(t\)[\s\S]{0,600}?setValueAtTime\(0\.22, t\)/.test(script));
+  // crash v3 (field report: "a torn tin roof, the hiss is foreground and
+  // penetrant"): filtered noise IS a tin roof — a cymbal's identity lives
+  // in inharmonic metallic partials, which is exactly what MetalSynth is
+  // built from. LIFTED from the v2 noise pins: the crash is a synthesized
+  // cymbal now, its top rolled off so the shimmer sits behind the wall
+  ok("the crash is a cymbal (MetalSynth), not torn noise",
+    /crashS = reg\(new Tone\.MetalSynth\(/.test(script));
+  ok("… with its hiss rolled off",
+    /crashLp = reg\(new Tone\.Filter\(\{ frequency: 8500, type: "lowpass" \}\)\)/.test(script));
+  ok("… ringing into the room behind the wall",
+    /crashS\.chain\(crashLp, busFx\)/.test(script) &&
+    /crashS\.volume\.value = db\(0\.16\)/.test(script));
+  ok("the crash really strikes at the drop, " +
+    ((seam().nodes && seam().nodes.crash) ? seam().nodes.crash.trigs : "?") +
+    " strikes for " + seam().drops + " drops",
+    !!seam().nodes && !!seam().nodes.crash &&
+    seam().nodes.crash.trigs >= seam().drops && seam().drops >= 2);
   // snare v2 (field report: thin and mechanical, worst in the build): a
   // full backbeat strikes a snap layer on top of noise and body; ghosts and
   // roll hits stay soft AND vary their color per hit, so sixteen of them
@@ -217,6 +221,13 @@ function boot(seed, store) {
   const sn = seam().nodes || {};
   ok("full snares carry the snap layer, ghosts do not",
     !!sn.snap && sn.snap.trigs > 0 && sn.snap.trigs < sn.snare.trigs);
+  // the hook trim ("the hook is much too loud" — 2026-08-12 field test):
+  // one gain before hookLp scales the dry path AND every send (delay,
+  // reverb, throw) together, so the balance inside the hook's room
+  // survives the step back
+  ok("the hook steps back through one trim, wet and dry together",
+    /hookAir\.connect\(hookTrim\); hookTrim\.connect\(hookLp\);/.test(script) &&
+    /hookTrim = reg\(new Tone\.Gain\(0\.74\)\)/.test(script));
   // roll v3 ("the build snare sounds like a tin can"): a bandpassed noise
   // burst ringing at 1500–2000 Hz IS a tin can once sixteen of them stand
   // in the foreground. The producer's classic: the roll STARTS dark and

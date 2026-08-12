@@ -59,6 +59,13 @@ for (const lite of [false, true]) {
     g.carLow.gain.value <= -3 && g.carLow.gain.value >= -8);
   ok(label + "the presence peak lifts the detail band, got " + g.carPres.gain.value,
     g.carPres.gain.value >= 1.5 && g.carPres.gain.value <= 5);
+  // v2 after the 2026-08-12 field test ("still very bass-heavy, details
+  // disappear under the driving noise"): the cabin adds its own low end at
+  // speed, so the shelf goes deeper and the detail band comes further
+  // forward — pinned exactly, because "somewhere in the band" is how the
+  // last calibration quietly stopped matching the car
+  ok(label + "v2 shelf depth is -6.5", g.carLow.gain.value === -6.5);
+  ok(label + "v2 presence lift is 4", g.carPres.gain.value === 4);
 
   // the A/B: switching the profile off must genuinely flatten both stages
   Frunky.setOption("carMix", false);
