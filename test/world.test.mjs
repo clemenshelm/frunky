@@ -58,7 +58,7 @@ async function drive(Frunky, pieces, state) {
       seen.push({
         num: p.num, mood: p.mood, world: w.name, applied: w.applied,
         kickPd: w.nodes ? w.nodes.kick.settings.pitchDecay : null,
-        bassLp: w.nodes ? w.nodes.bassLp.frequency.value : null,
+        bassOsc: w.nodes ? w.nodes.bass.settings.oscillator.type : null,
         padOsc: w.nodes ? w.nodes.pad.settings.oscillator.type : null,
         bassVol: w.nodes ? w.nodes.bass.volume.value : null,
         cutScale: w.cutScale,
@@ -101,6 +101,13 @@ async function drive(Frunky, pieces, state) {
     // a trim is a physics compensation, never a mix decision — bounded
     ok(`${name} trims stay within ±4 dB`,
       SLOTS.every((s) => Math.abs(W[s].trim || 0) <= 4));
+    // a world may recolor the bass window, never leave the pleasant range:
+    // the cut scale rides a drive formula that already reaches ~1550 Hz, so
+    // a scale much above 1 turns a saw bass into a rasp (the field report on
+    // neon: "viel zu scharf"). Bounded both ways — darker is safe, but a
+    // world must stay a color, not a mute
+    ok(`${name} keeps its bass window in the pleasant range`,
+      !a || (W.bass.lp / a.bass.lp >= 0.6 && W.bass.lp / a.bass.lp <= 1.25));
     // lite devices must have a plain-oscillator variant for every fat voice —
     // a world that forgets one silently loses that voice on the car unit
     ok(`${name} names a lite oscillator for bass, pad and gate`,
@@ -120,6 +127,12 @@ async function drive(Frunky, pieces, state) {
 {
   const Frunky = boot(0.03, makeStore());
   await Frunky.start();
+  // the built park IS the analog world, applied at build time — one source
+  // of truth. Without this, the constructors in buildGraph are a second copy
+  // of analog's values that nothing pins, and a tweak there is silently
+  // reverted by the first world application
+  ok("the fresh graph has the analog world applied before any piece",
+    Frunky.__world().applied === "analog");
   const state = { t: 0 };
   const run = await drive(Frunky, 8, state);
   const w = Frunky.__world();
@@ -136,8 +149,11 @@ async function drive(Frunky, pieces, state) {
   ok("the kick carries each piece's world, saw " +
     run.map((r) => r.kickPd).join(","),
     run.every((r) => r.kickPd === w.tables[r.world].kick.pitchDecay));
-  ok("the bass filter carries each piece's world",
-    run.every((r) => r.bassLp === w.tables[r.world].bass.lp));
+  // the oscillator, not the static filter value: the bass cutoff is owned by
+  // the per-note automation (scaled below), so the honest live-node proof for
+  // the bass is its waveform
+  ok("the bass oscillator carries each piece's world",
+    run.every((r) => r.bassOsc === w.tables[r.world].bass.osc.type));
   ok("the pad oscillator carries each piece's world",
     run.every((r) => r.padOsc === w.tables[r.world].pad.osc.type));
   // the bass cutoff is NOT a static filter value — every bassNote automates
@@ -148,6 +164,13 @@ async function drive(Frunky, pieces, state) {
     run.every((r) => Math.abs(r.cutScale - w.tables[r.world].bass.lp / 480) < 1e-9));
   ok("and bassNote really multiplies its per-note cut by that scale",
     /setValueAtTime\(cut \* \(engine\.worldCutScale \|\| 1\)/.test(script));
+  // the lick sits back, but never collapses: at cruise the regular bass rides
+  // ~0.46 while the lick rode a flat 0.18 — heard as the bass dropping out,
+  // loudest on a bright world. The lick's velocity must scale with the same
+  // fat the regular notes ride (pinned as formula: velocities pass through
+  // human jitter, so the shape is the testable truth)
+  ok("the lick's velocity rides the drive like the regular bass",
+    /vel\(\(0\.16 \+ 0\.18 \* fat\) \* drain \* wake\)/.test(script));
   // the trim proof, base-free: between any two pieces, the bass volume moved
   // by exactly the difference of their worlds' trims — a trim that never
   // reaches a volume knob is a mix promise the music does not keep

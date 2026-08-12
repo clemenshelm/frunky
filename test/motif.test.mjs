@@ -90,7 +90,7 @@ const store = makeStore();
 
 // ---- 2. the next drive resumes the theme; the next LAP rolls a new one ------
 {
-  const Frunky = boot(0.09, store); // different dice — the motif must come from the store
+  const Frunky = boot(0.01, store); // different dice — the motif must come from the store
   await Frunky.start();
   const state = { t: 0, lastNum: 2 };
   const run = await drive(Frunky, 7, state); // pieces 3..9: lap ends at 8

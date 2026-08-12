@@ -118,14 +118,18 @@
       gate: { osc: { type: "fattriangle", count: 2, spread: 8 }, lite: "triangle", trim: 0.5 },
       blip: { osc: { type: "triangle" }, trim: 2 },
     },
-    neon: { // tight and cold — clicky kick, crisp hats, wide saw glass
+    neon: { // tight and cold — clicky kick, crisp hats, wide saw glass.
+      // The first cut was much hotter (lp 700, light trims) and the field
+      // report was unambiguous: too sharp, and louder than analog. Cold is a
+      // color, not a level — the saws keep the character, the window and the
+      // trims keep it pleasant next to the reference world
       kick: { pitchDecay: 0.05, octaves: 2.2, decay: 0.2 },
       hat: { closed: 0.028, open: 0.2 },
       snare: { decay: 0.1 },
-      bass: { osc: { type: "fatsawtooth", count: 2, spread: 10 }, lite: "sawtooth", lp: 700, trim: -2.5 },
-      pad: { osc: { type: "fatsawtooth", count: 3, spread: 22 }, lite: "sawtooth", attack: 0.7, release: 1.2, trim: -0.5 },
-      gate: { osc: { type: "fatsquare", count: 2, spread: 10 }, lite: "square", trim: -1 },
-      blip: { osc: { type: "square" }, trim: 0 },
+      bass: { osc: { type: "fatsawtooth", count: 2, spread: 10 }, lite: "sawtooth", lp: 560, trim: -4 },
+      pad: { osc: { type: "fatsawtooth", count: 3, spread: 18 }, lite: "sawtooth", attack: 0.7, release: 1.2, trim: -2 },
+      gate: { osc: { type: "fatsquare", count: 2, spread: 10 }, lite: "square", trim: -2.5 },
+      blip: { osc: { type: "square" }, trim: -1 },
     },
   };
   // deep rounds off, anthem goes cold and bright, analog stays everyone's
@@ -294,43 +298,77 @@
         m: motif ? motif.map((n) => [n.p, n.d, n.a, n.s]) : undefined }));
     } catch (err) { void err; }
   }
-  function rollBundle(role, progIdx, mood, notLike, bassPool) {
+  // ---- composition dice ----------------------------------------------------
+  // Every COMPOSED decision (piece, part bundle, per-occurrence ornament)
+  // draws from its own keyed random stream instead of the global Math.random.
+  // The global stream is consumed by every note that happens to sound
+  // (micro-timing, velocities), so composition outcomes used to depend on
+  // exactly how many notes had played — and every new roll added to newPiece
+  // shifted every seed-dependent test in the suite. A keyed stream bounds the
+  // blast radius: a new decision is a new key, and existing keys keep their
+  // answers. Note jitter stays on Math.random — it is texture, not identity.
+  let diceSeed = "";
+  const diceStreams = new Map();
+  function hash32(str) {
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  }
+  function mulberry32(a) {
+    return () => {
+      a |= 0; a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function dicer(tag) {
+    let s = diceStreams.get(tag);
+    if (!s) { s = mulberry32(hash32(diceSeed + ":" + tag)); diceStreams.set(tag, s); }
+    return s;
+  }
+  // one pick, everywhere: pool minus what must be avoided, from a given stream
+  const pick = (pool, avoid, rnd) => {
+    const p = avoid != null && pool.length > 1 ? pool.filter((x) => x !== avoid) : pool;
+    return p[Math.floor(rnd() * p.length)];
+  };
+
+  function rollBundle(role, progIdx, mood, notLike, bassPool, rnd) {
     // a sibling part must be tellable apart: never the same chord style or
     // bass pattern as the bundle it plays against (contrast is the form)
-    const pick = (pool, avoid) => {
-      const p = avoid != null && pool.length > 1 ? pool.filter((x) => x !== avoid) : pool;
-      return p[Math.floor(Math.random() * p.length)];
-    };
     // the recipe curates which bass patterns may play under its kick
     const bassChoices = (bassPool || [0, 1, 2]).map((i) => BASSPATS[i]);
     const b = {
       progIdx,
-      hr: HRS[Math.floor(Math.random() * HRS.length)],
-      bassPat: pick(bassChoices, notLike && notLike.bassPat),
-      bassMel: Math.random() < (role === "chorus" ? 0.5 : 0.3)
-        ? BASSMELS[Math.floor(Math.random() * BASSMELS.length)] : null,
-      arpSeq: ARPS[Math.floor(Math.random() * ARPS.length)],
-      arpOct: role === "bridge" ? 12 : Math.random() < 0.2 ? 12 : 0,
-      ghosts: Math.random() < 0.5,
-      bassFill: Math.random() < 0.5,
-      blips: Math.random() < (role === "verse" ? 0.4 : 0.2) * (mood === "deep" ? 0.5 : 1),
+      hr: HRS[Math.floor(rnd() * HRS.length)],
+      bassPat: pick(bassChoices, notLike && notLike.bassPat, rnd),
+      bassMel: rnd() < (role === "chorus" ? 0.5 : 0.3)
+        ? BASSMELS[Math.floor(rnd() * BASSMELS.length)] : null,
+      arpSeq: ARPS[Math.floor(rnd() * ARPS.length)],
+      arpOct: role === "bridge" ? 12 : rnd() < 0.2 ? 12 : 0,
+      ghosts: rnd() < 0.5,
+      bassFill: rnd() < 0.5,
+      blips: rnd() < (role === "verse" ? 0.4 : 0.2) * (mood === "deep" ? 0.5 : 1),
       brassy: role === "chorus" &&
-        Math.random() < (mood === "anthem" ? 0.7 : mood === "deep" ? 0.15 : 0.5),
+        rnd() < (mood === "anthem" ? 0.7 : mood === "deep" ? 0.15 : 0.5),
       snare: role === "chorus" ? mood !== "deep"
-        : Math.random() < (mood === "anthem" ? 0.6 : 0.35),
+        : rnd() < (mood === "anthem" ? 0.6 : 0.35),
       // the verse never gates: a piece must not OPEN on its most aggressive
       // chord voice. The gate is a development, so it belongs to the parts
       // that arrive after the listener has settled in
       padStyle: pick(role === "verse" ? ["wash", "keys", "broken"]
         : role === "chorus" ? ["wash", "keys", "gate"] : PADSTYLES,
-        notLike && notLike.padStyle),
+        notLike && notLike.padStyle, rnd),
     };
     // curation (auditory scene analysis: at most one rhythmic protagonist,
     // and figures must agree on WHEN harmony changes):
     // – broken/gate figures change chords on barlines only, so anticipating
     //   harmonic rhythms would announce a chord the figure keeps contradicting
     if (b.padStyle === "broken" || b.padStyle === "gate")
-      b.hr = Math.random() < 0.5 ? "bar" : "twobar";
+      b.hr = rnd() < 0.5 ? "bar" : "twobar";
     // – the gate IS the foreground rhythm: blips and brass would fight it
     if (b.padStyle === "gate") { b.blips = false; b.brassy = false; }
     // – broken Rhodes 8ths share the arp's register: stream segregation by
@@ -493,12 +531,11 @@
     snareS.set({ envelope: { decay: W.snare.decay } });
     bassS.set({ oscillator: opts.lite ? { type: W.bass.lite } : W.bass.osc });
     // the bass cutoff is automated per NOTE (drive-dependent formula in
-    // bassNote), so a static filter write here would be overwritten by the
-    // next note. The world recolors by SCALING that formula instead —
-    // anchored on analog's park, so analog scales by exactly 1 — and the
-    // static write below only colors the silence between notes
+    // bassNote), so a static filter write here would be a no-op overwritten
+    // by the next note — build 36 shipped exactly that bug. The world
+    // recolors by SCALING that formula instead, anchored on analog's park,
+    // so analog scales by exactly 1. ONE mechanism, on purpose
     engine.worldCutScale = W.bass.lp / SOUNDWORLDS.analog.bass.lp;
-    bassLp.frequency.value = W.bass.lp;
     padS.set({ oscillator: opts.lite ? { type: W.pad.lite } : W.pad.osc,
       envelope: { attack: W.pad.attack, release: W.pad.release } });
     gateS.set({ oscillator: opts.lite ? { type: W.gate.lite } : W.gate.osc });
@@ -539,28 +576,28 @@
   // the lap derives its hook from: the call IS the motif, the response is
   // re-answered per piece, the recipe decides the presentation. Recognition
   // inside the lap, freshness across laps — "ah, MY theme today"
-  function genMotif() {
-    const cell = HOOKCELLS[Math.floor(Math.random() * HOOKCELLS.length)];
+  function genMotif(rnd) {
+    const cell = HOOKCELLS[Math.floor(rnd() * HOOKCELLS.length)];
     let pi = 0;
     const used = new Set([RIFFSET[0]]);
     return cell.map(([p, d, a], i) => {
-      if (i > 0 && Math.random() >= 0.55) { // 55%: repeat the pitch — economy
-        const cand = clamp(pi + (Math.random() < 0.5 ? -1 : 1), 0, RIFFSET.length - 1);
+      if (i > 0 && rnd() >= 0.55) { // 55%: repeat the pitch — economy
+        const cand = clamp(pi + (rnd() < 0.5 ? -1 : 1), 0, RIFFSET.length - 1);
         // a hook owns at most three pitches in its run — more is a scale, not a hook
         if (used.size < 3 || used.has(RIFFSET[cand])) { pi = cand; used.add(RIFFSET[pi]); }
       }
-      if (i === cell.length - 1) pi = Math.random() < 0.6 ? 0 : 4; // land home or b7
+      if (i === cell.length - 1) pi = rnd() < 0.6 ? 0 : 4; // land home or b7
       return { p, d, a, s: RIFFSET[pi] };
     });
   }
-  function genHook(motif) {
+  function genHook(motif, rnd) {
     const call = motif.map((n) => ({ ...n }));
     // response: identical rhythm, but a real answer — the middle of the line
     // sits a pentatonic 4th higher (contour change you can HEAR), then falls
     // to the answering tone. Changing only the last note reads as "same".
     const resp = call.map((n, i) => {
       if (i === 0) return { ...n };
-      if (i === call.length - 1) return { ...n, s: RIFFSET[Math.random() < 0.5 ? 3 : 1] };
+      if (i === call.length - 1) return { ...n, s: RIFFSET[rnd() < 0.5 ? 3 : 1] };
       return { ...n, s: RIFFSET[Math.min(RIFFSET.indexOf(n.s) + 2, RIFFSET.length - 1)] };
     });
     return { call, resp };
@@ -571,7 +608,6 @@
     // DRIVE: after a resume, engine.progIdx and setPrev carry the old set's
     // position, so the walk and the key-avoidance continue across the boundary
     const prev = engine.piece || engine.setPrev;
-    const tpPool = TRANSPOSES.filter((x) => !prev || x !== prev.tp);
     const num = prev ? prev.num + 1 : 1;
     // the wave, not the dice: the episode number decides the mood
     const mood = SET_WAVE[(num - 1) % SET_WAVE.length];
@@ -581,35 +617,33 @@
     // opens on the Am9 pivot voicing in every palette
     const prevPal = engine.piece ? engine.piece.paletteName
       : engine.setPrev ? engine.setPrev.pal : null;
-    const palPool = PALETTE_POOL[mood];
-    const paletteName = palPool[Math.floor(Math.random() * palPool.length)];
+    const paletteName = pick(PALETTE_POOL[mood], null, dicer("palette:" + num));
     const P = PALETTES[paletteName];
+    const walk = dicer("walk:" + num);
     const pA = paletteName === prevPal ? engine.progIdx : 0;
-    const nA = P.next[pA];
-    const pB = nA[Math.floor(Math.random() * nA.length)];
-    const nB = P.next[pB];
-    const pC = nB[Math.floor(Math.random() * nB.length)];
+    const pB = pick(P.next[pA], null, walk);
+    const pC = pick(P.next[pB], null, walk);
     // the recipe: the piece's frame. Never the same one twice in a row —
     // that rotation is what makes consecutive pieces read as different SONGS
-    const recPool = RECIPES.filter((r) => !engine.piece || r.name !== engine.piece.recipe);
-    const recipe = recPool[Math.floor(Math.random() * recPool.length)];
+    const recipe = pick(RECIPES,
+      engine.piece ? RECIPES.find((r) => r.name === engine.piece.recipe) : null,
+      dicer("recipe:" + num));
     // the arc: the piece's character — where its peak lies. Chosen from the
     // mood's pool, so the wave shapes the story, not only the density
-    const arcPool = ARC_POOL[mood];
-    const arcName = arcPool[Math.floor(Math.random() * arcPool.length)];
+    const arcName = pick(ARC_POOL[mood], null, dicer("arc:" + num));
     // the sound world: the piece's orchestra, drawn from the mood's pool and
     // never the same twice in a row — consecutive tracks must not share a
     // sound, exactly the recipe's rotation rule
-    const worldPool = WORLD_POOL[mood].filter((x) => !engine.piece || x !== engine.piece.world);
-    const world = worldPool[Math.floor(Math.random() * worldPool.length)];
-    const A = rollBundle("verse", pA, mood, null, recipe.bass);
-    const B = rollBundle("chorus", pB, mood, A, recipe.bass); // chorus must contrast the verse
-    const C = rollBundle("bridge", pC, mood, B, recipe.bass); // bridge must contrast the chorus
+    const world = pick(WORLD_POOL[mood], engine.piece ? engine.piece.world : null,
+      dicer("world:" + num));
+    const A = rollBundle("verse", pA, mood, null, recipe.bass, dicer("bundle:A:" + num));
+    const B = rollBundle("chorus", pB, mood, A, recipe.bass, dicer("bundle:B:" + num)); // chorus must contrast the verse
+    const C = rollBundle("bridge", pC, mood, B, recipe.bass, dicer("bundle:C:" + num)); // bridge must contrast the chorus
     // the leitmotif renews with the LAP, never with the piece: a fresh set
     // and every return to the wave's start roll a new theme, everything in
     // between inherits — across drives, via the residency
     if (!engine.setMotif || (num - 1) % SET_WAVE.length === 0) {
-      engine.setMotif = genMotif();
+      engine.setMotif = genMotif(dicer("motif:" + num));
     }
     engine.piece = {
       num,
@@ -619,13 +653,13 @@
       world,
       // a COPY: a launch rewrites this piece's script, and mutating the shared
       // pool entry would corrupt the form for every piece that follows
-      form: FORMS[Math.floor(Math.random() * FORMS.length)].slice(),
+      form: pick(FORMS, null, dicer("form:" + num)).slice(),
       idx: 0,
       pulled: false,
-      tp: tpPool[Math.floor(Math.random() * tpPool.length)],
+      tp: pick(TRANSPOSES, prev ? prev.tp : null, dicer("tp:" + num)),
       mood,
       parts: { A, B, C },
-      hook: genHook(engine.setMotif),
+      hook: genHook(engine.setMotif, dicer("hook:" + num)),
     };
     // persist the episode as it BEGINS: a drive can end anywhere inside it,
     // and the next drive should resume as if this piece finished. Every form
@@ -656,16 +690,19 @@
     engine.groove = GROOVES[engine.piece.groove];
     engine.lead = engine.piece.lead;
     if (transport) transport.swing = engine.groove.swing;
-    // per-occurrence freshness: ornaments re-roll, one trait may flip
-    engine.lick = Math.random() < 0.4 ? LICKS[Math.floor(Math.random() * LICKS.length)] : null;
-    engine.blipSeq = BLIPS[Math.floor(Math.random() * BLIPS.length)];
-    engine.syncPos = SYNCPOS[Math.floor(Math.random() * SYNCPOS.length)];
+    // per-occurrence freshness: ornaments re-roll, one trait may flip.
+    // One keyed stream per (piece, slot): this occurrence's rolls can never
+    // shift another part's — see the composition dice above
+    const occ = dicer("occ:" + piece.num + ":" + piece.idx);
+    engine.lick = occ() < 0.4 ? LICKS[Math.floor(occ() * LICKS.length)] : null;
+    engine.blipSeq = BLIPS[Math.floor(occ() * BLIPS.length)];
+    engine.syncPos = SYNCPOS[Math.floor(occ() * SYNCPOS.length)];
     engine.partLabel = label;
-    engine.brokenPat = BROKENPATS[Math.floor(Math.random() * BROKENPATS.length)];
-    engine.gatePat = GATEPATS[Math.floor(Math.random() * GATEPATS.length)];
+    engine.brokenPat = BROKENPATS[Math.floor(occ() * BROKENPATS.length)];
+    engine.gatePat = GATEPATS[Math.floor(occ() * GATEPATS.length)];
     // an octave up is the most piercing thing the hook can do; keep it rare
-    engine.hookLift = Math.random() < 0.2;
-    if (Math.random() < 0.3) engine.ghosts = !engine.ghosts;
+    engine.hookLift = occ() < 0.2;
+    if (occ() < 0.3) engine.ghosts = !engine.ghosts;
     // the story arc: the slot's stage decides which of the returning
     // materials speak THIS time. The rolled flags are recorded after every
     // per-occurrence roll — a re-rolled lick or a flipped ghost trait must
@@ -714,6 +751,9 @@
   // outright — and human players drag, they do not anticipate
   function hum(t, pos) { void pos; return t + Math.random() * 0.005; }
   function vel(v) { return v * (0.85 + Math.random() * 0.3); }
+  // which chord of the 4-slot progression a bar sits on — the ONE place the
+  // harmonic-rhythm arithmetic lives, so a fifth hr type cannot miss a site
+  const chordIdx = (bar, hr) => (hr === "twobar" ? Math.floor(bar / 2) % 4 : bar % 4);
 
   const engine = {
     running: false,
@@ -1341,6 +1381,12 @@
     stabS.volume.value = db(0.14);
     poly(stabS, opts.lite ? 12 : 24);
     stabS.connect(stabLp); stabLp.connect(busHarm); stabLp.connect(delaySend); stabLp.connect(revSend);
+
+    // the SOUNDWORLDS table is the single source of truth for the world-
+    // managed voices: apply the reference world to the fresh park, so a
+    // constructor value that drifts from the table can never survive to be
+    // heard — the table wins from the first note
+    applySoundWorld("analog");
   }
 
   // native one-shots on the shared context (clicks, impacts, swells)
@@ -1847,8 +1893,9 @@
     // engine feedback: the rise figure reads the push and the current chord.
     // Deliberately outside the still/cruise split — a launch from standstill
     // is exactly the moment the figure exists for
-    const ciRise = hrEff === "twobar" ? Math.floor(bar / 2) % 4 : bar % 4;
-    riseStep(t, s, push, lean, rootsEff[ciRise], progEff[ciRise]);
+    const ci = chordIdx(bar, hrEff);
+    const ciNext = chordIdx(bar + 1, hrEff);
+    riseStep(t, s, push, lean, rootsEff[ci], progEff[ci]);
 
     // the coda's last word: everything hushes and one long chord rings out
     // alone — a drive that ends now ends on a resolution instead of
@@ -1858,7 +1905,7 @@
         !engine.codaResolved) {
       engine.codaResolved = true;
       hush(t);
-      pad(t, progEff[ciRise], SPB * 32, 0.2, 900);
+      pad(t, progEff[ci], SPB * 32, 0.2, 900);
     }
 
     if (still) {
@@ -1884,8 +1931,6 @@
       const fat = clamp(e / 0.5, 0, 1);
       const drain = 1 - 0.5 * engine.brake; // braking audibly drains the drive
       // the bass root moves ONLY on the one — it is the meter's anchor
-      const ci = hrEff === "twobar" ? Math.floor(bar / 2) % 4 : bar % 4;
-      const ciNext = hrEff === "twobar" ? Math.floor((bar + 1) / 2) % 4 : (bar + 1) % 4;
       const rootF = F(rootsEff[ci]);
       // once per 8-bar phrase a lick takes over the bar's second half
       const lickBar = engine.lick && bar % 8 === 3 && !breather && !bridgeDown && !lean;
@@ -1906,8 +1951,11 @@
         if (pos === 10) engine.lickFlashUntil = Date.now() + 2200;
         const hit = engine.lick.find((x) => x[0] === pos);
         if (hit) {
+          // the lick sits back a little, but rides the same fat as the notes
+          // it replaces — a flat 0.18 against a cruising 0.46 was heard as
+          // the bass dropping out for the bar, loudest on a bright world
           bassNote(bassT(t), F(rootsEff[ci] + hit[1]), 800 + 400 * fat,
-            vel(0.18 * drain), SPB * 0.85);
+            vel((0.16 + 0.18 * fat) * drain * wake), SPB * 0.85);
         }
       }
       // funk vocabulary: quiet ghost notes between the hits — felt, not heard
@@ -1966,7 +2014,7 @@
       if (flowMode && bar % 24 === 15 && pos === 8) fillSwell(t, SPB * 8);
       if (liftPhase && pos % 8 === 4) hat(t, true, 0.11);
       if (liftPhase && pos === 0 && bar % 2 === 0) {
-        rhodesChord(t, progEff[Math.floor(bar / 2) % 4], 0.11);
+        rhodesChord(t, progEff[ci], 0.11);
       }
       // Rhodes comping: a soft chord dab answers on the and-of-two in town —
       // but not when the Rhodes already IS the chord voice (keys/broken):
@@ -2028,30 +2076,29 @@
       * moodF * (bridgeDown ? 1.35 : 1);
     const padCut = 950 + 350 * Math.sin(bar * 0.37) + (liftPhase ? 350 : 0);
     if (hrEff === "twobar") {
-      if (pos === 0 && bar % 2 === 0) chordVoice(t, progEff[Math.floor(bar / 2) % 4], SPB * 32, padVol, padCut);
+      if (pos === 0 && bar % 2 === 0) chordVoice(t, progEff[ci], SPB * 32, padVol, padCut);
     } else if (hrEff === "push") {
-      if (pos === 0 && bar % 16 === 0) chordVoice(t, progEff[bar % 4], SPB * 14, padVol, padCut);
+      if (pos === 0 && bar % 16 === 0) chordVoice(t, progEff[ci], SPB * 14, padVol, padCut);
       // never anticipate across a section boundary — the next section owns its one
       if (pos === 14 && bar % 16 !== 15) {
-        chordVoice(t, progEff[(bar + 1) % 4], SPB * 16, padVol, padCut);
+        chordVoice(t, progEff[ciNext], SPB * 16, padVol, padCut);
         // the pad's slow attack smears the anticipation — Rhodes announces it.
         // Only for the wash: the keys style already rolls its own Rhodes
-        if (engine.padStyle === "wash") rhodesChord(t, progEff[(bar + 1) % 4], 0.08 + 0.05 * e);
+        if (engine.padStyle === "wash") rhodesChord(t, progEff[ciNext], 0.08 + 0.05 * e);
       }
     } else if (hrEff === "sync") {
       // the next bar's chord arrives at an odd spot — anticipation, not displacement
-      if (pos === 0 && bar % 16 === 0) chordVoice(t, progEff[bar % 4], SPB * engine.syncPos, padVol, padCut);
+      if (pos === 0 && bar % 16 === 0) chordVoice(t, progEff[ci], SPB * engine.syncPos, padVol, padCut);
       if (pos === engine.syncPos && bar % 16 !== 15) {
-        chordVoice(t, progEff[(bar + 1) % 4], SPB * (16 + 16 - engine.syncPos), padVol, padCut);
-        if (engine.padStyle === "wash") rhodesChord(t, progEff[(bar + 1) % 4], 0.08 + 0.05 * e);
+        chordVoice(t, progEff[ciNext], SPB * (16 + 16 - engine.syncPos), padVol, padCut);
+        if (engine.padStyle === "wash") rhodesChord(t, progEff[ciNext], 0.08 + 0.05 * e);
       }
     } else {
-      if (pos === 0) chordVoice(t, progEff[bar % 4], SPB * 16, padVol, padCut);
+      if (pos === 0) chordVoice(t, progEff[ci], SPB * 16, padVol, padCut);
     }
     // broken/gate styles: the chords live as figures, not as a carpet
     if (!engine.flowOn && !still && !lean) {
-      const ciPad = hrEff === "twobar" ? Math.floor(bar / 2) % 4 : bar % 4;
-      const chordNow = progEff[ciPad];
+      const chordNow = progEff[ci];
       if (engine.padStyle === "broken" && pos % 2 === 0) {
         // the chord flows: Rhodes single notes walking the voicing in 8ths
         const bi = engine.brokenPat[Math.floor(s / 2) % 8];
@@ -2070,11 +2117,10 @@
     if (gateAmp) {
       const gateOn = engine.padStyle === "gate" && !engine.flowOn && !still && !bridgeDown && !lean;
       if (gateOn) {
-        const ciPad = hrEff === "twobar" ? Math.floor(bar / 2) % 4 : bar % 4;
         // re-voice only when the harmony actually moves — the gate's whole
         // point is that the chord is continuous underneath the rhythm
         const barChanges = hrEff === "twobar" ? bar % 2 === 0 : true;
-        if (pos === 0 && barChanges) gateHold(t, progEff[ciPad]);
+        if (pos === 0 && barChanges) gateHold(t, progEff[ci]);
         // a gated section must not arrive at full force on its downbeat: it
         // swells in over three bars, so the ear meets a change, not a switch.
         // And it closes to a FLOOR, never to silence — that floor is the
@@ -2460,6 +2506,10 @@
     engine.progIdx = engine.setPrev ? engine.setPrev.progIdx : 0;
     engine.setMotif = engine.setPrev ? engine.setPrev.motif : null;
     stepIdx = 0; pendingLaunchAt = -1; tp = 0; clock = 0;
+    // the composition dice reseed per session: one draw from the global
+    // stream anchors every keyed stream, so a test that seeds Math.random
+    // still owns every composed outcome deterministically
+    diceSeed = String(Math.random()); diceStreams.clear();
     sched.clear(); ctlLast.clear(); stepCost = 0; peakCost = 0;
     strain = 0; strainSteps = 0; totalSteps = 0;
     lastStepSeen = -1; lastStepAt = 0;

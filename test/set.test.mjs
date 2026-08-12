@@ -114,7 +114,7 @@ for (const seed of [0.377, 0.641]) {
 
   // the next drive is the next episode: numbering continues, the wave
   // continues (position 3 = the first peak), the key moves on
-  const FrunkyB = boot(0.5, store);
+  const FrunkyB = boot(0.01, store);
   await FrunkyB.start();
   drivePieces(FrunkyB, 2, { t: 0 });
   const p = FrunkyB.__set && FrunkyB.__set().piece;
