@@ -200,7 +200,10 @@
     [1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0],
     [1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 0], // 3-3-2
   ];
-  const FILLS = ["toms", "sweep", "swell"];
+  // weighted on purpose ("the woosh comes really often"): the drum answer
+  // owns most phrase ends, the noise gestures are the exception — and more
+  // toms flavor also means more real fills from the classics crate
+  const FILLS = ["toms", "toms", "toms", "sweep", "swell"];
   // the fill crate — hand-set drum phrases, three sizes, the drummer's
   // hierarchy: a small shrug every few bars, a half-bar answer at phrase
   // ends, a full-bar statement into a new part. Fills mark FORM boundaries
@@ -1718,8 +1721,12 @@
     bp.frequency.exponentialRampToValueAtTime(2200, t + dur);
     const g = raw.createGain();
     g.gain.setValueAtTime(0.0001, t);
+    // ramp down from the peak, never step: a gain jump from 0.11 to zero
+    // between two samples is a waveform discontinuity — the occasional
+    // "click on the woosh" of the field report, audible whenever the
+    // downbeat did not mask it
     g.gain.linearRampToValueAtTime(0.11, t + dur);
-    g.gain.setValueAtTime(0.0001, t + dur + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.06);
     n.connect(bp).connect(g);
     Tone.connect(g, busFx);
   }
@@ -2181,7 +2188,7 @@
       if (engine.sceneHushPending) { engine.sceneHushPending = false; hush(t); }
     }
     if (pos === 0) engine.barInPart = bar % 16;
-    if (pos === 0 && bar % 8 === 7) engine.fill = FILLS[Math.floor(Math.random() * FILLS.length)];
+    if (pos === 0 && bar % 8 === 7) engine.fill = FILLS[Math.floor(dicer("flav:" + bar)() * FILLS.length)];
     // the highway latch and the EARNED lift. The old lift ran on a 24-bar
     // clock — "it always comes at the expected moment" — so now the pedal
     // phase carries a HAZARD: the longer it carries, the likelier the lift,
@@ -2226,7 +2233,11 @@
         // DAWN windows: every 12 pedal bars the color may turn open and
         // dorian-bright (one draw per window, cached — a per-bar draw would
         // flap inside the window)
-        const win = Math.floor((bar - engine.flowStartBar) / 12);
+        // absolute 12-bar grid, deliberately NOT relative to flowStartBar:
+        // 12 is even, so window boundaries always land on the twobar chord
+        // cycle — a color flip mid-cycle left ringing wash tails carrying
+        // the OLD color under new-notes in the NEW one for up to two bars
+        const win = Math.floor(bar / 12);
         if (engine.dawnWindow !== win) {
           engine.dawnWindow = win;
           engine.dawnOn = dicer("dawn:" + win)() < 0.45;
@@ -2278,13 +2289,32 @@
     // itself: with the clock frozen, the frozen finalRun/nextIsB state
     // would otherwise re-announce a chorus every 16 bars that the pedal
     // harmony never delivers — the "buildup into nothing"
-    const formSeg = engine.flowOn ? -1
-      : finalRun && bar % 16 >= 12 ? bar % 16 - 12
-      : engine.partLabel === "C" && nextIsB && bar % 16 >= 14 ? bar % 16 - 12 : -1;
+    // the DJ school: a four-bar build is a fill-level gesture — the pros
+    // build over 16-64 bars in STAGES (Prydz's Opus made the 64-bar build
+    // canon). The final-chorus build spans EIGHT bars in two halves: the
+    // CLEARING (stages 0-3: the low end leaves, a bar-end snare accent
+    // marches, the hook is teased into the cleared stage) and the CLIMB
+    // (stages 4-7: the existing ride, roll, room and tremolo). The last
+    // bar pulls the kick; the drop returns bass, kick and the whole world
+    const formStage = engine.flowOn ? -1
+      : finalRun && bar % 16 >= 8 ? bar % 16 - 8
+      : engine.partLabel === "C" && nextIsB && bar % 16 >= 14 ? bar % 16 - 8 : -1;
+    const formSeg = formStage >= 4 ? formStage - 4 : -1;
     const liftK = engine.flowOn && engine.liftArm >= 0 ? bar - (engine.liftArm - 4) : -1;
     const rideSeg = Math.max(formSeg, liftK >= 0 && liftK <= 3 ? liftK : -1);
     const buildSeg = Math.max(rideSeg, 0);
     const buildOn = !lean && rideSeg >= 1;
+    // low-end removal, the strongest tool in the DJ's build kit: the bass
+    // leaves for the whole eight bars, so its return AT the drop is the
+    // impact. The kick holds the floor until the last bar, then leaves too
+    const buildBassOut = !lean && formStage >= 0;
+    const buildKickOut = !lean && formStage === 7;
+    // the machine takes over: a shuffled roll reads as stumbling, so the
+    // build sheds the groove's swing stage by stage — and the drop brings
+    // it back with the groove, one more release signal
+    if (pos === 0 && transport && engine.groove) {
+      transport.swing = engine.groove.swing * (buildOn ? [0.7, 0.45, 0.2, 0][buildSeg] : 1);
+    }
     if (pos === 0) {
       masterHp.frequency.cancelScheduledValues(t);
       if (rideSeg >= 0) {
@@ -2416,7 +2446,7 @@
       // pump stays gentle at cruise, deepens only under force. The kick grid
       // is the recipe's groove template — four-on-floor is one frame among
       // several now, and halftime's fewer kicks carry more weight each
-      if (engine.groove.kick.includes(pos) && !breather && !bridgeDown) {
+      if (engine.groove.kick.includes(pos) && !breather && !bridgeDown && !buildKickOut) {
         // patience softens the kick; the coda fades it out with the farewell
         const sceneKick = engine.scene === "patience" ? 0.75
           : engine.scene === "coda" ? 1 - 0.7 * engine.codaProgress : 1;
@@ -2432,8 +2462,10 @@
       // the bass root moves ONLY on the one — it is the meter's anchor
       const rootF = F(rootsEff[ci]);
       // once per 8-bar phrase a lick takes over the bar's second half
-      const lickBar = engine.lick && bar % 8 === 3 && !breather && !bridgeDown && !lean;
-      if (!breather && !bridgeDown && engine.bassPat.includes(pos) && !(lickBar && pos >= 10)) {
+      const lickBar = engine.lick && bar % 8 === 3 && !breather && !bridgeDown && !lean &&
+        !buildBassOut;
+      if (!breather && !bridgeDown && !buildBassOut &&
+          engine.bassPat.includes(pos) && !(lickBar && pos >= 10)) {
         // melodic sections walk root/fifth/octave/seventh instead of pedaling
         const mi = engine.bassMel && !flowMode
           ? engine.bassMel[engine.bassPat.indexOf(pos) % engine.bassMel.length] : 0;
@@ -2463,12 +2495,13 @@
         }
       }
       // funk vocabulary: quiet ghost notes between the hits — felt, not heard
-      if (engine.ghosts && pos % 8 === 5 && !breather && !bridgeDown && !lean) {
+      if (engine.ghosts && pos % 8 === 5 && !breather && !bridgeDown && !lean &&
+          !buildBassOut) {
         bassNote(hum(t, pos), rootF, 420, vel(0.05 * drain), SPB * 0.5);
       }
       // approach note: walk into the next chord instead of just switching
       if (engine.bassFill && pos === 15 && bar % 2 === 1 && bar % 16 !== 15 && !breather && !lickBar &&
-          !bridgeDown && rootsEff[ciNext] !== rootsEff[ci]) {
+          !bridgeDown && !buildBassOut && rootsEff[ciNext] !== rootsEff[ci]) {
         bassNote(bassT(t), F(rootsEff[ciNext] - 2), 380,
           vel(0.09 * drain), SPB * 0.8);
       }
@@ -2481,7 +2514,8 @@
       // stays put while the harmony walks above it. Deep pieces only, city
       // and cruise only: the highway already has its own sustained root
       if (engine.piece && engine.piece.mood === "deep" && !flowMode &&
-          ff < 0.02 && pos === 0 && bar % 2 === 0 && !breather && !bridgeDown) {
+          ff < 0.02 && pos === 0 && bar % 2 === 0 && !breather && !bridgeDown &&
+          !buildBassOut) {
         bassSubNote(t, F(33), 0.12 * wake * drain, SPB * 30);
       }
       // thrust: growl-bass eases in and out with force — no hard gate
@@ -2508,12 +2542,27 @@
       // exactly these bars (48 = three 16-bar parts), and kick and bass
       // stepping aside under a tightening roll IS the classic pre-drop
       // strip-back — the collision is the arrangement
+      // the clearing (DJ school, stages 0-5): a sustained bar-end snare
+      // accent marches through the cleared stage — the Pryda mark — and
+      // the hook is TEASED quietly into the emptiness, so the drop's full
+      // statement lands as a promise kept
+      if (!lean && formStage >= 0 && formStage <= 5 && pos === 12) {
+        snare(t, vel((0.13 + 0.012 * formStage) * wake), false);
+      }
+      if (!lean && (formStage === 0 || formStage === 2) && pos === 0 &&
+          engine.piece && engine.piece.hook) {
+        for (const tn of engine.piece.hook.call) {
+          hookNote(t + tn.p * SPB, F(57 + tn.s), SPB * tn.d * 0.9, vel(0.05 * wake));
+        }
+      }
       if (buildOn) {
         const stride = buildSeg >= 3 ? 1 : 2;
         if (pos % stride === 0) {
           const v = (0.04 + 0.02 * buildSeg + 0.006 * pos) *
             (engine.piece.mood === "deep" ? 0.7 : 1);
-          snare(hum(t, pos), vel(v * wake), pos % 4 !== 0, buildSeg);
+          // the roll's pitch climbs WITHIN the bar too — the classic
+          // rising-snare tension trick, fractional segment via pos
+          snare(hum(t, pos), vel(v * wake), pos % 4 !== 0, buildSeg + pos / 16);
         }
         // the opera tremolo: a quiet string-style crescendo on the current
         // chord through the last build bars — rapid soft restrikes, the
@@ -2650,7 +2699,13 @@
       * moodF * (bridgeDown ? 1.35 : 1);
     const padCut = 950 + 350 * Math.sin(bar * 0.37) + (liftPhase ? 350 : 0);
     if (hrEff === "twobar") {
-      if (pos === 0 && bar % 2 === 0) chordVoice(t, progEff[ci], SPB * 40, padVol, padCut);
+      // the lift's harmony is anchored to ITS OWN start (see ci above), so
+      // the wash must refire on the SAME anchored parity — read off the
+      // absolute bar, an odd-starting lift had the pad playing one bar
+      // behind bass, stab and arp for its whole length (the field report's
+      // "instruments seem shifted by a bar, resynced at a lift")
+      const chPh = liftPhase ? bar - engine.liftStart : bar;
+      if (pos === 0 && chPh % 2 === 0) chordVoice(t, progEff[ci], SPB * 40, padVol, padCut);
     } else if (hrEff === "push") {
       // anticipation is a PHRASE gesture, not a constant: pushing EVERY bar
       // re-normalizes the ear until the anticipation reads as the downbeat

@@ -142,7 +142,7 @@ function boot(seed) {
   // finalRun/nextIsB flags must not keep announcing — pinned as source
   // because the walk's freeze point (part A) cannot reach those states
   ok("the form's build window is silenced in flow",
-    /const formSeg = engine\.flowOn \? -1/.test(script));
+    /const formStage = engine\.flowOn \? -1/.test(script));
   ok("the form's drop gap is silenced in flow — and no lift arms one",
     /!engine\.flowOn && bar % 16 === 15 && nextIsB/.test(script) &&
     !script.includes("liftK === 3"));
@@ -193,6 +193,17 @@ function boot(seed) {
     [...pedalColors].join(","), pedalColors.has("dusk") && pedalColors.has("dawn"));
   ok("the dawn set is open, not minor",
     /PEDALDAWN = \[\[57, 64, 71, 76\], \[57, 62, 69, 74\], \[57, 64, 71, 78\], \[57, 64, 69, 76\]\]/.test(script));
+  // the one-bar-offset bug of the field report ("instruments seem shifted
+  // by a bar, resynced at a lift"): the wash refired on ABSOLUTE bar
+  // parity while the lift's harmony is anchored to its own start — an
+  // odd-starting lift had the pad one bar behind the band for its whole
+  // length. And dawn windows must sit on the absolute 12-bar grid so a
+  // color flip always lands on the twobar chord cycle
+  ok("the wash refires on the lift's own parity",
+    /const chPh = liftPhase \? bar - engine\.liftStart : bar;/.test(script) &&
+    /pos === 0 && chPh % 2 === 0/.test(script));
+  ok("dawn windows sit on the absolute 12-bar grid",
+    /const win = Math\.floor\(bar \/ 12\);/.test(script));
   ok("the shimmer really crests, got " + shimmerBars + " bars", shimmerBars >= 4);
   ok("and never inside a lift, got " + shimmerInLift, shimmerInLift === 0);
   ok("the ghost theme drifts over the pedal too, got " +
