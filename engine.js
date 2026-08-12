@@ -38,6 +38,54 @@
   // sections keep their progression or move to a musical neighbour —
   // never a blind jump across the pool
   const PROG_NEXT = [[1, 3], [0, 2], [1, 0], [0, 2]];
+  // ---- harmonic palettes ---------------------------------------------------
+  // "It always uses a very similar chord set." Accurate: one global pool, all
+  // of it Am-modal. Industry practice makes harmonic identity a PER-SONG
+  // commitment — the axis loop (Am F C G) carries hundreds of hits as a
+  // song-level choice, and a film cue commits to one harmonic world so the
+  // leitmotif can return recolored by it. So the piece rolls a PALETTE from
+  // its mood, the way it rolls its arc. Three rules keep every palette safe
+  // by construction (pinned in palette.test.mjs): every progression OPENS on
+  // the Am9 home voicing — the pivot chord, so any section change and any
+  // palette change passes through home; every chord stays in the white-note
+  // world plus dorian F#, so the pentatonic material — arps, blips, licks,
+  // the leitmotif — stays consonant over every palette; and adjacent chords
+  // (including the loop seam back to the top) always share a tone — the
+  // common-tone craft of chorale voice leading, hand-voiced, never generated.
+  const SUS_PROGS = [ // suspended/quartal, thirdless, floating — deep's home
+    [[57, 64, 67, 71], [50, 57, 64, 67], [57, 64, 67, 71], [55, 60, 62, 69]], // Am9 Dsus9 Am9 Gsus9
+    [[57, 64, 67, 71], [52, 62, 64, 71], [55, 60, 62, 69], [57, 64, 67, 71]], // Am9 E7sus Gsus9 Am9
+    [[57, 64, 67, 71], [55, 60, 62, 69], [50, 57, 64, 67], [52, 62, 64, 71]], // Am9 Gsus9 Dsus9 E7sus
+  ];
+  const SUS_ROOTS = [
+    [33, 38, 33, 31],
+    [33, 28, 31, 33],
+    [33, 31, 38, 28],
+  ];
+  const SUS_NEXT = [[1, 2], [0, 2], [1, 0]];
+  const LIGHT_PROGS = [ // relative-major axis loops — anthem's brightness
+    [[57, 64, 67, 71], [53, 60, 64, 67], [55, 60, 64, 72], [55, 59, 62, 69]], // Am9 Fmaj9 C/G Gadd9 — the axis
+    [[57, 64, 67, 71], [53, 60, 64, 67], [55, 59, 62, 69], [48, 60, 64, 71]], // Am9 Fmaj9 Gadd9 Cmaj7
+    [[57, 64, 67, 71], [52, 59, 62, 67], [53, 60, 64, 67], [55, 60, 64, 72]], // Am9 Em7 Fmaj9 C/G — the descent
+  ];
+  const LIGHT_ROOTS = [
+    [33, 29, 36, 31],
+    [33, 29, 31, 36],
+    [33, 28, 29, 36],
+  ];
+  const LIGHT_NEXT = [[1, 2], [0, 2], [0, 1]];
+  const PALETTES = {
+    modal: { progs: PROGS, roots: ROOTS, next: PROG_NEXT },
+    sus: { progs: SUS_PROGS, roots: SUS_ROOTS, next: SUS_NEXT },
+    light: { progs: LIGHT_PROGS, roots: LIGHT_ROOTS, next: LIGHT_NEXT },
+  };
+  // deep floats, anthem brightens, and modal stays everyone's second home —
+  // palette changes stay frequent enough to notice, never total
+  const PALETTE_POOL = {
+    deep: ["sus", "modal"],
+    neutral: ["modal", "light"],
+    anthem: ["light", "modal"],
+  };
   const BASSPATS = [
     [2, 6, 10, 14], // straight offbeats
     [2, 6, 11, 14], // funk push on the and-of-three
@@ -168,7 +216,12 @@
       if (!d || d.v !== 1) return null;
       if (!Number.isInteger(d.num) || d.num < 1) return null;
       if (!TRANSPOSES.includes(d.tp)) return null;
-      if (!Number.isInteger(d.progIdx) || !PROGS[d.progIdx]) return null;
+      // the palette is OPTIONAL, same doctrine as the motif: an unknown name
+      // is discarded on its own and the episode survives on modal. But the
+      // walk position must tell the truth about the pool it claims — an
+      // index outside the named palette poisons the whole payload
+      const pal = PALETTES[d.pal] ? d.pal : "modal";
+      if (!Number.isInteger(d.progIdx) || !PALETTES[pal].progs[d.progIdx]) return null;
       // the motif is OPTIONAL: a pre-motif payload (old data, new code) must
       // resume its episode and simply roll a fresh theme, and a corrupt
       // motif is discarded on its own — it must never cost the residency
@@ -181,13 +234,13 @@
             RIFFSET.includes(r[3]))) {
         motif = d.m.map(([p, dd, a, s]) => ({ p, d: dd, a, s }));
       }
-      return { num: d.num, tp: d.tp, progIdx: d.progIdx, motif };
+      return { num: d.num, tp: d.tp, progIdx: d.progIdx, pal, motif };
     } catch (err) { void err; return null; }
   }
-  function saveSet(num, tpv, progIdx, motif) {
+  function saveSet(num, tpv, progIdx, motif, pal) {
     try {
       const st = setStore();
-      if (st) st.setItem(SET_KEY, JSON.stringify({ v: 1, num, tp: tpv, progIdx,
+      if (st) st.setItem(SET_KEY, JSON.stringify({ v: 1, num, tp: tpv, progIdx, pal,
         m: motif ? motif.map((n) => [n.p, n.d, n.a, n.s]) : undefined }));
     } catch (err) { void err; }
   }
@@ -437,15 +490,24 @@
     // DRIVE: after a resume, engine.progIdx and setPrev carry the old set's
     // position, so the walk and the key-avoidance continue across the boundary
     const prev = engine.piece || engine.setPrev;
-    const pA = engine.progIdx;
-    const nA = PROG_NEXT[pA];
-    const pB = nA[Math.floor(Math.random() * nA.length)];
-    const nB = PROG_NEXT[pB];
-    const pC = nB[Math.floor(Math.random() * nB.length)];
     const tpPool = TRANSPOSES.filter((x) => !prev || x !== prev.tp);
     const num = prev ? prev.num + 1 : 1;
     // the wave, not the dice: the episode number decides the mood
     const mood = SET_WAVE[(num - 1) % SET_WAVE.length];
+    // the palette: the piece's harmonic world, drawn from the mood's pool.
+    // The walk continues inside a palette and RESETS to home when the palette
+    // changes — and the reset is what makes the change safe, because index 0
+    // opens on the Am9 pivot voicing in every palette
+    const prevPal = engine.piece ? engine.piece.paletteName
+      : engine.setPrev ? engine.setPrev.pal : null;
+    const palPool = PALETTE_POOL[mood];
+    const paletteName = palPool[Math.floor(Math.random() * palPool.length)];
+    const P = PALETTES[paletteName];
+    const pA = paletteName === prevPal ? engine.progIdx : 0;
+    const nA = P.next[pA];
+    const pB = nA[Math.floor(Math.random() * nA.length)];
+    const nB = P.next[pB];
+    const pC = nB[Math.floor(Math.random() * nB.length)];
     // the recipe: the piece's frame. Never the same one twice in a row —
     // that rotation is what makes consecutive pieces read as different SONGS
     const recPool = RECIPES.filter((r) => !engine.piece || r.name !== engine.piece.recipe);
@@ -467,6 +529,7 @@
       num,
       recipe: recipe.name, groove: recipe.groove, lead: recipe.lead,
       arcName,
+      paletteName,
       // a COPY: a launch rewrites this piece's script, and mutating the shared
       // pool entry would corrupt the form for every piece that follows
       form: FORMS[Math.floor(Math.random() * FORMS.length)].slice(),
@@ -480,14 +543,15 @@
     // persist the episode as it BEGINS: a drive can end anywhere inside it,
     // and the next drive should resume as if this piece finished. Every form
     // closes on the chorus, so pB is where the walk stands when it ends
-    saveSet(num, engine.piece.tp, pB, engine.setMotif);
+    saveSet(num, engine.piece.tp, pB, engine.setMotif, paletteName);
   }
   function loadPart(t) {
     const piece = engine.piece;
     const label = piece.form[piece.idx];
     const b = piece.parts[label];
+    const P = PALETTES[piece.paletteName];
     Object.assign(engine, {
-      progIdx: b.progIdx, prog: PROGS[b.progIdx], roots: ROOTS[b.progIdx],
+      progIdx: b.progIdx, prog: P.progs[b.progIdx], roots: P.roots[b.progIdx],
       hr: b.hr, bassPat: b.bassPat, bassMel: b.bassMel,
       arpSeq: b.arpSeq, arpOct: b.arpOct, ghosts: b.ghosts, bassFill: b.bassFill,
       blips: b.blips, brassy: b.brassy, snare: b.snare, padStyle: b.padStyle,
@@ -2207,6 +2271,7 @@
       ["Key", KEYNAMES[String(p.tp)] || "Am"],
       ["Rezept", engine.recipe],
       ["Bogen", p.arcName],
+      ["Harmonik", p.paletteName],
       ["Motiv", p.hook.call.map((n) => n.s).join("·")],
       p.mood !== "neutral" ? ["Mood", p.mood === "deep" ? "Deep" : "Anthem"] : null,
       ["Akkorde", engine.hr === "sync" ? "sync·" + (engine.syncPos === 12 ? "4" : "3+") : engine.hr],
@@ -2504,6 +2569,17 @@
         nodes: blipS ? { blip: blipS, brass: brassS } : null,
       };
     },
+    // test seam: the harmonic palette — the tables with their smoothness
+    // rules, the mood pools, and where the current piece stands, so a test
+    // can prove the pivot/consonance/voice-leading rules and the walk-reset
+    // rather than trust the gesture
+    __palette: () => ({
+      name: engine.piece ? engine.piece.paletteName : null,
+      tables: JSON.parse(JSON.stringify(PALETTES)),
+      pool: JSON.parse(JSON.stringify(PALETTE_POOL)),
+      pieceProgs: engine.piece ? [engine.piece.parts.A.progIdx,
+        engine.piece.parts.B.progIdx, engine.piece.parts.C.progIdx] : null,
+    }),
     // test seam: the set arc and the running episode, so a test can assert
     // the dramaturgy (wave, numbering, resume) rather than trust the gesture
     __set: () => ({
