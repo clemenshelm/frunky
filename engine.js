@@ -104,6 +104,7 @@
       kick: { pitchDecay: 0.08, octaves: 1.9, decay: 0.26 },
       hat: { closed: 0.04, open: 0.26 },
       snare: { decay: 0.13 },
+      room: 1, // the reference room — staging scales the shared send by this
       bass: { osc: { type: "fattriangle", count: 2, spread: 8 }, lite: "triangle", lp: 480, trim: 0 },
       pad: { osc: { type: "fatsawtooth", count: 3, spread: 14 }, lite: "sawtooth", attack: 1.1, release: 1.6, trim: 0 },
       gate: { osc: { type: "fattriangle", count: 2, spread: 12 }, lite: "triangle", trim: 0 },
@@ -113,6 +114,7 @@
       kick: { pitchDecay: 0.15, octaves: 1.4, decay: 0.34 },
       hat: { closed: 0.065, open: 0.34 },
       snare: { decay: 0.19 },
+      room: 1.35, // woody and airy: organic breathes in a bigger room
       bass: { osc: { type: "triangle" }, lite: "triangle", lp: 360, trim: 1.5 },
       pad: { osc: { type: "fattriangle", count: 3, spread: 10 }, lite: "triangle", attack: 1.5, release: 2.2, trim: 2.5 },
       gate: { osc: { type: "fattriangle", count: 2, spread: 8 }, lite: "triangle", trim: 0.5 },
@@ -126,6 +128,7 @@
       kick: { pitchDecay: 0.05, octaves: 2.2, decay: 0.2 },
       hat: { closed: 0.028, open: 0.2 },
       snare: { decay: 0.1 },
+      room: 0.7, // close and dry: cold stands right in front of you
       bass: { osc: { type: "fatsawtooth", count: 2, spread: 10 }, lite: "sawtooth", lp: 560, trim: -4 },
       pad: { osc: { type: "fatsawtooth", count: 3, spread: 18 }, lite: "sawtooth", attack: 0.7, release: 1.2, trim: -2 },
       gate: { osc: { type: "fatsquare", count: 2, spread: 10 }, lite: "square", trim: -2.5 },
@@ -536,6 +539,9 @@
     // recolors by SCALING that formula instead, anchored on analog's park,
     // so analog scales by exactly 1. ONE mechanism, on purpose
     engine.worldCutScale = W.bass.lp / SOUNDWORLDS.analog.bass.lp;
+    // the world's room: a factor on the shared reverb send — organic
+    // breathes, neon stands close. One send, one knob, no second reverb
+    engine.worldRoom = W.room || 1;
     padS.set({ oscillator: opts.lite ? { type: W.pad.lite } : W.pad.osc,
       envelope: { attack: W.pad.attack, release: W.pad.release } });
     gateS.set({ oscillator: opts.lite ? { type: W.gate.lite } : W.gate.osc });
@@ -905,6 +911,10 @@
   let brakeNoise, brakeLp, brakeGain, brakeOsc, brakeOscGain;
   let stretchNoise, stretchBp, stretchGain;
   let padS, padTri, padHp, padLp, arpS, arpLp, stabS, stabLp;
+  // staging: depth sends, static stage placement, and the air bed
+  let padRevG, gateRevG, snareSendG;
+  let hatPan, shakerPan, percPan, tomPan, blipPan, arpPan, rhodesPan;
+  let atmoNoise, atmoLp, atmoGain;
   let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS, leadTri, gateS, gateAmp, gateLp;
   // the rise figure: its own pool of mono voices — overlapping entries on one
   // synth would collide on the per-voice timeline (see the stub's rule)
@@ -1153,17 +1163,29 @@
       pitchDecay: 0.1, octaves: 1.2,
       envelope: { attack: 0.001, decay: 0.18, sustain: 0, release: 0.03 },
     }));
-    tomS.volume.value = db(0.35); tomS.connect(busDrums);
+    tomS.volume.value = db(0.35);
+    tomPan = reg(new Tone.Panner(0)); tomPan.pan.value = -0.22;
+    tomS.connect(tomPan); tomPan.connect(busDrums);
 
-    const hatHp = reg(new Tone.Filter(8500, "highpass")); hatHp.connect(busDrums);
+    // Width is PLACEMENT: small static pans, the way a kit stands on a
+    // stage — the anchors (kick, snare, bass) stay dead center so the car
+    // mix keeps its spine, and the global curve panner still moves the whole
+    // stage as one body
+    const hatHp = reg(new Tone.Filter(8500, "highpass"));
+    hatPan = reg(new Tone.Panner(0)); hatPan.pan.value = -0.12;
+    hatHp.connect(hatPan); hatPan.connect(busDrums);
     hatC = reg(new Tone.NoiseSynth({ envelope: { attack: 0.001, decay: 0.04, sustain: 0 } }));
     hatC.volume.value = db(0.2); hatC.connect(hatHp);
     hatO = reg(new Tone.NoiseSynth({ envelope: { attack: 0.001, decay: 0.26, sustain: 0 } }));
     hatO.volume.value = db(0.2); hatO.connect(hatHp);
-    const shakerHp = reg(new Tone.Filter(6200, "highpass")); shakerHp.connect(busDrums);
+    const shakerHp = reg(new Tone.Filter(6200, "highpass"));
+    shakerPan = reg(new Tone.Panner(0)); shakerPan.pan.value = 0.18;
+    shakerHp.connect(shakerPan); shakerPan.connect(busDrums);
     shakerS = reg(new Tone.NoiseSynth({ envelope: { attack: 0.015, decay: 0.055, sustain: 0 } }));
     shakerS.volume.value = db(0.16); shakerS.connect(shakerHp);
-    const percBp = reg(new Tone.Filter({ frequency: 2600, type: "bandpass", Q: 5 })); percBp.connect(busDrums);
+    const percBp = reg(new Tone.Filter({ frequency: 2600, type: "bandpass", Q: 5 }));
+    percPan = reg(new Tone.Panner(0)); percPan.pan.value = -0.3;
+    percBp.connect(percPan); percPan.connect(busDrums);
     percS = reg(new Tone.NoiseSynth({ envelope: { attack: 0.001, decay: 0.03, sustain: 0 } }));
     percS.volume.value = db(0.25); percS.connect(percBp);
 
@@ -1172,8 +1194,8 @@
     // wet pads reads as a preset, not a band
     const snareBp = reg(new Tone.Filter({ frequency: 1800, type: "bandpass", Q: 0.9 }));
     snareBp.connect(busDrums);
-    const snareSend = reg(new Tone.Gain(0.12));
-    snareBp.connect(snareSend); snareSend.connect(revSend);
+    snareSendG = reg(new Tone.Gain(0.12)); snareSendG.gain.value = 0.12;
+    snareBp.connect(snareSendG); snareSendG.connect(revSend);
     snareS = reg(new Tone.NoiseSynth({ envelope: { attack: 0.001, decay: 0.13, sustain: 0 } }));
     snareS.volume.value = db(0.3); snareS.connect(snareBp);
     snareBody = reg(new Tone.MembraneSynth({
@@ -1204,12 +1226,16 @@
       envelope: { attack: 0.005, decay: 0.12, sustain: 0, release: 0.06 },
     }));
     blipS.volume.value = db(0.09); blipS.connect(blipLp);
-    blipLp.connect(busHarm); blipLp.connect(delaySend); blipLp.connect(revSend);
+    blipPan = reg(new Tone.Panner(0)); blipPan.pan.value = 0.32;
+    blipLp.connect(blipPan); blipPan.connect(busHarm);
+    blipLp.connect(delaySend); blipLp.connect(revSend);
 
     // sampled color: Rhodes chords, mostly dry with a touch of the shared room
     ensureSamplers();
     rhodes.disconnect(); rhodes.volume.value = db(0.5);
-    rhodes.connect(busHarm); rhodes.connect(revSend);
+    rhodesPan = reg(new Tone.Panner(0)); rhodesPan.pan.value = -0.18;
+    rhodes.connect(rhodesPan); rhodesPan.connect(busHarm);
+    rhodes.connect(revSend);
 
     // the gate voice: a chord pulsed by a rhythm mask. The hard trance gate —
     // saw, instant attack, instant release — is a chop, and a chop next to
@@ -1240,7 +1266,8 @@
     gateS.connect(gateAmp); gateAmp.connect(gateHp); gateHp.connect(gateLp);
     if (chorus) gateLp.connect(chorus);
     gateLp.connect(busHarm);
-    gateLp.connect(delaySend); gateLp.connect(revSend);
+    gateRevG = reg(new Tone.Gain(1.35)); gateRevG.gain.value = 1.35;
+    gateLp.connect(delaySend); gateLp.connect(gateRevG); gateRevG.connect(revSend);
 
     // The hook lead has to be AUDIBLE without being a guest. Two rounds went
     // past the target in opposite directions: first thinned until it vanished,
@@ -1332,6 +1359,15 @@
     brakeOsc = reg(new Tone.Oscillator(88, "sine").start());
     brakeOsc.connect(brakeOscGain); brakeOscGain.connect(busFx);
 
+    // the air bed: a very quiet, dark noise floor that breathes with the
+    // drive — atmosphere in the literal sense. It ducks under braking so it
+    // never stacks with the brake's own pressure noise
+    atmoLp = reg(new Tone.Filter({ frequency: 420, type: "lowpass", Q: 0.5 }));
+    atmoGain = reg(new Tone.Gain(0)); atmoGain.gain.value = 0;
+    atmoNoise = reg(new Tone.Noise("brown").start());
+    atmoNoise.chain(atmoLp, atmoGain, busFx);
+    atmoGain.connect(revSend);
+
     stretchBp = reg(new Tone.Filter({ frequency: 2100, type: "bandpass", Q: 14 }));
     stretchGain = reg(new Tone.Gain(0));
     stretchNoise = reg(new Tone.Noise("white").start());
@@ -1353,6 +1389,7 @@
       gate: gateS.volume.value, blip: blipS.volume.value };
     engine.worldApplied = null;
     engine.worldCutScale = 1;
+    engine.worldRoom = 1;
     padTri = reg(new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: "triangle" },
       envelope: { attack: 1.3, decay: 0.3, sustain: 0.7, release: 1.8 },
@@ -1363,7 +1400,11 @@
     padHp.connect(padLp);
     if (chorus) { padLp.connect(chorus); chorus.connect(busHarm); }
     else padLp.connect(busHarm);
-    padLp.connect(revSend);
+    // depth: the chord carpet stands at the back of the stage — a clearly
+    // larger share of the ONE shared room is the front/back cue (drums and
+    // bass stay dry at the front, the hook keeps its middle distance)
+    padRevG = reg(new Tone.Gain(1.6)); padRevG.gain.value = 1.6;
+    padLp.connect(padRevG); padRevG.connect(revSend);
 
     arpLp = reg(new Tone.Filter({ frequency: 800, type: "lowpass", Q: 4 }));
     arpS = reg(new Tone.Synth({
@@ -1371,7 +1412,9 @@
       envelope: { attack: 0.004, decay: 0.16, sustain: 0, release: 0.08 },
     }));
     arpS.volume.value = db(0.14); arpS.connect(arpLp);
-    arpLp.connect(busHarm); arpLp.connect(delaySend); arpLp.connect(revSend);
+    arpPan = reg(new Tone.Panner(0)); arpPan.pan.value = 0.12;
+    arpLp.connect(arpPan); arpPan.connect(busHarm);
+    arpLp.connect(delaySend); arpLp.connect(revSend);
 
     stabLp = reg(new Tone.Filter({ frequency: 1400, type: "lowpass", Q: 1 }));
     stabS = reg(new Tone.PolySynth(Tone.Synth, {
@@ -2310,11 +2353,19 @@
     // gives the common case something to say, and the filter moves in octaves
     // rather than in hertz, which is how the ear measures it
     const dEff = Math.sign(depth) * Math.pow(Math.abs(depth), 0.55);
-    ctl(revSend.gain, "revSend", 0.4 + (dEff > 0 ? 0.42 * dEff : 0.15 * dEff), 0.008);
+    ctl(revSend.gain, "revSend",
+      (0.4 + (dEff > 0 ? 0.42 * dEff : 0.15 * dEff)) * (engine.worldRoom || 1), 0.008);
     ctl(depthLp.frequency, "depthLp",
       18000 * Math.pow(0.22, Math.max(dEff, 0)), 100);
     ctl(depthGain.gain, "depthGain",
       1 - 0.2 * Math.max(dEff, 0) + 0.08 * Math.max(-dEff, 0), 0.006);
+
+    // the air bed breathes with the drive: present at cruise, more in a
+    // deep piece, less in an anthem, ducked under braking, gone at rest
+    const moodAtmo = engine.piece
+      ? (engine.piece.mood === "deep" ? 1.3 : engine.piece.mood === "anthem" ? 0.7 : 1) : 1;
+    ctl(atmoGain.gain, "atmo",
+      0.022 * engine.wake * moodAtmo * (1 - 0.6 * engine.brake), 0.002);
 
     const eNow = clamp(engine.energy + engine.launchBoost * 0.3, 0, 1);
     const flowHigh = clamp((eNow - 0.5) / 0.35, 0, 1);
@@ -2745,6 +2796,18 @@
       pieceProgs: engine.piece ? [engine.piece.parts.A.progIdx,
         engine.piece.parts.B.progIdx, engine.piece.parts.C.progIdx] : null,
     }),
+    // test seam: the stage — depth sends, static placement, the world's
+    // room factor and the air bed, so a test can prove the mix has a stage
+    // rather than trust the wiring
+    __staging: () => (padRevG ? {
+      sends: { pad: padRevG.gain.value, gate: gateRevG.gain.value,
+        snare: snareSendG.gain.value },
+      pans: { hat: hatPan.pan.value, shaker: shakerPan.pan.value,
+        perc: percPan.pan.value, tom: tomPan.pan.value, blip: blipPan.pan.value,
+        arp: arpPan.pan.value, rhodes: rhodesPan.pan.value },
+      room: { engine: engine.worldRoom, revSend: revSend.gain.value },
+      atmo: { gain: atmoGain.gain.value },
+    } : null),
     // test seam: the set arc and the running episode, so a test can assert
     // the dramaturgy (wave, numbering, resume) rather than trust the gesture
     __set: () => ({
