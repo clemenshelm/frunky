@@ -74,17 +74,31 @@
     [33, 28, 29, 36],
   ];
   const LIGHT_NEXT = [[1, 2], [0, 2], [0, 1]];
+  const LAMENT_PROGS = [ // the Andalusian descent — romantic-minor gravity
+    // (the Muse element): the bass falls A G F E under white-note chords,
+    // E as thirdless E7sus so the lament stays inside the consonance rule
+    [[57, 64, 67, 71], [55, 59, 62, 64], [53, 60, 64, 67], [52, 62, 64, 71]], // Am9 G6 Fmaj9 E7sus
+    [[57, 64, 67, 71], [53, 60, 64, 67], [52, 62, 64, 71], [57, 64, 67, 71]], // Am9 Fmaj9 E7sus Am9
+    [[57, 64, 67, 71], [55, 59, 62, 64], [52, 62, 64, 71], [53, 60, 64, 67]], // Am9 G6 E7sus Fmaj9
+  ];
+  const LAMENT_ROOTS = [
+    [33, 31, 29, 28],
+    [33, 29, 28, 33],
+    [33, 31, 28, 29],
+  ];
+  const LAMENT_NEXT = [[1, 2], [0, 2], [0, 1]];
   const PALETTES = {
     modal: { progs: PROGS, roots: ROOTS, next: PROG_NEXT },
     sus: { progs: SUS_PROGS, roots: SUS_ROOTS, next: SUS_NEXT },
     light: { progs: LIGHT_PROGS, roots: LIGHT_ROOTS, next: LIGHT_NEXT },
+    lament: { progs: LAMENT_PROGS, roots: LAMENT_ROOTS, next: LAMENT_NEXT },
   };
   // deep floats, anthem brightens, and modal stays everyone's second home —
   // palette changes stay frequent enough to notice, never total
   const PALETTE_POOL = {
-    deep: ["sus", "modal"],
+    deep: ["sus", "lament", "modal"],
     neutral: ["modal", "light"],
-    anthem: ["light", "modal"],
+    anthem: ["light", "lament", "modal"],
   };
   // ---- sound worlds --------------------------------------------------------
   // "We always use the same instruments." Accurate: pieces roll key, mood,
@@ -131,9 +145,9 @@
       hat: { closed: 0.03, open: 0.2 },
       snare: { decay: 0.1 },
       room: 0.85,
-      bass: { osc: { type: "square" }, lite: "square", lp: 520, trim: -2.5 },
+      bass: { osc: { type: "square" }, lite: "square", lp: 520, trim: -3.5 },
       pad: { osc: { type: "fatsawtooth", count: 3, spread: 14 }, lite: "sawtooth", attack: 0.8, release: 1.2, trim: -2 },
-      gate: { osc: { type: "square" }, lite: "square", trim: -2 },
+      gate: { osc: { type: "square" }, lite: "square", trim: -3 },
       blip: { osc: { type: "square" }, trim: -1 },
     },
   };
@@ -149,6 +163,7 @@
     [2, 6, 10, 14], // straight offbeats
     [2, 6, 11, 14], // funk push on the and-of-three
     [2, 10, 13],    // laid back, with holes
+    [0, 2, 4, 6, 8, 10, 12, 14], // driving straight 8ths — the Muse engine
   ];
   // harmonic rhythm: per bar / held / anticipated on the and-of-four / anticipated
   // at an odd spot. Changes ARRIVE early but always belong to the NEXT bar —
@@ -403,6 +418,10 @@
     // ghost chatter, because the space is the point
     half: { kick: [0, 10], hat: [4, 12], snareAt: [8],
       ghostAt: [], coreSnare: true, kickW: 1.15, swing: 0.16 },
+    // glam stomp, nearly straight: heavy four with a backbeat that always
+    // speaks — arena drums under the fuzz bass, no ghost chatter
+    stomp: { kick: [0, 4, 8, 12], hat: [2, 6, 10, 14], snareAt: [4, 12],
+      ghostAt: [], coreSnare: true, kickW: 1.1, swing: 0.08 },
   };
   // bass entries are BASSPATS indices: one rhythmic protagonist per recipe —
   // a broken kick over a funk-push bass is two soloists fighting (Bregman),
@@ -411,6 +430,10 @@
     { name: "club", groove: "four", lead: "guitar", bass: [0, 1, 2] },
     { name: "strut", groove: "broken", lead: "square", bass: [0, 2] },
     { name: "dub", groove: "half", lead: "warm", bass: [2] },
+    // the Muse element: the bass is the star. The hook moves into a fuzz
+    // bass an octave down, the drums stomp nearly straight, and the bass
+    // pattern drives in 8ths — Bregman still holds: ONE protagonist
+    { name: "colossus", groove: "stomp", lead: "fuzz", bass: [3] },
   ];
 
   // ---- story arc -----------------------------------------------------------
@@ -924,6 +947,7 @@
   let atmoNoise, atmoLp, atmoGain;
   let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS, leadTri, gateS, gateAmp, gateLp;
   let hookThrowG; // the delay throw's dedicated send — a gesture, not a level
+  let leadFuzz;   // colossus: the hook in the hands of a fuzz bass
   // the rise figure: its own pool of mono voices — overlapping entries on one
   // synth would collide on the per-voice timeline (see the stub's rule)
   let riseS = [], riseLp = [], riseHp;
@@ -1318,6 +1342,17 @@
     }));
     leadTri.volume.value = db(0.5);
     leadTri.connect(hookPres);
+    // the fuzz bass lead: a hollow square through a waveshaper, an octave
+    // below the other leads. It lives on the hook chain ON PURPOSE — the
+    // lead highpass eats fundamentals below ~190 Hz, and that is authentic:
+    // a fuzz bass reads through its harmonics, not its fundamental
+    const fuzzDist = reg(new Tone.Distortion(0.55));
+    leadFuzz = reg(new Tone.Synth({
+      oscillator: opts.lite ? { type: "square" } : { type: "fatsquare", count: 2, spread: 8 },
+      envelope: { attack: 0.004, decay: 0.14, sustain: 0.4, release: 0.08 },
+    }));
+    leadFuzz.volume.value = db(0.5);
+    leadFuzz.chain(fuzzDist, hookPres);
     // the sampled muted guitar shares the hook chain — square is the fallback
     hookGit.disconnect(); hookGit.volume.value = db(0.72);
     hookGit.connect(hookPres);
@@ -1788,6 +1823,7 @@
     const tt = at("hook", t);
     if (engine.lead === "square") hookS.triggerAttackRelease(freq, dur, tt, vv(vol, 0.2));
     else if (engine.lead === "warm") leadTri.triggerAttackRelease(freq, dur, tt, vv(vol, 0.18));
+    else if (engine.lead === "fuzz") leadFuzz.triggerAttackRelease(freq / 2, dur, tt, vv(vol, 0.18));
     else if (hookGit && hookGit.loaded) hookGit.triggerAttackRelease(freq, dur, tt, vv(vol, 0.16));
     else hookS.triggerAttackRelease(freq, dur, tt, vv(vol, 0.2));
   }
@@ -1941,6 +1977,11 @@
     // the FORM — the drive keeps its own continuous tension tools
     const finalRun = !still && nextIsB && engine.piece &&
       engine.piece.idx === engine.piece.form.lastIndexOf("B");
+    // the build window, shared by the roll, the growing room and the
+    // tremolo: bars 13-16 before the final chorus, 15-16 out of the bridge
+    const buildSeg = finalRun && bar % 16 >= 13 ? bar % 16 - 12
+      : engine.partLabel === "C" && nextIsB && bar % 16 >= 14 ? bar % 16 - 12 : 0;
+    const buildOn = !lean && buildSeg > 0;
     if (pos === 0) {
       masterHp.frequency.cancelScheduledValues(t);
       if (finalRun && bar % 16 >= 12) {
@@ -1956,6 +1997,13 @@
           // a piece ends here: a long swell carries into the next piece's one
           if (pieceEnd) fillSwell(t, SPB * 14);
         }
+      }
+      // the roll swims in GROWING room: the snare's reverb share swells
+      // with the build and the gap then cuts the dry signal while the hall
+      // tail rings into the breath — crescendo into silence
+      if (snareSendG) {
+        ctl(snareSendG.gain, "snareRoom",
+          buildOn ? [0, 0.2, 0.35, 0.55][buildSeg] : 0.12, 0.004, 0.3);
       }
       // whatever opened the throw, the barline closes it
       if (hookThrowG) {
@@ -2144,16 +2192,19 @@
       // exactly these bars (48 = three 16-bar parts), and kick and bass
       // stepping aside under a tightening roll IS the classic pre-drop
       // strip-back — the collision is the arrangement
-      const buildOn = !lean &&
-        ((finalRun && bar % 16 >= 13) ||
-         (engine.partLabel === "C" && nextIsB && bar % 16 >= 14));
       if (buildOn) {
-        const seg = bar % 16 - 12;
-        const stride = seg >= 3 ? 1 : 2;
+        const stride = buildSeg >= 3 ? 1 : 2;
         if (pos % stride === 0) {
-          const v = (0.04 + 0.02 * seg + 0.006 * pos) *
+          const v = (0.04 + 0.02 * buildSeg + 0.006 * pos) *
             (engine.piece.mood === "deep" ? 0.7 : 1);
           snare(hum(t, pos), vel(v * wake), pos % 4 !== 0);
+        }
+        // the opera tremolo: a quiet string-style crescendo on the current
+        // chord through the last build bars — rapid soft restrikes, the
+        // romantic orchestra's oldest way of leaning into a climax
+        if (buildSeg >= 2 && pos % 2 === 0) {
+          stabChord(hum(t, pos), progEff[ci],
+            vel(0.025 + 0.012 * buildSeg + 0.003 * pos));
         }
       }
       // accel percussion: shaker/toms in the background, swelling with force
@@ -2510,18 +2561,18 @@
     // middle-ear reflex damps transmission), and film sound has codified
     // exactly that: the score ducks and lowpasses, the mechanical roar
     // stays near. Engages above a hard push, releases on a steady cruise
-    const warpT = clamp((thrust - 0.45) / 0.4, 0, 1);
+    const warpT = clamp((thrust - 0.4) / 0.4, 0, 1);
     engine.warp += (warpT - engine.warp) *
       (1 - Math.exp(-dt / (warpT > engine.warp ? 0.5 : 1.4)));
     const wp = engine.warp;
-    ctl(warpLp.frequency, "warpLp", 16000 * Math.pow(0.12, wp), 120);
-    ctl(warpGain.gain, "warpGain", 1 - 0.35 * wp, 0.006);
+    ctl(warpLp.frequency, "warpLp", 16000 * Math.pow(0.08, wp), 120);
+    ctl(warpGain.gain, "warpGain", 1 - 0.5 * wp, 0.006);
 
     const eNow = clamp(engine.energy + engine.launchBoost * 0.3, 0, 1);
     const flowHigh = clamp((eNow - 0.5) / 0.35, 0, 1);
     ctl(makeup.gain, "makeup", 1 + 0.16 * flowHigh, 0.006, 0.2);
     ctl(busDrums.gain, "busDrums",
-      (1 - 0.08 * engine.urban) * (1 - 0.22 * wp), 0.006, 0.2);
+      (1 - 0.08 * engine.urban) * (1 - 0.3 * wp), 0.006, 0.2);
     // the car voicing (see the node comments): dB gains, flat when A/B'd off
     ctl(carLow.gain, "carLow", opts.carMix ? -4.5 : 0, 0.05, 0.2);
     ctl(carPres.gain, "carPres", opts.carMix ? 2.5 : 0, 0.05, 0.2);
@@ -2883,7 +2934,8 @@
       recipes: Object.fromEntries(RECIPES.map((r) =>
         [r.name, { groove: r.groove, lead: r.lead, bass: r.bass.slice() }])),
       nodes: kickS
-        ? { kick: kickS, snare: snareS, guitar: hookGit, square: hookS, warm: leadTri }
+        ? { kick: kickS, snare: snareS, guitar: hookGit, square: hookS,
+            warm: leadTri, fuzz: leadFuzz }
         : null,
     }),
     // test seam: the leitmotif — the set's melodic DNA and how the current
@@ -2969,7 +3021,8 @@
       throwGain: hookThrowG ? hookThrowG.gain.value : null,
       drops: dropCount,
       nodes: masterHp
-        ? { masterHp, snare: snareS, snap: snareSnap, hookThrow: hookThrowG }
+        ? { masterHp, snare: snareS, snap: snareSnap, stab: stabS,
+            hookThrow: hookThrowG }
         : null,
     }),
     // test seam: the stage — depth sends, static placement, the world's

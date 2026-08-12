@@ -27,6 +27,9 @@ const EXPECT = {
   club: { groove: "four", lead: "guitar", swing: 0.22 },
   strut: { groove: "broken", lead: "square", swing: 0.3 },
   dub: { groove: "half", lead: "warm", swing: 0.16 },
+  // the Muse element: a glam stomp, nearly straight, and the hook in the
+  // hands of a FUZZ BASS — the bass as the star is the signature move
+  colossus: { groove: "stomp", lead: "fuzz", swing: 0.08 },
 };
 
 let rc = 0;
@@ -54,7 +57,8 @@ let t = 0, lastNum = 0, base = null;
 const counts = () => {
   const n = Frunky.__album().nodes;
   return { kick: n.kick.trigs, snare: n.snare.trigs,
-    guitar: n.guitar.trigs, square: n.square.trigs, warm: n.warm.trigs };
+    guitar: n.guitar.trigs, square: n.square.trigs, warm: n.warm.trigs,
+    fuzz: n.fuzz.trigs };
 };
 let bassViolations = 0;
 for (let s = 0; s < PIECE * 6 + 64; s++) {
@@ -85,8 +89,14 @@ ok("every piece plays a known recipe, got " + names.join(","),
   names.every((n) => EXPECT[n]));
 ok("no recipe plays twice in a row",
   names.every((n, i) => i === 0 || n !== names[i - 1]));
-ok("the run visits all three recipes, got " + [...new Set(names)].join(","),
-  new Set(names).size === 3);
+ok("the run visits at least three of the four recipes, got " + [...new Set(names)].join(","),
+  new Set(names).size >= 3 && names.every((n) => !!EXPECT[n]));
+// the crate declares every designed recipe — a table entry nothing rolls is
+// how a new frame silently never ships
+const crate = Frunky.__album().recipes;
+ok("the crate declares every designed recipe",
+  Object.keys(EXPECT).every((n) => !!crate[n] &&
+    crate[n].groove === EXPECT[n].groove && crate[n].lead === EXPECT[n].lead));
 
 // ---- 2. the frame is real: groove, swing, lead match the recipe -------------
 for (const p of pieces) {
@@ -126,11 +136,12 @@ for (const p of halves) {
 // the guitar in club, the square in strut, the warm triangle in dub
 for (const p of pieces) {
   const d = { guitar: p.end.guitar - p.start.guitar,
-    square: p.end.square - p.start.square, warm: p.end.warm - p.start.warm };
+    square: p.end.square - p.start.square, warm: p.end.warm - p.start.warm,
+    fuzz: p.end.fuzz - p.start.fuzz };
   const lead = EXPECT[p.recipe].lead;
   ok(`piece ${p.num} (${p.recipe}): the ${lead} lead actually plays, got ` +
     JSON.stringify(d), d[lead] > 0);
-  for (const other of ["guitar", "square", "warm"].filter((x) => x !== lead)) {
+  for (const other of ["guitar", "square", "warm", "fuzz"].filter((x) => x !== lead)) {
     ok(`piece ${p.num} (${p.recipe}): the ${other} stays silent, got ${d[other]}`,
       d[other] === 0);
   }

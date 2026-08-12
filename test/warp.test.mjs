@@ -85,10 +85,12 @@ function boot(seed) {
     transport.cb(t); t += SPB; s++;
   }
   const hot = Frunky.__drive();
-  ok("under a hard push the music muffles (warp lp < 6 kHz), got " +
-    Math.round(hot.warpLpFreq), hot.warpLpFreq < 6000);
-  ok("and steps back (warp gain < 0.85), got " + hot.warpGain.toFixed(2),
-    hot.warpGain < 0.85);
+  // "could be a bit more pronounced" — the full warp now closes to the
+  // low kilohertz and takes a solid third off the music band
+  ok("under a hard push the music muffles hard (warp lp < 2 kHz), got " +
+    Math.round(hot.warpLpFreq), hot.warpLpFreq < 2000);
+  ok("and steps back by almost half (warp gain < 0.6), got " + hot.warpGain.toFixed(2),
+    hot.warpGain < 0.6);
   ok("the warp state really engaged, got " + hot.warp.toFixed(2), hot.warp > 0.5);
   // then a steady cruise: the world comes back
   for (let i = 0; i < 16 * 12; i++) {

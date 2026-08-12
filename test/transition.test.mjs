@@ -57,6 +57,9 @@ function boot(seed, store) {
   let releaseHp = null;       // masterHp on the final chorus's first bar
   let maxThrow = 0, throwLate = [];
   const snareByBar = [];      // {window, label, barInPart, delta}
+  const stabByBar = [];       // the opera tremolo: stab strikes per bar
+  let rollRoomBuild = null, rollRoomOrdinary = null;
+  let prevStabTrigs = 0;
   let prevTrigs = 0, windowsSeen = 0;
   let prevBarMeta = null;     // the delta read at a barline belongs to the PREVIOUS bar
   let t = 0, s = 0;
@@ -71,11 +74,23 @@ function boot(seed, store) {
       const tr = seam();
       if (pos === 0 && snareNode()) {
         const now = snareNode().trigs;
-        if (prevBarMeta) snareByBar.push({ ...prevBarMeta, delta: now - prevTrigs });
+        const stabNow = tr.nodes && tr.nodes.stab ? tr.nodes.stab.trigs : 0;
+        if (prevBarMeta) {
+          snareByBar.push({ ...prevBarMeta, delta: now - prevTrigs });
+          stabByBar.push({ ...prevBarMeta, delta: stabNow - prevStabTrigs });
+        }
         prevTrigs = now;
-        prevBarMeta = { window: finalNext, label: d.partLabel, barInPart: d.bar };
+        prevStabTrigs = stabNow;
+        prevBarMeta = { window: finalNext, label: d.partLabel,
+          barInPart: d.bar, num: d.num };
       }
       if (pos === 8) {
+        if (finalNext && d.bar === 16 && rollRoomBuild === null) {
+          rollRoomBuild = Frunky.__staging().sends.snare;
+        }
+        if (!finalNext && d.bar === 6 && rollRoomOrdinary === null) {
+          rollRoomOrdinary = Frunky.__staging().sends.snare;
+        }
         if (finalNext && d.bar >= 13) {
           windowsSeen++;
           rideBars.set(d.bar, tr.masterHpFreq);
@@ -127,6 +142,26 @@ function boot(seed, store) {
   // chorus included, not only the bridge exit
   ok("two pieces earn at least two real drops, got " + seam().drops,
     seam().drops >= 2);
+  // the roll swims in GROWING room: the snare's reverb share swells with
+  // the build (0.12 glue -> ~0.55 in the last bar) and the gap then cuts
+  // the dry signal while the hall tail rings into the breath — the classic
+  // crescendo-into-silence edit. Ordinary bars keep the glue only
+  ok("the roll swims in growing room, got " + rollRoomBuild,
+    typeof rollRoomBuild === "number" && rollRoomBuild >= 0.4);
+  ok("ordinary bars keep only the glue, got " + rollRoomOrdinary,
+    rollRoomOrdinary === 0.12);
+  // the opera tremolo: the last build bars carry a quiet string-style
+  // tremolo crescendo on the current chord — stab strikes every 8th,
+  // swelling. Ordinary mid-part bars strike no stabs at a steady cruise
+  const tremBar = stabByBar.find((r) => r.window && r.barInPart >= 15 && r.delta >= 6);
+  // piece 2 onward: the test's instant 0->60 km/h start spikes thrust, and
+  // the thrust stabs of that settling second are not tremolo carpet
+  const stabOrd = stabByBar.filter((r) => !r.window && r.num >= 2 &&
+    r.barInPart > 2 && r.barInPart < 12);
+  ok("the tremolo crescendo strikes through the last build bars",
+    !!tremBar);
+  ok("and stays a build gesture, not a carpet (ordinary bars ≤ 2 stabs)",
+    stabOrd.length > 0 && Math.max(...stabOrd.map((r) => r.delta)) <= 2);
   ok("the final chorus earns the same breath-then-impact as the bridge exit",
     /engine\.partLabel === "C" \|\| finalRun/.test(script));
   ok("the drop strikes a chord on the one, not only a kick",

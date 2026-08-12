@@ -26,7 +26,7 @@ const ok = (label, cond) => { if (!cond) failures.push(label); };
 
 const KEY = "frunky.set.v1";
 const HOME = JSON.stringify([57, 64, 67, 71]); // the Am9 pivot voicing
-const NAMES = ["modal", "sus", "light"];
+const NAMES = ["modal", "sus", "light", "lament"];
 
 function makeStore(initial) {
   const m = new Map(Object.entries(initial || {}));
@@ -118,9 +118,13 @@ const pcs = (chord) => new Set(chord.map((m) => ((m % 12) + 12) % 12));
   }
 
   // the mood chooses the palette the way it chooses the arc — pinned pools
-  ok("deep floats: sus and modal", JSON.stringify(pal.pool.deep) === JSON.stringify(["sus", "modal"]));
+  // lament: the Andalusian descent — romantic-minor gravity (the Muse
+  // element), at home wherever the set broods or peaks
+  ok("deep floats and broods: sus, lament, modal",
+    JSON.stringify(pal.pool.deep) === JSON.stringify(["sus", "lament", "modal"]));
   ok("neutral grounds: modal and light", JSON.stringify(pal.pool.neutral) === JSON.stringify(["modal", "light"]));
-  ok("anthem brightens: light and modal", JSON.stringify(pal.pool.anthem) === JSON.stringify(["light", "modal"]));
+  ok("anthem carries brightness and grandeur: light, lament, modal",
+    JSON.stringify(pal.pool.anthem) === JSON.stringify(["light", "lament", "modal"]));
 }
 
 // ---- 2. behavior: the mood picks the palette, the walk survives changes -----

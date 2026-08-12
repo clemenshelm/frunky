@@ -156,11 +156,11 @@ console.log(`notes per bar: median ${median}, busiest ${busiest}`);
 if (!(hMax - hMin > 0.02)) failures.push("harmony bus never re-levels — density compensation is not wired");
 if (!(mMax - mMin > 0.02)) failures.push("scene makeup never moves — speed compensation is not wired");
 if (hMin < 0.7 || hMax > 1.25) failures.push(`harmony bus left its band: ${hMin}–${hMax}`);
-// the floor is the warp's designed duck: (1 - 0.08 urban) * (1 - 0.22 warp)
-// bottoms out at ~0.72 under a hard push in town — the band still catches a
+// the floor is the warp's designed duck: (1 - 0.08 urban) * (1 - 0.3 warp)
+// bottoms out at ~0.64 under a hard push in town — the band still catches a
 // runaway (a stuck duck, a compounding bug), it just no longer calls the
 // intended acceleration gesture a fault
-if (dMin < 0.7 || dMax > 1.05) failures.push(`drum bus left its band: ${dMin}–${dMax}`);
+if (dMin < 0.62 || dMax > 1.05) failures.push(`drum bus left its band: ${dMin}–${dMax}`);
 if (mMin < 0.95 || mMax > 1.25) failures.push(`scene makeup left its band: ${mMin}–${mMax}`);
 // levelling cannot rescue an arrangement that piles everything on at once
 if (median > 0 && busiest > median * 2.5) {
