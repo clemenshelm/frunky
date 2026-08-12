@@ -1037,6 +1037,8 @@
     ghostTheme: false, // this occurrence lets the lap's theme drift by
     sprint: 0,         // sustained-push integrator: force theater is earned
     forceGate: 0.25,   // how far the low force voices may open right now
+    encore: 0,         // lift repetitions in the current chain (max 2)
+    liftAria: false,
     progIdx: 0,       // position in the progression graph
     piece: null,      // the current piece: form script + part bundles + hook
     partLabel: "",
@@ -2241,21 +2243,38 @@
         // cymbal style) and the wave RECEDES at its end (taper below)
         if (engine.liftStart >= 0 && bar - engine.liftStart >= (engine.liftLen || 8)) {
           engine.lastLiftEnd = bar; engine.liftStart = -1;
+          // the ENCORE ("the lift should repeat, in a variant, escalating"):
+          // a lift may be answered after only a short breath — longer, and
+          // it always sings; the second encore gallops. Two encores at
+          // most, then the pedal earns a LONG rest
+          if (engine.encore < 2 && dicer("encore:" + bar)() < 0.5) {
+            engine.encore++;
+          } else {
+            if (engine.encore > 0) engine.lastLiftEnd = bar + 10;
+            engine.encore = 0;
+          }
         }
         if (engine.liftStart < 0) {
           if (engine.liftArm >= 0 && bar >= engine.liftArm) {
             engine.liftStart = bar; engine.liftArm = -1; crash(t);
             // the Freudensturm: some lifts SING — and a lift rising out of
-            // the clearing always does (light + lift = the storm)
-            engine.liftAria = engine.clearingOn || dicer("aria:" + bar)() < 0.35;
+            // the clearing always does (light + lift = the storm). Every
+            // encore sings too: the repetition IS the escalation
+            engine.liftAria = engine.clearingOn || engine.encore > 0 ||
+              dicer("aria:" + bar)() < 0.35;
           } else if (engine.liftArm < 0) {
             const since = bar - Math.max(engine.lastLiftEnd, engine.flowStartBar);
             // "too often": the pedal phase must breathe long enough to make
             // the lift an event — hazard from bar 16, capped low. And "too
-            // samey": each lift dices its own length
-            if (since >= 16 && dicer("lift")() < clamp((since - 16) / 48, 0, 0.25)) {
+            // samey": each lift dices its own length. An armed ENCORE
+            // answers after only a short breath, eagerly, and runs long
+            const eW = engine.encore > 0 ? 6 : 16;
+            const eC = engine.encore > 0 ? 0.5 : 0.25;
+            const eR = engine.encore > 0 ? 12 : 48;
+            if (since >= eW && dicer("lift")() < clamp((since - eW) / eR, 0, eC)) {
               engine.liftArm = bar + 4;
-              engine.liftLen = dicer("liftlen")() < 0.5 ? 8 : 12;
+              engine.liftLen = engine.encore > 0 ? 12
+                : dicer("liftlen")() < 0.5 ? 8 : 12;
             }
           }
         }
@@ -2317,6 +2336,7 @@
         engine.liftTaper = false; engine.shimmerOn = false;
         engine.shimmerStart = -1; engine.dawnWindow = -1;
         engine.clearingOn = false; engine.dawnRun = 0;
+        engine.encore = 0;
       }
     }
     // what comes after this section? (idx already points at the next part)
@@ -2797,6 +2817,9 @@
           ariaLog.push({ bar, liftStart: engine.liftStart });
         }
       }
+      // the second encore GALLOPS: an open hat on the and-of-three lifts
+      // the whole reward half a step higher — the chain's final escalation
+      if (liftPhase && engine.encore >= 2 && pos === 8) hat(t, true, 0.1);
     } else if (hrEff === "push") {
       // anticipation is a PHRASE gesture, not a constant: pushing EVERY bar
       // re-normalizes the ear until the anticipation reads as the downbeat
@@ -3563,7 +3586,8 @@
     __drive: () => ({
       lift: { active: engine.liftStart >= 0, start: engine.liftStart,
         arm: engine.liftArm, lastEnd: engine.lastLiftEnd,
-        len: engine.liftLen, taper: engine.liftTaper },
+        len: engine.liftLen, taper: engine.liftTaper,
+        encore: engine.encore, aria: engine.liftAria },
       pedalColor: engine.flowOn
         ? (engine.clearingOn ? "clear" : engine.dawnOn ? "dawn" : "dusk") : null,
       shimmer: engine.shimmerOn,

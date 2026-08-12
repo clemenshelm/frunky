@@ -48,6 +48,7 @@ function boot(seed) {
   let rhodesPedalTrigs = 0, dropsTotal = 0, largeInFlow = 0;
   let taperWrong = 0, shimmerBars = 0, shimmerInLift = 0;
   const clearAfter = [];
+  const liftMeta = [];
   let lastColor = null, stringBedLift = 0, padTriMark = 0;
   let arias = [];
   let t = 0, s = 0, wasActive = false, lastDrops = 0, liftBegan = -1;
@@ -67,6 +68,7 @@ function boot(seed) {
       const flowOn = bar > 30; // energy has long settled at 150 km/h
       if (dr.lift.active && !wasActive) {
         liftStarts.push(bar);
+        liftMeta.push({ bar, encore: dr.lift.encore, aria: dr.lift.aria });
         liftBegan = dr.lift.start;
         roomBeforeLift.push(roomLastBar);
       }
@@ -93,7 +95,10 @@ function boot(seed) {
         if (dr.lift.active) shimmerInLift++;
       }
       if (!dr.lift.active && wasActive && liftBegan >= 0) {
-        liftLens.push(dr.lift.lastEnd - liftBegan);
+        // measured from the transition bar, NOT from lastEnd: a spent
+        // encore chain writes its cooldown into lastEnd (bar + 10), which
+        // is a rest fiction, not a length
+        liftLens.push(bar - liftBegan);
       }
       lastDrops = tr.drops;
       dropsTotal = tr.drops;
@@ -124,9 +129,28 @@ function boot(seed) {
   const gaps = liftStarts.slice(1).map((b, i) => b - liftStarts[i]);
   ok("and their spacing VARIES — earned, never metronomic, gaps " + gaps.join(","),
     gaps.length >= 1 && (new Set(gaps).size >= 2 || gaps.length < 2));
-  ok("every gap leaves room to breathe (≥ 24 bars — 'too often' was the " +
-    "field report), gaps " + gaps.join(","),
-    gaps.every((g) => g >= 24));
+  // LIFTED with the encore ("the lift should repeat, in a variant,
+  // escalating"): a lift may now be ANSWERED after only a short breath —
+  // but only as an encore, and real rests stay long. So the old flat
+  // ≥ 24 floor splits: encore gaps may be short, ordinary gaps may not
+  ok("gaps breathe long unless the lift is an encore, gaps " +
+    gaps.map((g, i) => g + (liftMeta[i + 1] && liftMeta[i + 1].encore > 0 ? "e" : "")).join(","),
+    gaps.every((g, i) => (liftMeta[i + 1] && liftMeta[i + 1].encore > 0) || g >= 24));
+  ok("and real rests still exist", gaps.some((g) => g >= 24));
+  ok("the encore really answers, got " +
+    liftMeta.filter((m) => m.encore > 0).length + " encores",
+    liftMeta.some((m) => m.encore > 0));
+  ok("an encore answers quickly (its gap < 24)",
+    gaps.some((g, i) => liftMeta[i + 1] && liftMeta[i + 1].encore > 0 && g < 24));
+  ok("every encore SINGS (the escalation is the aria)",
+    liftMeta.filter((m) => m.encore > 0).every((m) => m.aria));
+  ok("the chain caps at two encores",
+    liftMeta.every((m) => m.encore <= 2) &&
+    /engine\.encore < 2 && dicer\("encore:" \+ bar\)/.test(script));
+  ok("a spent chain earns the LONG rest at source",
+    /engine\.lastLiftEnd = bar \+ 10/.test(script));
+  ok("the second encore gallops (open hat mid-bar) at source",
+    /liftPhase && engine\.encore >= 2 && pos === 8/.test(script));
   // "too samey": the lift's length is diced per lift now — 8 or 12 bars —
   // and a 300-bar run must see both
   ok("lift lengths stay in the vocabulary {8, 12}, got " + liftLens.join(","),
@@ -266,8 +290,8 @@ function boot(seed) {
   ok("every aria sang inside a lift, " +
     arias.map((a) => a.bar - a.liftStart).join(","),
     arias.every((a) => a.liftStart >= 0 && a.bar - a.liftStart >= 2));
-  ok("a lift out of the clearing always sings",
-    /engine\.liftAria = engine\.clearingOn \|\| dicer\("aria:" \+ bar\)\(\) < 0\.35;/.test(script));
+  ok("a lift out of the clearing always sings — and so does every encore",
+    /engine\.liftAria = engine\.clearingOn \|\| engine\.encore > 0 \|\|\s*\n\s*dicer\("aria:" \+ bar\)\(\) < 0\.35;/.test(script));
   ok("the aria is the theme in octaves (voice up, strings doubling below)",
     /hookNote\(t \+ an\.p \* 2 \* SPB, F\(69 \+ an\.s\)/.test(script) &&
     /padTri\.triggerAttackRelease\(F\(57 \+ an\.s\)/.test(script));
