@@ -62,6 +62,9 @@ async function drive(Frunky, pieces, state) {
         padOsc: w.nodes ? w.nodes.pad.settings.oscillator.type : null,
         bassVol: w.nodes ? w.nodes.bass.volume.value : null,
         cutScale: w.cutScale,
+        bassQ: w.nodes ? w.nodes.bassLp.Q.value : null,
+        hookLpF: w.nodes && w.nodes.hookLp ? w.nodes.hookLp.frequency.value : null,
+        hookPresG: w.nodes && w.nodes.hookPres ? w.nodes.hookPres.gain.value : null,
       });
     }
   }
@@ -130,12 +133,29 @@ async function drive(Frunky, pieces, state) {
   // triangle in a window darker than analog's, the gate goes hollow, and
   // only the pad keeps the one pane of glass
   const n = t ? t.neon : null;
-  ok("neon bass is a triangle, never a square again",
-    !!n && n.bass.osc.type === "triangle" && n.bass.lite === "triangle");
-  ok("neon bass window sits clearly below analog's",
-    !!n && n.bass.lp <= 400);
+  ok("neon bass stays in the triangle family, never a square again",
+    !!n && String(n.bass.osc.type).includes("triangle") && n.bass.lite === "triangle");
+  // v4 after "now a bit too dull": brightness was the wrong lever the
+  // whole time — the synthwave answer is MOVEMENT (slight detune) and a
+  // touch of filter resonance, not a wider-open window
+  ok("neon bass carries detune movement (fat, narrow spread)",
+    !!n && n.bass.osc.type === "fattriangle" && n.bass.osc.count === 2 &&
+    n.bass.osc.spread <= 8);
+  ok("neon bass window sits below analog's",
+    !!n && !!a && n.bass.lp < a.bass.lp);
+  ok("neon bass has the analog squelch (a touch of resonance)",
+    !!n && n.bass.q >= 1.1 && n.bass.q <= 1.6);
   ok("neon gate is hollow, not hard",
     !!n && n.gate.osc.type === "fattriangle" && n.gate.lite === "triangle");
+  // the hook rides the same chain in every world, and in neon that chain
+  // was the sharpest thing left ("the hook line is quite sharp") — every
+  // world now shades the hook: lowpass ceiling and presence gain
+  ok("every world shades the hook (lp + pres)",
+    NAMES.every((nm) => t && t[nm].hook &&
+      t[nm].hook.lp > 0 && typeof t[nm].hook.pres === "number"));
+  ok("neon pulls the hook's edge in",
+    !!n && !!n.hook && t && t.analog.hook &&
+    n.hook.lp < t.analog.hook.lp && n.hook.pres < t.analog.hook.pres);
 
   // the mood chooses the world the way it chooses arc and palette
   ok("deep is round: organic and analog",
@@ -187,6 +207,15 @@ async function drive(Frunky, pieces, state) {
     run.every((r) => Math.abs(r.cutScale - w.tables[r.world].bass.lp / 480) < 1e-9));
   ok("and bassNote really multiplies its per-note cut by that scale",
     /setValueAtTime\(cut \* \(engine\.worldCutScale \|\| 1\)/.test(script));
+  // v4 additions must ARRIVE at the nodes too, piece by piece: the bass
+  // filter's resonance and the hook's shading are world properties now
+  ok("the bass filter's resonance carries each piece's world, saw " +
+    [...new Set(run.map((r) => r.bassQ))].join(","),
+    run.every((r) => r.bassQ === (w.tables[r.world].bass.q || 0.8)));
+  ok("the hook's lowpass ceiling carries each piece's world",
+    run.every((r) => r.hookLpF === w.tables[r.world].hook.lp));
+  ok("the hook's presence gain carries each piece's world",
+    run.every((r) => r.hookPresG === w.tables[r.world].hook.pres));
   // the lick sits back, but never collapses: at cruise the regular bass rides
   // ~0.46 while the lick rode a flat 0.18 — heard as the bass dropping out,
   // loudest on a bright world. The lick's velocity must scale with the same

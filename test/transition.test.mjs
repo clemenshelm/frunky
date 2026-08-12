@@ -180,6 +180,17 @@ function boot(seed, store) {
     /hat\(t, true, 0\.14\)/.test(script));
   ok("the crash is high noise with a real tail into the room",
     /function crash\(t\)[\s\S]{0,700}?highpass[\s\S]{0,700}?busFx/.test(script));
+  // crash v2 (field report: "sounds like a small splash, not a solid
+  // crash — and a bit too present"): a highpass at 5200 removed ALL body,
+  // which is exactly the difference between a splash and a crash. The
+  // body starts at 3400, the tail rings a full two seconds, and the level
+  // steps back so the wall carries the hit, not the cymbal
+  ok("the crash keeps its body (highpass at 3400, not splash-high)",
+    /function crash\(t\)[\s\S]{0,400}?hp\.frequency\.value = 3400/.test(script));
+  ok("… rings a real tail (2 s)",
+    /function crash\(t\)[\s\S]{0,700}?exponentialRampToValueAtTime\(0\.0001, t \+ 2\)/.test(script));
+  ok("… and steps back in the mix",
+    /function crash\(t\)[\s\S]{0,600}?setValueAtTime\(0\.22, t\)/.test(script));
   // snare v2 (field report: thin and mechanical, worst in the build): a
   // full backbeat strikes a snap layer on top of noise and body; ghosts and
   // roll hits stay soft AND vary their color per hit, so sixteen of them

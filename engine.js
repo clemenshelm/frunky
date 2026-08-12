@@ -123,6 +123,7 @@
       pad: { osc: { type: "fatsawtooth", count: 3, spread: 14 }, lite: "sawtooth", attack: 1.1, release: 1.6, trim: 0 },
       gate: { osc: { type: "fattriangle", count: 2, spread: 12 }, lite: "triangle", trim: 0 },
       blip: { osc: { type: "square" }, trim: 0 },
+      hook: { lp: 2300, pres: 2 }, // today's hook chain, verbatim
     },
     organic: { // round and woody — soft kick, breathy hats, triangle washes
       kick: { pitchDecay: 0.15, octaves: 1.4, decay: 0.34 },
@@ -133,6 +134,7 @@
       pad: { osc: { type: "fattriangle", count: 3, spread: 10 }, lite: "triangle", attack: 1.5, release: 2.2, trim: 2.5 },
       gate: { osc: { type: "fattriangle", count: 2, spread: 8 }, lite: "triangle", trim: 0.5 },
       blip: { osc: { type: "triangle" }, trim: 2 },
+      hook: { lp: 2100, pres: 1.5 }, // woody: a touch rounder than analog
     },
     neon: { // tight and cold — clarity, one pane of glass, crisp air.
       // v3 after the third field report ("much too loud, unbearable"): the
@@ -147,10 +149,17 @@
       hat: { closed: 0.03, open: 0.2 },
       snare: { decay: 0.1 },
       room: 0.85,
-      bass: { osc: { type: "triangle" }, lite: "triangle", lp: 380, trim: -1 },
+      // v4 ("now a bit too dull"): brightness was the wrong lever all
+      // along — the synthwave answer is MOVEMENT (slight detune) and a
+      // touch of filter resonance, not a wider-open window. And the hook
+      // rode the same bright chain in every world, so once the bass calmed
+      // down the hook was the sharpest thing left: every world shades the
+      // hook now, neon most of all
+      bass: { osc: { type: "fattriangle", count: 2, spread: 6 }, lite: "triangle", lp: 430, q: 1.3, trim: -1 },
       pad: { osc: { type: "fatsawtooth", count: 3, spread: 14 }, lite: "sawtooth", attack: 0.8, release: 1.2, trim: -2 },
       gate: { osc: { type: "fattriangle", count: 2, spread: 10 }, lite: "triangle", trim: -1 },
       blip: { osc: { type: "square" }, trim: -1 },
+      hook: { lp: 1900, pres: 0.5 },
     },
   };
   // deep rounds off, anthem goes cold and bright, analog stays everyone's
@@ -644,6 +653,13 @@
       gateS.volume.value = worldBaseVol.gate + W.gate.trim;
       blipS.volume.value = worldBaseVol.blip + W.blip.trim;
     }
+    // v4: the world also colors the bass filter's character (a touch of
+    // resonance is the analog squelch) and shades the hook chain — the
+    // hook rode the same bright presence in every world, so in a calm
+    // world it was the sharpest thing left
+    if (bassLp) bassLp.Q.value = W.bass.q || 0.8;
+    if (hookLp) hookLp.frequency.value = W.hook.lp;
+    if (hookPres) hookPres.gain.value = W.hook.pres;
     engine.worldApplied = name;
   }
   function applyStageGates() {
@@ -1040,6 +1056,7 @@
   let hatPan, shakerPan, percPan, tomPan, blipPan, arpPan, rhodesPan;
   let atmoNoise, atmoLp, atmoGain;
   let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS, leadTri, gateS, gateAmp, gateLp;
+  let hookLp, hookPres; // module scope: applySoundWorld shades the hook per world
   let hookThrowG; // the delay throw's dedicated send — a gesture, not a level
   let leadFuzz;   // colossus: the hook in the hands of a fuzz bass
   // the rise figure: its own pool of mono voices — overlapping entries on one
@@ -1418,9 +1435,9 @@
     // shared space and shared brightness, not level: a modest clarity lift
     // rather than a bite, a top end no brighter than the pad it sits over,
     // and the same room as the rest of the band
-    const hookPres = reg(new Tone.Filter({ type: "peaking", frequency: 1800, Q: 0.9, gain: 2 }));
+    hookPres = reg(new Tone.Filter({ type: "peaking", frequency: 1800, Q: 0.9, gain: 2 }));
     const hookAir = reg(new Tone.Filter({ type: "highshelf", frequency: 4800, gain: -5 }));
-    const hookLp = reg(new Tone.Filter({ frequency: 2300, type: "lowpass", Q: 0.9 }));
+    hookLp = reg(new Tone.Filter({ frequency: 2300, type: "lowpass", Q: 0.9 }));
     hookS = reg(new Tone.Synth({
       oscillator: opts.lite ? { type: "square" } : { type: "fatsquare", count: 2, spread: 12 },
       envelope: { attack: 0.004, decay: 0.18, sustain: 0.15, release: 0.08 },
@@ -1654,12 +1671,16 @@
   // as expensive when the whole spectrum returns at once; the crash is the
   // marker every produced drop carries and ours lacked
   function crash(t) {
-    const n = noiseSrc(t, 1.4);
+    // v2 ("sounds like a small splash"): a highpass at 5200 removed ALL
+    // body, which is exactly the difference between a splash and a crash.
+    // The body starts at 3400, the tail rings a full two seconds, and the
+    // level steps back so the wall carries the hit, not the cymbal
+    const n = noiseSrc(t, 2);
     const hp = raw.createBiquadFilter();
-    hp.type = "highpass"; hp.frequency.value = 5200;
+    hp.type = "highpass"; hp.frequency.value = 3400;
     const g = raw.createGain();
-    g.gain.setValueAtTime(0.3, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.4);
+    g.gain.setValueAtTime(0.22, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 2);
     n.connect(hp).connect(g);
     Tone.connect(g, busFx);
   }
@@ -3211,7 +3232,7 @@
       tables: JSON.parse(JSON.stringify(SOUNDWORLDS)),
       pool: JSON.parse(JSON.stringify(WORLD_POOL)),
       nodes: kickS ? { kick: kickS, hatC, hatO, snare: snareS, bass: bassS,
-        bassLp, pad: padS, gate: gateS, blip: blipS } : null,
+        bassLp, pad: padS, gate: gateS, blip: blipS, hookLp, hookPres } : null,
     }),
     // test seam: the harmonic palette — the tables with their smoothness
     // rules, the mood pools, and where the current piece stands, so a test
