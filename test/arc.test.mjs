@@ -40,9 +40,9 @@ const GATE = { brassy: 0.6, blips: 0.5, ghosts: 0.45, bassFill: 0.35, lick: 0.4,
   snareGhosts: 0.55, hookLift: 0.8 };
 
 let rc = 0;
-// 0.02: a seed that puts rolled brass AND blips into low-stage parts — the
+// 0.04: a seed that puts rolled brass AND blips into low-stage parts — the
 // non-vacuity checks below reject a seed whose silence only proves the dice
-Math.random = () => (rc = (rc + 0.02) % 1);
+Math.random = () => (rc = (rc + 0.04) % 1);
 transport.manual = true;
 globalThis.window = { Tone: globalThis.Tone };
 eval(script);

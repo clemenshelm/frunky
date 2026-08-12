@@ -90,6 +90,19 @@ let nodeSeq = 0;
 const meter = { notes: 0 };
 // tests flip these to reproduce conditions a laptop never produces
 const stubConfig = { loadedHangs: false };
+// real Tone instruments accept options at construction and via .set(), and
+// .set() deep-merges (an envelope patch keeps the untouched fields). The stub
+// mirrors both and REMEMBERS the result, because a reorchestration can only
+// be checked by a stub that knows what each voice is currently set to
+function mergeSettings(into, from) {
+  for (const [k, v] of Object.entries(from)) {
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      if (!into[k] || typeof into[k] !== "object") into[k] = {};
+      mergeSettings(into[k], v);
+    } else into[k] = v;
+  }
+  return into;
+}
 function toneNode() {
   const id = ++nodeSeq;
   let lastStart = null;
@@ -137,6 +150,8 @@ function toneNode() {
     volume: param(0), feedback: param(0), delayTime: param(0), wet: param(1),
     detune: param(0), amplitude: param(1),
     loaded: true,
+    settings: {},
+    set(o) { if (o && typeof o === "object") mergeSettings(n.settings, o); return n; },
   };
   return n;
 }
@@ -172,7 +187,15 @@ const Tone = new Proxy({}, {
     if (key === "setContext") return () => {};
     if (key === "connect") return () => {};
     if (key === "now") return () => fakeCtx.currentTime;
-    return function ToneClass() { return toneNode(); };
+    return function ToneClass(...args) {
+      const n = toneNode();
+      // constructor options land in settings too (PolySynth's first arg is a
+      // voice class — only plain objects are options)
+      for (const a of args) {
+        if (a && typeof a === "object" && !Array.isArray(a)) mergeSettings(n.settings, a);
+      }
+      return n;
+    };
   },
 });
 globalThis.Tone = Tone;

@@ -86,6 +86,56 @@
     neutral: ["modal", "light"],
     anthem: ["light", "modal"],
   };
+  // ---- sound worlds --------------------------------------------------------
+  // "We always use the same instruments." Accurate: pieces roll key, mood,
+  // recipe, arc, palette and motif — and hand it all to one fixed orchestra.
+  // Orchestration is the last classical identity axis, and in film scoring
+  // THE cue decision: the same leitmotif recolored by instrument beats any
+  // harmonic recoloring. The album practice bounds it: every track its own
+  // arrangement, ONE production sound. So a world is a curated preset bundle
+  // over the EXISTING voices — swap, never stack (render cost stays flat on
+  // the car unit), the backbone (thrust, car mix, roles, the hook chain the
+  // recipe owns) untouched. analog IS today's sound, pinned verbatim by
+  // world.test.mjs as the regression reference. trim is a physics
+  // compensation in dB (a triangle pad carries far less energy than a saw
+  // pad), bounded by the test so a world can never smuggle in a mix change.
+  const SOUNDWORLDS = {
+    analog: { // today's park — punchy club kick, saw washes, warm gate
+      kick: { pitchDecay: 0.08, octaves: 1.9, decay: 0.26 },
+      hat: { closed: 0.04, open: 0.26 },
+      snare: { decay: 0.13 },
+      bass: { osc: { type: "fattriangle", count: 2, spread: 8 }, lite: "triangle", lp: 480, trim: 0 },
+      pad: { osc: { type: "fatsawtooth", count: 3, spread: 14 }, lite: "sawtooth", attack: 1.1, release: 1.6, trim: 0 },
+      gate: { osc: { type: "fattriangle", count: 2, spread: 12 }, lite: "triangle", trim: 0 },
+      blip: { osc: { type: "square" }, trim: 0 },
+    },
+    organic: { // round and woody — soft kick, breathy hats, triangle washes
+      kick: { pitchDecay: 0.15, octaves: 1.4, decay: 0.34 },
+      hat: { closed: 0.065, open: 0.34 },
+      snare: { decay: 0.19 },
+      bass: { osc: { type: "triangle" }, lite: "triangle", lp: 360, trim: 1.5 },
+      pad: { osc: { type: "fattriangle", count: 3, spread: 10 }, lite: "triangle", attack: 1.5, release: 2.2, trim: 2.5 },
+      gate: { osc: { type: "fattriangle", count: 2, spread: 8 }, lite: "triangle", trim: 0.5 },
+      blip: { osc: { type: "triangle" }, trim: 2 },
+    },
+    neon: { // tight and cold — clicky kick, crisp hats, wide saw glass
+      kick: { pitchDecay: 0.05, octaves: 2.2, decay: 0.2 },
+      hat: { closed: 0.028, open: 0.2 },
+      snare: { decay: 0.1 },
+      bass: { osc: { type: "fatsawtooth", count: 2, spread: 10 }, lite: "sawtooth", lp: 700, trim: -2.5 },
+      pad: { osc: { type: "fatsawtooth", count: 3, spread: 22 }, lite: "sawtooth", attack: 0.7, release: 1.2, trim: -0.5 },
+      gate: { osc: { type: "fatsquare", count: 2, spread: 10 }, lite: "square", trim: -1 },
+      blip: { osc: { type: "square" }, trim: 0 },
+    },
+  };
+  // deep rounds off, anthem goes cold and bright, analog stays everyone's
+  // second home — and never the same world twice in a row (album practice:
+  // consecutive tracks must not share a sound)
+  const WORLD_POOL = {
+    deep: ["organic", "analog"],
+    neutral: ["analog", "organic", "neon"],
+    anthem: ["neon", "analog"],
+  };
   const BASSPATS = [
     [2, 6, 10, 14], // straight offbeats
     [2, 6, 11, 14], // funk push on the and-of-three
@@ -430,6 +480,31 @@
   // of "where the piece stands" and "what the scene allows". Gating always
   // derives from the part's rolled flags, so a lifted cap can bring a
   // material BACK — a one-way mutation could only ever remove
+  // reorchestration: apply a world's presets to the existing voices — swap,
+  // never stack, the same nodes in new colors. Called at part boundaries
+  // only, right before the hush, so a mid-note oscillator change never sounds
+  function applySoundWorld(name) {
+    const W = SOUNDWORLDS[name];
+    if (!W || !kickS) return;
+    kickS.set({ pitchDecay: W.kick.pitchDecay, octaves: W.kick.octaves,
+      envelope: { decay: W.kick.decay } });
+    hatC.set({ envelope: { decay: W.hat.closed } });
+    hatO.set({ envelope: { decay: W.hat.open } });
+    snareS.set({ envelope: { decay: W.snare.decay } });
+    bassS.set({ oscillator: opts.lite ? { type: W.bass.lite } : W.bass.osc });
+    bassLp.frequency.value = W.bass.lp;
+    padS.set({ oscillator: opts.lite ? { type: W.pad.lite } : W.pad.osc,
+      envelope: { attack: W.pad.attack, release: W.pad.release } });
+    gateS.set({ oscillator: opts.lite ? { type: W.gate.lite } : W.gate.osc });
+    blipS.set({ oscillator: W.blip.osc });
+    if (worldBaseVol) {
+      bassS.volume.value = worldBaseVol.bass + W.bass.trim;
+      padS.volume.value = worldBaseVol.pad + W.pad.trim;
+      gateS.volume.value = worldBaseVol.gate + W.gate.trim;
+      blipS.volume.value = worldBaseVol.blip + W.blip.trim;
+    }
+    engine.worldApplied = name;
+  }
   function applyStageGates() {
     const eff = Math.min(engine.stageBase, engine.sceneCap);
     engine.stage = eff;
@@ -516,6 +591,11 @@
     // mood's pool, so the wave shapes the story, not only the density
     const arcPool = ARC_POOL[mood];
     const arcName = arcPool[Math.floor(Math.random() * arcPool.length)];
+    // the sound world: the piece's orchestra, drawn from the mood's pool and
+    // never the same twice in a row — consecutive tracks must not share a
+    // sound, exactly the recipe's rotation rule
+    const worldPool = WORLD_POOL[mood].filter((x) => !engine.piece || x !== engine.piece.world);
+    const world = worldPool[Math.floor(Math.random() * worldPool.length)];
     const A = rollBundle("verse", pA, mood, null, recipe.bass);
     const B = rollBundle("chorus", pB, mood, A, recipe.bass); // chorus must contrast the verse
     const C = rollBundle("bridge", pC, mood, B, recipe.bass); // bridge must contrast the chorus
@@ -530,6 +610,7 @@
       recipe: recipe.name, groove: recipe.groove, lead: recipe.lead,
       arcName,
       paletteName,
+      world,
       // a COPY: a launch rewrites this piece's script, and mutating the shared
       // pool entry would corrupt the form for every piece that follows
       form: FORMS[Math.floor(Math.random() * FORMS.length)].slice(),
@@ -559,6 +640,9 @@
     // the piece's key: F() reads tp, the thrust drone must follow the tonic
     tp = engine.piece.tp;
     if (thrustSub) thrustSub.frequency.value = F(33);
+    // the piece's orchestra: reorchestrate at the boundary (the hush below
+    // covers the seam), and only when the world actually changes
+    if (engine.worldApplied !== piece.world) applySoundWorld(piece.world);
     // the piece's frame: groove template, lead voice, and the swing that
     // belongs to the groove (Transport-level — the step length never moves)
     engine.recipe = engine.piece.recipe;
@@ -769,6 +853,9 @@
   }
   let kickS, heartS, tomS, hatC, hatO, shakerS, percS;
   let bassS, bassLp, growlS, growlLp, thrustSub, thrustSubGain;
+  // the calibrated base volumes of the four voices the world trims may move —
+  // captured at build time so a rebuild always re-anchors on the fresh park
+  let worldBaseVol = null;
   let brakeNoise, brakeLp, brakeGain, brakeOsc, brakeOscGain;
   let stretchNoise, stretchBp, stretchGain;
   let padS, padTri, padHp, padLp, arpS, arpLp, stabS, stabLp;
@@ -1213,6 +1300,12 @@
     }));
     padS.volume.value = db(0.16);
     poly(padS, opts.lite ? 24 : 64);
+    // the sound-world anchor: trims move these four voices relative to the
+    // calibrated base captured HERE, so a rebuilt park re-anchors cleanly and
+    // no world ever compounds on another world's trim
+    worldBaseVol = { bass: bassS.volume.value, pad: padS.volume.value,
+      gate: gateS.volume.value, blip: blipS.volume.value };
+    engine.worldApplied = null;
     padTri = reg(new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: "triangle" },
       envelope: { attack: 1.3, decay: 0.3, sustain: 0.7, release: 1.8 },
@@ -2272,6 +2365,7 @@
       ["Rezept", engine.recipe],
       ["Bogen", p.arcName],
       ["Harmonik", p.paletteName],
+      ["Klang", p.world],
       ["Motiv", p.hook.call.map((n) => n.s).join("·")],
       p.mood !== "neutral" ? ["Mood", p.mood === "deep" ? "Deep" : "Anthem"] : null,
       ["Akkorde", engine.hr === "sync" ? "sync·" + (engine.syncPos === 12 ? "4" : "3+") : engine.hr],
@@ -2569,6 +2663,17 @@
         nodes: blipS ? { blip: blipS, brass: brassS } : null,
       };
     },
+    // test seam: the sound world — the tables, the mood pools, the piece's
+    // roll and what the voices are ACTUALLY set to, so a test can prove the
+    // reorchestration reached the oscillators rather than trust the label
+    __world: () => ({
+      name: engine.piece ? engine.piece.world : null,
+      applied: engine.worldApplied,
+      tables: JSON.parse(JSON.stringify(SOUNDWORLDS)),
+      pool: JSON.parse(JSON.stringify(WORLD_POOL)),
+      nodes: kickS ? { kick: kickS, hatC, hatO, snare: snareS, bass: bassS,
+        bassLp, pad: padS, gate: gateS, blip: blipS } : null,
+    }),
     // test seam: the harmonic palette — the tables with their smoothness
     // rules, the mood pools, and where the current piece stands, so a test
     // can prove the pivot/consonance/voice-leading rules and the walk-reset
