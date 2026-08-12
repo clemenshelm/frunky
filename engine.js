@@ -212,6 +212,7 @@
       [[13, "g", 0, 0.5], [14, "t", 170, 0.7], [15, "t", 140, 0.9]],
       [[14, "g", 0, 0.5], [15, "s", 0, 0.8]],
       [[12, "t", 190, 0.6], [14, "t", 150, 0.8], [15, "g", 0, 0.5]],
+      [[13, "t", 200, 0.5], [15, "t", 160, 0.85]], // two-tom pickup
     ],
     medium: [
       [[10, "s", 0, 0.6], [11, "g", 0, 0.4], [12, "t", 180, 0.7],
@@ -220,6 +221,10 @@
         [14, "s", 0, 0.85], [15, "t", 130, 0.9]],
       [[8, "k", 0, 0.7], [10, "s", 0, 0.6], [12, "t", 170, 0.75],
         [14, "t", 140, 0.85], [15, "s", 0, 0.9]],
+      // the drag: a ghost run swelling into the backbeat — the marching
+      // drummer's oldest crescendo, half a bar long
+      [[8, "g", 0, 0.35], [9, "g", 0, 0.45], [10, "g", 0, 0.55],
+        [11, "g", 0, 0.65], [12, "s", 0, 0.8], [14, "s", 0, 0.95]],
     ],
     large: [
       [[4, "s", 0, 0.6], [6, "t", 200, 0.65], [8, "s", 0, 0.7],
@@ -228,6 +233,16 @@
       [[4, "t", 210, 0.55], [7, "g", 0, 0.4], [8, "t", 180, 0.7],
         [11, "g", 0, 0.45], [12, "s", 0, 0.8], [14, "t", 140, 0.9],
         [15, "t", 120, 1]],
+      // the paired-tom cascade — double strikes descending, the most
+      // famous fill shape in pop history
+      [[8, "t", 210, 0.7], [9, "t", 210, 0.75], [10, "t", 180, 0.8],
+        [11, "t", 180, 0.85], [12, "t", 150, 0.9], [13, "t", 150, 0.95],
+        [14, "t", 125, 1], [15, "t", 125, 1]],
+      // the linear fill — kick, snare and toms alternating, never two
+      // voices at once: the fusion drummer's signature
+      [[8, "k", 0, 0.7], [9, "s", 0, 0.55], [10, "t", 180, 0.65],
+        [11, "k", 0, 0.7], [12, "s", 0, 0.75], [13, "t", 150, 0.8],
+        [14, "k", 0, 0.85], [15, "s", 0, 0.95]],
     ],
   };
   // call-and-response answers for the square-wave blip voice (pentatonic, high)
@@ -238,6 +253,10 @@
     [[10, 5], [12, 7], [14, 10], [15, 12]],  // run-up into the one
     [[10, 12], [12, 7], [13, 12], [15, 10]], // octave bounce
     [[11, 12], [12, 10], [13, 7], [15, 5]],  // walk-down, resolves on the one
+    // the classics ("proven greats", curated by hand):
+    [[10, 3], [12, 5], [13, 6], [15, 7]],    // blues curl — the b5 slides through
+    [[10, 12], [12, 10], [14, 7], [15, 5]],  // descending pentatonic run
+    [[11, 12], [13, 0], [15, 7]],            // octave drop, lands on the fifth
   ];
   // melodic bass lines: pentatonic-safe intervals per pattern hit
   const BASSMELS = [
@@ -3362,6 +3381,7 @@
     // prove the hierarchy plays rather than trust the tables
     __fills: () => ({
       crate: JSON.parse(JSON.stringify(DRUMFILLS)),
+      licks: JSON.parse(JSON.stringify(LICKS)),
       current: engine.drumFill ? JSON.parse(JSON.stringify(engine.drumFill)) : null,
       nodes: tomS ? { tom: tomS, snare: snareS, kick: kickS } : null,
     }),

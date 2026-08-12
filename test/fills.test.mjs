@@ -38,8 +38,32 @@ function boot(seed) {
   const Frunky = boot(0.03);
   ok("the __fills seam exists", typeof Frunky.__fills === "function");
   const c = typeof Frunky.__fills === "function" ? Frunky.__fills().crate : null;
-  ok("the crate holds all three sizes",
-    !!c && c.small.length >= 3 && c.medium.length >= 3 && c.large.length >= 2);
+  ok("the crate holds all three sizes, classics included",
+    !!c && c.small.length >= 4 && c.medium.length >= 4 && c.large.length >= 4);
+  // the classics ("proven greats"): the paired-tom cascade needs its
+  // double strikes (two hits per drum descending — the In-the-Air shape),
+  // and one large fill must be LINEAR: kick, snare and toms alternating,
+  // no two voices at once — the fusion drummer's signature
+  ok("a paired-tom cascade lives in the large crate",
+    !!c && c.large.some((f) => f.length >= 8 && f.every(([, v]) => v === "t") &&
+      f.every(([, , p], i, a) => i === 0 || p <= a[i - 1][2])));
+  ok("a linear fill lives in the large crate (no voice repeats back-to-back)",
+    !!c && c.large.some((f) => f.length >= 7 &&
+      new Set(f.map(([, v]) => v)).size >= 3 &&
+      f.every(([, v], i, a) => i === 0 || v !== a[i - 1][1])));
+  ok("a dragged snare lives in the medium crate (ghost run into the backbeat)",
+    !!c && c.medium.some((f) => f.filter(([, v]) => v === "g").length >= 3 &&
+      f[f.length - 1][1] === "s"));
+  // the bass licks join the ledger: still pentatonic pickups at the bar's
+  // tail — and at least one carries the blues curl (the b5 passing tone)
+  const licks = typeof Frunky.__fills === "function" ? Frunky.__fills().licks : null;
+  ok("the lick pool grew to the classics, got " + (licks ? licks.length : 0),
+    !!licks && licks.length >= 6);
+  ok("every lick stays a tail pickup in the pentatonic-plus-curl set",
+    !!licks && licks.every((l) => l.every(([p, s]) =>
+      p >= 8 && p <= 15 && [0, 3, 5, 6, 7, 10, 12].includes(s))));
+  ok("one lick carries the blues curl (the b5 passing tone)",
+    !!licks && licks.some((l) => l.some(([, s]) => s === 6)));
   const all = c ? [...c.small, ...c.medium, ...c.large] : [];
   ok("every hit sits inside its bar with a known voice and a sane weight",
     all.length > 0 && all.every((f) => f.every(([p, v, , w]) =>

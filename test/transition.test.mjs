@@ -82,7 +82,8 @@ function boot(seed, store) {
         prevTrigs = now;
         prevStabTrigs = stabNow;
         prevBarMeta = { window: finalNext, label: d.partLabel,
-          barInPart: d.bar, num: d.num };
+          barInPart: d.bar, num: d.num,
+          fill: !!(Frunky.__fills && Frunky.__fills().current) };
       }
       if (pos === 8) {
         if (finalNext && d.bar === 16 && rollRoomBuild === null) {
@@ -123,7 +124,11 @@ function boot(seed, store) {
   // the drum build: the last bar before the final chorus carries clearly
   // more snare hits than any ordinary bar — density is the message
   const buildBar = snareByBar.find((r) => r.window && r.barInPart === 16);
-  const ordinary = snareByBar.filter((r) => !r.window && r.barInPart > 2 && r.barInPart < 12);
+  // fill bars are excluded on purpose: a dragged-snare fill IS a deliberate
+  // half-bar crescendo (a curated event from the classics crate), and this
+  // guard exists to catch ACCIDENTAL roll density on plain groove bars
+  const ordinary = snareByBar.filter((r) => !r.window && !r.fill &&
+    r.barInPart > 2 && r.barInPart < 12);
   const ordMax = Math.max(...ordinary.map((r) => r.delta));
   ok("the build's final bar rolls (≥ 12 snare hits), got " +
     (buildBar && buildBar.delta), !!buildBar && buildBar.delta >= 12);
