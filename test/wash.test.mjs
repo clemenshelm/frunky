@@ -50,10 +50,15 @@ function boot(seed) {
       const isWash = chords && chords[1] === "wash";
       // exclusions, each one a DESIGNED seam rather than a hole: the part
       // boundary (hush owns it), the bridge breakdown, the 48-bar breather
-      // window, and the first bars of the session (wake-in)
+      // window, the first bars of the session (wake-in) — and the AIR
+      // window (Build 60): there the carpet deliberately rests whole
+      // voicings at full length, so some seams carry silence by design.
+      // air.test.mjs owns that behavior (it pins that the rests are real
+      // AND that the sounding voicings stay full-length); this file keeps
+      // pinning the crossfade rule everywhere else
       const excluded = !d || d.bar >= 16 ||
         (d.partLabel === "C" && d.bar <= 8) ||
-        (bar % 48 >= 43) || bar < 4;
+        (bar % 48 >= 43) || bar < 4 || Frunky.__drive().air.now;
       if (isWash && !excluded) {
         const calls = Frunky.__world().nodes.pad.calls;
         const barline = (bar + 1) * 16 * SPB;

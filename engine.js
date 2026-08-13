@@ -1034,6 +1034,10 @@
     shimmerStart: -1,  // micro-crest: four bars of the arp an octave up
     shimmerEnd: -1e9,
     shimmerOn: false,
+    airWin: -1,        // absolute 8-bar air window (field report: continuous
+    padAir: false,     // organs/flutes and eighth-runs tire — the arrangement
+    arpAir: false,     // must BREATHE). padAir: the wash releases inside its
+    airNow: false,     // slot; arpAir: the arp rests the phrase end
     ghostTheme: false, // this occurrence lets the lap's theme drift by
     sprint: 0,         // sustained-push integrator: force theater is earned
     forceGate: 0.25,   // how far the low force voices may open right now
@@ -2153,8 +2157,12 @@
     f.linearRampToValueAtTime(cut * 1.25, t + dur * 0.45);
     f.linearRampToValueAtTime(cut * 0.6, t + dur);
     padS.triggerAttackRelease(midis.map(F), dur * 0.85, at("pad", t), vv(vol, 0.4));
-    padTri.triggerAttackRelease(midis.map((m) => F(m + 12)), dur * 0.85,
-      at("padTri", t), vv(vol * 0.55, 0.4));
+    // the octave-up triangle layer is the "flute" the field report tired of:
+    // in an air window the carpet keeps its base register only
+    if (!engine.airNow) {
+      padTri.triggerAttackRelease(midis.map((m) => F(m + 12)), dur * 0.85,
+        at("padTri", t), vv(vol * 0.55, 0.4));
+    }
   }
 
   // ---- sequencer -----------------------------------------------------------
@@ -2221,6 +2229,21 @@
       if (engine.sceneHushPending) { engine.sceneHushPending = false; hush(t); }
     }
     if (pos === 0) engine.barInPart = bar % 16;
+    // THE AIR ("continuous organs and flutes, and the background eighth-runs,
+    // tire over time"): a band breathes at phrase ends, a synth carpet does
+    // not unless told to. Per absolute 8-bar window — the dawn lesson: window
+    // phase must never depend on entry time — keyed dice decide whether the
+    // carpet breathes and whether the arp rests the phrase end. Two
+    // independent rolls: pad air and arp air coinciding every time would
+    // itself become a pattern
+    if (pos === 0) {
+      const aWin = Math.floor(bar / 8);
+      if (aWin !== engine.airWin) {
+        engine.airWin = aWin;
+        engine.padAir = dicer("padair:" + aWin)() < 0.35;
+        engine.arpAir = dicer("arpair:" + aWin)() < 0.45;
+      }
+    }
     if (pos === 0 && bar % 8 === 7) engine.fill = FILLS[Math.floor(dicer("flav:" + bar)() * FILLS.length)];
     // the highway latch and the EARNED lift. The old lift ran on a 24-bar
     // clock — "it always comes at the expected moment" — so now the pedal
@@ -2451,6 +2474,12 @@
     const flowMode = engine.flowOn;
     const liftPhase = flowMode && engine.liftStart >= 0;
     engine.liftActive = liftPhase;
+    // the air applies only where the carpet is wallpaper: the lift, the
+    // clearing, a breather, the bridge and the DJ build own their floor.
+    // Latched onto the engine so chordVoice and pad() inherit ONE decision —
+    // every input flips on barlines, so the layer never flaps mid-bar
+    engine.airNow = engine.padAir && !liftPhase && !engine.clearingOn
+      && !breather && !bridgeDown && formStage < 0;
     const progEff = !flowMode ? engine.prog
       : liftPhase ? LIFTPROG
       : engine.clearingOn ? PEDALCLEAR
@@ -2749,7 +2778,14 @@
     // the motorway thins the arp by letting its offbeats recede, not by
     // switching rate: a rate change under a held note is heard as a stumble
     const offbeatLevel = lean ? 0 : 1 - ff * (liftPhase ? (engine.liftTaper ? 0.7 : 0.3) : engine.shimmerOn ? 0.55 : 1);
-    const arpHit = pos % 2 === 0 && (onBeat || offbeatLevel > 0.02);
+    // the arp breathes at phrase ends: in an air window the last two bars of
+    // each 8-bar phrase go tacet after ONE long exhale note on the first of
+    // bar 7 — a held release, not a hole. The eighth-run becomes a figure
+    // again instead of wallpaper. The lift and the shimmer keep their drive
+    const arpRestBar = engine.arpAir && !liftPhase && !engine.shimmerOn && bar % 8 >= 6;
+    const arpExhale = arpRestBar && bar % 8 === 6 && pos === 0;
+    const arpHit = pos % 2 === 0 && (onBeat || offbeatLevel > 0.02) &&
+      (!arpRestBar || arpExhale);
     if (arpHit) {
       const seq = turnaround ? engine.arpSeq.slice().reverse() : engine.arpSeq;
       // in the clearing the arp's minor third turns major — the C natural
@@ -2767,7 +2803,8 @@
       // a line of uniform lengths is the "stur" the field report named
       arpNote(t, F(arpSemi + (liftPhase || engine.shimmerOn ? 12 : engine.arpOct)),
         idleCut * (0.8 + 0.2 * Math.sin(t * 0.3)) + 700 * push,
-        vel(0.07 * accent), flowHigh > 0.6 ? SPB * 3.6 : SPB * (onBeat ? 2.2 : 1.6));
+        vel(0.07 * accent), arpExhale ? SPB * 7
+          : flowHigh > 0.6 ? SPB * 3.6 : SPB * (onBeat ? 2.2 : 1.6));
     }
     // harmonic rhythm: per bar, held two bars, or pushed in ahead of the one.
     // During the lift the pad grows brighter and half again as large
@@ -2783,7 +2820,15 @@
       // behind bass, stab and arp for its whole length (the field report's
       // "instruments seem shifted by a bar, resynced at a lift")
       const chPh = liftPhase ? bar - engine.liftStart : bar;
-      if (pos === 0 && chPh % 2 === 0) chordVoice(t, progEff[ci], SPB * 40, padVol, padCut);
+      // an air window: the carpet plays HALF its voicings, at full length —
+      // real chords with real multi-bar rests (a string section resting),
+      // never every chord clipped (that reads as pumping, and a wash dying
+      // a sliver before the one is the exact hole wash.test exists to stop).
+      // The skipped seam is DESIGNED air; wash.test pins the crossfade rule
+      // only outside air windows
+      if (pos === 0 && chPh % 2 === 0 && !(engine.airNow && chPh % 4 === 2)) {
+        chordVoice(t, progEff[ci], SPB * 40, padVol, padCut);
+      }
       // the tear ducts: the lift and the clearing carry a HIGH string bed —
       // the triangle pad an octave above the wash, quiet and long, riding
       // the pad's room. Register is what euphoria was missing
@@ -2830,7 +2875,11 @@
       // the crossfade is the transition — a wash that dies before the one
       // reads as a hole, and the field report heard exactly that. The
       // anticipation became a short lead-in the one then confirms
-      if (pos === 0) chordVoice(t, progEff[ci], SPB * 22, padVol, padCut);
+      // (air: alternate voicings rest — see the twobar branch. The pos-14
+      // anticipation always leads into a phrase head, which always plays)
+      if (pos === 0 && !(engine.airNow && bar % 2 === 1)) {
+        chordVoice(t, progEff[ci], SPB * 22, padVol, padCut);
+      }
       if (pos === 14 && bar % 4 === 3 && bar % 16 !== 15) {
         chordVoice(t, progEff[ciNext], SPB * 6, padVol * 0.8, padCut);
         // the pad's slow attack smears the anticipation — Rhodes announces it.
@@ -2844,7 +2893,9 @@
       }
     } else if (hrEff === "sync") {
       // the next phrase's chord arrives at an odd spot — same sparseness rule
-      if (pos === 0) chordVoice(t, progEff[ci], SPB * 22, padVol, padCut);
+      if (pos === 0 && !(engine.airNow && bar % 2 === 1)) {
+        chordVoice(t, progEff[ci], SPB * 22, padVol, padCut);
+      }
       if (pos === engine.syncPos && bar % 4 === 3 && bar % 16 !== 15) {
         chordVoice(t, progEff[ciNext], SPB * (18 - engine.syncPos), padVol * 0.8, padCut);
         if (engine.padStyle === "wash") rhodesChord(t, progEff[ciNext], 0.08 + 0.05 * e);
@@ -2853,7 +2904,9 @@
         }
       }
     } else {
-      if (pos === 0) chordVoice(t, progEff[ci], SPB * 20, padVol, padCut);
+      if (pos === 0 && !(engine.airNow && bar % 2 === 1)) {
+        chordVoice(t, progEff[ci], SPB * 20, padVol, padCut);
+      }
     }
     // broken/gate styles: the chords live as figures, not as a carpet
     if (!engine.flowOn && !still && !lean) {
@@ -3591,6 +3644,9 @@
       pedalColor: engine.flowOn
         ? (engine.clearingOn ? "clear" : engine.dawnOn ? "dawn" : "dusk") : null,
       shimmer: engine.shimmerOn,
+      air: { win: engine.airWin, pad: engine.padAir, arp: engine.arpAir,
+        now: engine.airNow },
+      padStyle: engine.padStyle,
       arias: ariaLog.slice(),
       warp: engine.warp,
       sprint: engine.sprint, forceGate: engine.forceGate,
@@ -3599,7 +3655,8 @@
       thrustSubFreq: thrustSub ? thrustSub.frequency.value : null,
       thrust: engine.thrust,
       nodes: warpLp
-        ? { warpLp, warpGain, busDrive, busHarm, brakeGain, masterHp, busFx, padTri }
+        ? { warpLp, warpGain, busDrive, busHarm, brakeGain, masterHp, busFx, padTri,
+            pad: padS, arp: arpS }
         : null,
     }),
     // test seam: the transition craft — the ride's filter, the throw's
