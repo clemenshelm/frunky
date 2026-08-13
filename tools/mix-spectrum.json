@@ -1,0 +1,45 @@
+{
+ "note": "Master-spectrum band averages in dB (analyser on the post-EQ makeup node, 8192-bin FFT, 200 ms sampling, simulated town+highway drive). Bands: sub 30-90, bass 90-200, lowmid 200-500, mid 500-2000, pres 2000-6000, air 6000-12000 Hz. The two build runs are UNSEEDED (different pieces — comparable only loosely); the A/B pair is SEEDED (identical dice, identical music) and isolates the car-voicing's effect. Evidence for Build 65's car mix v3.",
+ "build64_unseeded_45s": {
+  "sub": -62.5,
+  "bass": -66.2,
+  "lowmid": -62.9,
+  "mid": -74.0,
+  "pres": -94.1,
+  "air": -102.9
+ },
+ "build65_unseeded_45s": {
+  "sub": -57.2,
+  "bass": -60.2,
+  "lowmid": -63.3,
+  "mid": -73.8,
+  "pres": -88.3,
+  "air": -96.5
+ },
+ "build65_seeded_ab_40s": {
+  "carmix_on": {
+   "sub": -55.2,
+   "bass": -65.5,
+   "lowmid": -69.6,
+   "mid": -76.8,
+   "pres": -91.1,
+   "air": -97.3
+  },
+  "delta_on_minus_off": {
+   "sub": -10.7,
+   "bass": -9.9,
+   "lowmid": -6.0,
+   "mid": -4.1,
+   "pres": 3.0,
+   "air": 4.9
+  },
+  "carmix_off": {
+   "sub": -44.5,
+   "bass": -55.6,
+   "lowmid": -63.6,
+   "mid": -72.7,
+   "pres": -94.1,
+   "air": -102.2
+  }
+ }
+}
