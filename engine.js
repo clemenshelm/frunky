@@ -130,9 +130,9 @@
       hat: { closed: 0.04, open: 0.26 },
       snare: { decay: 0.13 },
       room: 1, // the reference room — staging scales the shared send by this
-      bass: { osc: { type: "fattriangle", count: 2, spread: 8 }, lite: "triangle", lp: 480, trim: 0 },
-      pad: { osc: { type: "fatsawtooth", count: 3, spread: 14 }, lite: "sawtooth", attack: 1.1, release: 1.6, trim: 0 },
-      gate: { osc: { type: "fattriangle", count: 2, spread: 12 }, lite: "triangle", trim: 0 },
+      bass: { osc: { type: "fattriangle", count: 2, spread: 8 }, lp: 480, trim: 0 },
+      pad: { osc: { type: "sawtooth" }, attack: 1.1, release: 1.6, trim: 0 },
+      gate: { osc: { type: "fattriangle", count: 2, spread: 12 }, trim: 0 },
       blip: { osc: { type: "square" }, trim: 0 },
       hook: { lp: 2300, pres: 2 }, // today's hook chain, verbatim
     },
@@ -141,9 +141,9 @@
       hat: { closed: 0.065, open: 0.34 },
       snare: { decay: 0.19 },
       room: 1.35, // woody and airy: organic breathes in a bigger room
-      bass: { osc: { type: "triangle" }, lite: "triangle", lp: 360, trim: 1.5 },
-      pad: { osc: { type: "fattriangle", count: 3, spread: 10 }, lite: "triangle", attack: 1.5, release: 2.2, trim: 2.5 },
-      gate: { osc: { type: "fattriangle", count: 2, spread: 8 }, lite: "triangle", trim: 0.5 },
+      bass: { osc: { type: "triangle" }, lp: 360, trim: 1.5 },
+      pad: { osc: { type: "triangle" }, attack: 1.5, release: 2.2, trim: 2.5 },
+      gate: { osc: { type: "fattriangle", count: 2, spread: 8 }, trim: 0.5 },
       blip: { osc: { type: "triangle" }, trim: 2 },
       hook: { lp: 2100, pres: 1.5 }, // woody: a touch rounder than analog
     },
@@ -166,9 +166,9 @@
       // rode the same bright chain in every world, so once the bass calmed
       // down the hook was the sharpest thing left: every world shades the
       // hook now, neon most of all
-      bass: { osc: { type: "fattriangle", count: 2, spread: 6 }, lite: "triangle", lp: 430, q: 1.3, trim: -1 },
-      pad: { osc: { type: "fatsawtooth", count: 3, spread: 14 }, lite: "sawtooth", attack: 0.8, release: 1.2, trim: -2 },
-      gate: { osc: { type: "fattriangle", count: 2, spread: 10 }, lite: "triangle", trim: -1 },
+      bass: { osc: { type: "fattriangle", count: 2, spread: 6 }, lp: 430, q: 1.3, trim: -1 },
+      pad: { osc: { type: "sawtooth" }, attack: 0.8, release: 1.2, trim: -2 },
+      gate: { osc: { type: "fattriangle", count: 2, spread: 10 }, trim: -1 },
       blip: { osc: { type: "square" }, trim: -1 },
       hook: { lp: 1900, pres: 0.5 },
     },
@@ -701,7 +701,7 @@
     hatC.set({ envelope: { decay: W.hat.closed } });
     hatO.set({ envelope: { decay: W.hat.open } });
     snareS.set({ envelope: { decay: W.snare.decay } });
-    bassS.set({ oscillator: opts.lite ? { type: W.bass.lite } : W.bass.osc });
+    bassS.set({ oscillator: W.bass.osc });
     // the bass cutoff is automated per NOTE (drive-dependent formula in
     // bassNote), so a static filter write here would be a no-op overwritten
     // by the next note — build 36 shipped exactly that bug. The world
@@ -711,9 +711,9 @@
     // the world's room: a factor on the shared reverb send — organic
     // breathes, neon stands close. One send, one knob, no second reverb
     engine.worldRoom = W.room || 1;
-    padS.set({ oscillator: opts.lite ? { type: W.pad.lite } : W.pad.osc,
+    padS.set({ oscillator: W.pad.osc,
       envelope: { attack: W.pad.attack, release: W.pad.release } });
-    gateS.set({ oscillator: opts.lite ? { type: W.gate.lite } : W.gate.osc });
+    gateS.set({ oscillator: W.gate.osc });
     blipS.set({ oscillator: W.blip.osc });
     if (worldBaseVol) {
       bassS.volume.value = worldBaseVol.bass + W.bass.trim;
@@ -1142,6 +1142,9 @@
       return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
     } catch (err) { void err; return false; }
   })();
+  // `lite` is the device PROBE, reported to telemetry and the trace —
+  // no behavior reads it any more (Build 64: one mode; onemode.test pins
+  // that the engine never branches on it again)
   const opts = { curveOutward: true, inertiaDepth: true, lite: lowPower, carMix: true };
 
   // Control-rate writes. Setting an AudioParam's .value schedules a STEP, and
@@ -1220,12 +1223,12 @@
         C4: "C4.mp3", E4: "E4.mp3", G4: "G4.mp3", A4: "A4.mp3", C5: "C5.mp3" }),
       baseUrl: "samples/piano/",
     });
-    // lite devices (Tesla, phones) never play the bed — it is gated on
-    // !opts.lite below — so they must not pay the fetch or the decode either.
     // The section BREATHES: a real ensemble swells in and releases out, and
     // the sampler's default 0.1 s release was heard exactly as "the strings
-    // die too fast" — an abrupt cut, nothing lifting about it
-    if (!opts.lite) {
+    // die too fast" — an abrupt cut, nothing lifting about it. One mode
+    // (Build 64): the strings play on every device — sample playback is
+    // the CHEAP luxury, which is exactly why the crate exists
+    {
       strHi = new Tone.Sampler({
         urls: withV({ G4: "G4.mp3", A4: "A4.mp3", C5: "C5.mp3", E5: "E5.mp3",
           G5: "G5.mp3", C6: "C6.mp3", E6: "E6.mp3" }),
@@ -1448,7 +1451,9 @@
     busDrive = reg(new Tone.Gain(1)); busDrive.connect(duck);
 
     // space: real convolution reverb, returned through the duck so it pumps
-    reverb = reg(new Tone.Reverb({ decay: opts.lite ? 1.2 : 2.6, preDelay: 0.02, wet: 1 }));
+    // one room for every device: 1.6 s. Convolution cost scales with the
+    // impulse length, and the strings carry their own wet now
+    reverb = reg(new Tone.Reverb({ decay: 1.6, preDelay: 0.02, wet: 1 }));
     await reverb.ready;
     revSend = reg(new Tone.Gain(0.4));
     const revRet = reg(new Tone.Gain(0.5));
@@ -1461,8 +1466,7 @@
 
     // the chorus is a per-sample modulated delay on the widest bus; on a
     // modest CPU it is pure cost for a thickening nobody would miss
-    chorus = opts.lite ? null
-      : reg(new Tone.Chorus({ frequency: 0.5, delayTime: 3.5, depth: 0.5, wet: 0.5 }).start());
+    chorus = reg(new Tone.Chorus({ frequency: 0.5, delayTime: 3.5, depth: 0.5, wet: 0.5 }).start());
 
     kickS = reg(new Tone.MembraneSynth({
       pitchDecay: 0.08, octaves: 1.9,
@@ -1540,7 +1544,7 @@
     // ~6 dB less energy than saws, so the level and filter make up for it
     bassLp = reg(new Tone.Filter({ frequency: 480, type: "lowpass", Q: 0.8 }));
     bassS = reg(new Tone.Synth({
-      oscillator: opts.lite ? { type: "triangle" } : { type: "fattriangle", count: 2, spread: 8 },
+      oscillator: { type: "fattriangle", count: 2, spread: 8 }, // mono: fat is cheap here
       envelope: { attack: 0.008, decay: 0.06, sustain: 0.85, release: 0.12 },
     }));
     bassS.volume.value = db(1.05); bassS.connect(bassLp); bassLp.connect(busBass);
@@ -1626,7 +1630,7 @@
     gateLp = reg(new Tone.Filter({ frequency: 1050, type: "lowpass", Q: 0.5 }));
     gateAmp = reg(new Tone.Gain(0));
     gateS = reg(new Tone.PolySynth(Tone.Synth, {
-      oscillator: opts.lite ? { type: "triangle" } : { type: "fattriangle", count: 2, spread: 12 },
+      oscillator: { type: "fattriangle", count: 2, spread: 12 }, // poly 12, short sections: identity wins
       envelope: { attack: 0.35, decay: 0.2, sustain: 1, release: 0.8 },
     }));
     gateS.volume.value = db(0.3);
@@ -1649,7 +1653,7 @@
     const hookAir = reg(new Tone.Filter({ type: "highshelf", frequency: 4800, gain: -5 }));
     hookLp = reg(new Tone.Filter({ frequency: 2300, type: "lowpass", Q: 0.9 }));
     hookS = reg(new Tone.Synth({
-      oscillator: opts.lite ? { type: "square" } : { type: "fatsquare", count: 2, spread: 12 },
+      oscillator: { type: "fatsquare", count: 2, spread: 12 }, // mono lead
       envelope: { attack: 0.004, decay: 0.18, sustain: 0.15, release: 0.08 },
     }));
     hookS.volume.value = db(0.42);
@@ -1658,7 +1662,7 @@
     // counterpart to the square, through the same chain so it stays a lead
     // and never a new mix problem
     leadTri = reg(new Tone.Synth({
-      oscillator: opts.lite ? { type: "triangle" } : { type: "fattriangle", count: 2, spread: 14 },
+      oscillator: { type: "fattriangle", count: 2, spread: 14 }, // mono lead
       envelope: { attack: 0.006, decay: 0.2, sustain: 0.18, release: 0.1 },
     }));
     leadTri.volume.value = db(0.5);
@@ -1669,7 +1673,7 @@
     // a fuzz bass reads through its harmonics, not its fundamental
     const fuzzDist = reg(new Tone.Distortion(0.4));
     leadFuzz = reg(new Tone.Synth({
-      oscillator: opts.lite ? { type: "square" } : { type: "fatsquare", count: 2, spread: 8 },
+      oscillator: { type: "fatsquare", count: 2, spread: 8 }, // mono lead
       envelope: { attack: 0.004, decay: 0.14, sustain: 0.4, release: 0.08 },
     }));
     // a waveshaper compresses and therefore LOUDENS — the level makes
@@ -1698,17 +1702,17 @@
     // Parov seasoning: brass-like stab — filter snaps open and shuts
     brassLp = reg(new Tone.Filter({ frequency: 900, type: "lowpass", Q: 1.2 }));
     brassS = reg(new Tone.PolySynth(Tone.Synth, {
-      oscillator: opts.lite ? { type: "sawtooth" } : { type: "fatsawtooth", count: 3, spread: 18 },
+      oscillator: { type: "sawtooth" }, // poly stabs: the snapping filter is the sound
       envelope: { attack: 0.02, decay: 0.18, sustain: 0.3, release: 0.12 },
     }));
     brassS.volume.value = db(0.16);
-    poly(brassS, opts.lite ? 10 : 24);
+    poly(brassS, 10);
     brassS.connect(brassLp); brassLp.connect(busHarm); brassLp.connect(revSend);
 
     growlLp = reg(new Tone.Filter({ frequency: 160, type: "lowpass", Q: 1 }));
     const growlDist = reg(new Tone.Distortion(0.7));
     growlS = reg(new Tone.Synth({
-      oscillator: opts.lite ? { type: "sawtooth" } : { type: "fatsawtooth", count: 3, spread: 24 },
+      oscillator: { type: "fatsawtooth", count: 3, spread: 24 }, // mono, behind distortion
       envelope: { attack: 0.01, decay: 0.05, sustain: 0.8, release: 0.08 },
     }));
     growlS.volume.value = db(0.6); growlS.chain(growlDist, growlLp, busBass);
@@ -1730,11 +1734,11 @@
     // that pulls the music back never muffles the acceleration's own figure
     riseHp.connect(busDrive); riseHp.connect(revSend); riseHp.connect(delaySend);
     riseS = []; riseLp = [];
-    for (let i = 0; i < (opts.lite ? 2 : 3); i++) {
+    for (let i = 0; i < 2; i++) {
       const lp = reg(new Tone.Filter({ frequency: 1200, type: "lowpass", Q: 0.7 }));
       lp.connect(riseHp);
       const rs = reg(new Tone.Synth({
-        oscillator: opts.lite ? { type: "triangle" } : { type: "fattriangle", count: 2, spread: 10 },
+        oscillator: { type: "fattriangle", count: 2, spread: 10 }, // 2 mono voices
         envelope: { attack: 0.006, decay: 0.14, sustain: 0.35, release: 0.3 },
       }));
       rs.volume.value = db(0.3);
@@ -1772,11 +1776,11 @@
     padHp = reg(new Tone.Filter(160, "highpass"));
     padLp = reg(new Tone.Filter({ frequency: 900, type: "lowpass", Q: 0.4 }));
     padS = reg(new Tone.PolySynth(Tone.Synth, {
-      oscillator: opts.lite ? { type: "sawtooth" } : { type: "fatsawtooth", count: 3, spread: 14 },
+      oscillator: { type: "sawtooth" }, // the carpet: 24 voices — single osc, the chorus is the width
       envelope: { attack: 1.1, decay: 0.3, sustain: 0.8, release: 1.6 },
     }));
     padS.volume.value = db(0.16);
-    poly(padS, opts.lite ? 24 : 64);
+    poly(padS, 24);
     // the sound-world anchor: trims move these four voices relative to the
     // calibrated base captured HERE, so a rebuilt park re-anchors cleanly and
     // no world ever compounds on another world's trim
@@ -1790,7 +1794,7 @@
       envelope: { attack: 1.3, decay: 0.3, sustain: 0.7, release: 1.8 },
     }));
     padTri.volume.value = db(0.09);
-    poly(padTri, opts.lite ? 24 : 64);
+    poly(padTri, 24);
     padS.connect(padHp); padTri.connect(padHp);
     padHp.connect(padLp);
     if (chorus) { padLp.connect(chorus); chorus.connect(busHarm); }
@@ -1813,11 +1817,11 @@
 
     stabLp = reg(new Tone.Filter({ frequency: 1400, type: "lowpass", Q: 1 }));
     stabS = reg(new Tone.PolySynth(Tone.Synth, {
-      oscillator: opts.lite ? { type: "sawtooth" } : { type: "fatsawtooth", count: 2, spread: 14 },
+      oscillator: { type: "sawtooth" }, // short stabs, poly — single osc
       envelope: { attack: 0.003, decay: 0.16, sustain: 0, release: 0.05 },
     }));
     stabS.volume.value = db(0.14);
-    poly(stabS, opts.lite ? 12 : 24);
+    poly(stabS, 12);
     stabS.connect(stabLp); stabLp.connect(busHarm); stabLp.connect(delaySend); stabLp.connect(revSend);
 
     // the SOUNDWORLDS table is the single source of truth for the world-
@@ -1940,7 +1944,7 @@
     // the click is a thrust ornament, not part of the kick. The old threshold
     // was below the resting value, so every kick built and threw away three
     // audio nodes — four times a bar, forever, for nothing audible
-    if (click > 0.12 && !opts.lite) kickClick(t, click * vol);
+    if (click > 0.12) kickClick(t, click * vol);
   }
   function duckAt(t, depth) {
     const g = duck.gain;
@@ -2956,7 +2960,7 @@
       // coarse pointer) skips the extra polyphony entirely, and a straining
       // device sheds it at the barline like every other ornament
       if ((liftPhase || engine.clearingOn) && pos === 0 && chPh % 2 === 0 &&
-          !opts.lite && !lean) {
+          !lean) {
         if (strHi && strHi.loaded && strLo && strLo.loaded) {
           // REAL strings (Build 61, VSCO2): violins on the octave bed,
           // celli on the chord's floor. Sample playback is nearly free
@@ -2990,7 +2994,7 @@
             // the octave doubling is the aria's luxury: the lite graph and a
             // straining device keep the voice and skip the doubling. When
             // the celli are loaded THEY sing it — Puccini's own texture
-            if (!opts.lite && !lean) {
+            if (!lean) {
               (strLo && strLo.loaded ? strLo : padTri).triggerAttackRelease(F(57 + an.s),
                 an.d * 2 * SPB * 0.85,
                 at("padTri", t + an.p * 2 * SPB), vv(0.06 * wake, 0.4));

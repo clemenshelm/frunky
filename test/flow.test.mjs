@@ -266,8 +266,10 @@ function boot(seed) {
   // triangle pad an octave above the wash, quiet and long
   ok("the lift carries the high string bed, " + stringBedLift + " refires",
     stringBedLift >= 2);
-  ok("… pinned at source for the clearing too — and shed on lite and lean",
-    /if \(\(liftPhase \|\| engine\.clearingOn\) && pos === 0 && chPh % 2 === 0 &&\s*\n\s*!opts\.lite && !lean\)/.test(script));
+  // Build 64 (one mode): device-class gates are gone — the bed sheds by
+  // measured STRAIN only, on every device
+  ok("… pinned at source for the clearing too — and shed under strain",
+    /if \(\(liftPhase \|\| engine\.clearingOn\) && pos === 0 && chPh % 2 === 0 &&\s*\n\s*!lean\)/.test(script));
   // stability (field test: Tesla dies in seconds, the phone degrades):
   // BOTH field devices run the lite graph (coarse pointer), and the extra
   // polyphony of the string bed and the aria doubling ran past it. The
@@ -275,8 +277,8 @@ function boot(seed) {
   // lite and dynamically under strain
   // Build 61 moved the doubling's carrier to the celli (padTri stays the
   // offline fallback) — the LUXURY gate is the invariant, not the instrument
-  ok("the aria's doubling is a luxury (lite and lean skip it)",
-    /if \(!opts\.lite && !lean\) \{[\s\S]{0,260}\.triggerAttackRelease\(F\(57 \+ an\.s\)/.test(script));
+  ok("the aria's doubling is a luxury (strain sheds it)",
+    /if \(!lean\) \{[\s\S]{0,260}\.triggerAttackRelease\(F\(57 \+ an\.s\)/.test(script));
   ok("the flow ghost sheds under strain",
     /!engine\.lean && engine\.setMotif/.test(script));
   ok("per-bar dice streams are pruned on hour-long drives",

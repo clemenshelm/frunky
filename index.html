@@ -210,7 +210,6 @@
   <button id="optCurve">Kurve: aussen</button>
   <button id="optDepth">Trägheits-Tiefe: an</button>
   <button id="optCarMix">Car-Mix: an</button>
-  <button id="optLite">Sparmodus: aus</button>
   <button id="optTrace">Fehlerdaten: aus</button>
   <span id="motionStat">Motion: …</span>
 </div>
@@ -220,12 +219,12 @@
 </footer>
 
 <script src="vendor/Tone.js"></script>
-<script src="engine.js?v=63"></script>
-<script src="geo.js?v=63"></script>
-<script src="diagnose.js?v=63"></script>
-<script src="trace-schema.js?v=63"></script>
-<script src="trace.js?v=63"></script>
-<script src="fresh.js?v=63"></script>
+<script src="engine.js?v=64"></script>
+<script src="geo.js?v=64"></script>
+<script src="diagnose.js?v=64"></script>
+<script src="trace-schema.js?v=64"></script>
+<script src="trace.js?v=64"></script>
+<script src="fresh.js?v=64"></script>
 <script>
 (() => {
   "use strict";
@@ -233,7 +232,7 @@
   // to know whether a trip tested the code we shipped is to read it back —
   // three reports in a row turned out to be the same stale build.
   // (Loading the page as ?v=<something-new> is what forces a fresh copy.)
-  const BUILD = "63";
+  const BUILD = "64";
   const el = (id) => document.getElementById(id);
   const startBtn = el("start"), stopBtn = el("stop");
   const speedEl = el("speed"), stateEl = el("state"), forceEl = el("forceBar");
@@ -354,7 +353,6 @@
   // the A/B a field test needs: whether the inertial reading feels right is a
   // question about the body, and a question needs two answers to compare
   const optCurve = el("optCurve"), optDepth = el("optDepth");
-  const optLite = document.getElementById("optLite");
   const optCarMix = el("optCarMix");
   function paintOpts() {
     const o = Frunky.options();
@@ -362,10 +360,6 @@
     optCurve.classList.toggle("on", o.curveOutward);
     optDepth.textContent = "Trägheits-Tiefe: " + (o.inertiaDepth ? "an" : "aus");
     optDepth.classList.toggle("on", o.inertiaDepth);
-    // the low-power graph is BUILT, so switching it is a restart, not a fade
-    optLite.textContent = "Sparmodus: " + (o.lite ? "an" : "aus") +
-      (Frunky.isRunning() ? " (Neustart)" : "");
-    optLite.classList.toggle("on", o.lite);
     optCarMix.textContent = "Car-Mix: " + (o.carMix ? "an" : "aus");
     optCarMix.classList.toggle("on", o.carMix);
     const c = tracer.consent();
@@ -386,36 +380,15 @@
     }
     paintOpts();
   });
-  optLite.addEventListener("click", () => {
-    const next = !Frunky.options().lite;
-    Frunky.setOption("lite", next); paintOpts();
-    try { localStorage.setItem("frunky.lite", next ? "1" : "0"); } catch (err) { void err; }
-  });
   // the car voicing A/B — the final decibel is decided by ears in the car,
   // and an A/B needs a B. Not persisted: ON is the right default every day.
   optCarMix.addEventListener("click", () => {
     Frunky.setOption("carMix", !Frunky.options().carMix); paintOpts();
   });
-  // A weak device switches the low-power graph on by itself.
-  //
-  // This was meant to happen all along and never did, because the detector was
-  // looking for the wrong thing: the Tesla names no vendor in its agent string
-  // — it is plain "Linux Chrome", indistinguishable from a desktop — so there
-  // was nothing to match on. Its weakness, on the other hand, is a number the
-  // browser hands over: a car head unit has few cores and little memory, and
-  // that is the property the graph actually cares about.
-  //
-  // An explicit choice always wins over the guess; a setting the driver has to
-  // set again after every reload is a setting that never gets tested.
-  const cores = navigator.hardwareConcurrency || 0;
-  const gigs = navigator.deviceMemory || 0;
-  const looksWeak = (cores > 0 && cores <= 4) || (gigs > 0 && gigs <= 4);
-  try {
-    const saved = localStorage.getItem("frunky.lite");
-    if (saved !== null) Frunky.setOption("lite", saved === "1");
-    else if (looksWeak) Frunky.setOption("lite", true);
-    paintOpts();
-  } catch (err) { void err; }
+  // One mode (Build 64): the graph is the same on every device — budgeted
+  // for the weakest target (Tesla, phone), which is the only honest way to
+  // build for them. The device probe still reports into the trace as a
+  // device-class label; nothing switches on it any more.
   optCurve.addEventListener("click", () => {
     Frunky.setOption("curveOutward", !Frunky.options().curveOutward); paintOpts();
   });

@@ -66,11 +66,10 @@ transport.manual = true;
 }
 
 // ---- helpers for the stub-Tone sections ------------------------------------
-const boot = async (opts) => {
+const boot = async () => {
   globalThis.window = { Tone: globalThis.Tone };
   eval(script);
   const Frunky = globalThis.window.Frunky;
-  if (opts && opts.lite) Frunky.setOption("lite", true);
   await Frunky.start();
   return Frunky;
 };
@@ -165,18 +164,21 @@ const drive = (Frunky, n, t0) => {
   Frunky.stop();
 }
 
-// ---- 3b. the lite graph has no chorus, and the shed must know that ---------
+// ---- 3b. one graph: the chorus always exists, and strain sheds it ----------
+// Build 64: the chorus is the WIDTH now (the fat oscillator stacks left the
+// polyphonic carpets), so it exists on every device — and the lean governor
+// sheds it under measured strain, then restores it.
 {
   fakeCtx.renderCapacity.started = false; fakeCtx.renderCapacity.onupdate = null;
-  const Frunky = await boot({ lite: true });
+  const Frunky = await boot();
   const g = Frunky.__graph();
-  ok("lite builds without a chorus", g.chorus === null);
+  ok("the one graph builds the chorus", !!g.chorus);
   fakeCtx.renderCapacity.onupdate({ averageLoad: 0.95, peakLoad: 1, underrunRatio: 0.05 });
   drive(Frunky, 16, 200);
-  ok("lite lean still cuts the reverb", !g.revSend.outs.has(g.reverb));
-  ok("and does not throw over the missing chorus", Frunky.health().errors === 0);
+  ok("lean cuts the reverb", !g.revSend.outs.has(g.reverb));
+  ok("and no errors under the shed", Frunky.health().errors === 0);
   drive(Frunky, 96, 210);
-  ok("lite recovery restores the reverb", g.revSend.outs.has(g.reverb));
+  ok("recovery restores the reverb", g.revSend.outs.has(g.reverb));
   Frunky.stop();
 }
 

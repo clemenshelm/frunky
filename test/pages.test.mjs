@@ -134,8 +134,13 @@ ok("a suspended audio context is noticed and resumed",
 // the Tesla is not recognisable from its agent string, but its weakness is
 // measurable — and the low-power graph existed all along with nothing to switch
 // it on
-ok("a weak device switches the low-power graph on by itself",
-  /hardwareConcurrency/.test(drive) && /setOption\("lite"/.test(drive));
+// Build 64 (one mode): there is nothing to switch any more — the graph is
+// the same on every device, budgeted for the weakest target. What remains
+// is the probe as a device-class label in the trace
+ok("the page offers no mode switch and no auto-switch",
+  !/Sparmodus/.test(drive) && !/setOption\("lite"/.test(drive));
+ok("but still labels the device class for the trace",
+  /tracer\.begin\(\{ lite: Frunky\.options\(\)\.lite/.test(drive));
 
 // ---- and the readouts really are gone -------------------------------------
 for (const [what, marker] of [

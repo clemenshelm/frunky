@@ -90,8 +90,12 @@ async function drive(Frunky, pieces, state) {
   ok("analog snare is today's snare", !!a && a.snare.decay === 0.13);
   ok("analog bass is today's bass",
     !!a && a.bass.osc.type === "fattriangle" && a.bass.lp === 480);
-  ok("analog pad is today's pad",
-    !!a && a.pad.osc.type === "fatsawtooth" && a.pad.attack === 1.1 && a.pad.release === 1.6);
+  // Build 64 (one mode): the carpet plays a SINGLE oscillator in every
+  // world — 24 voices x 3 fat oscillators was the graph's biggest cost, and
+  // the always-on chorus carries the width instead. Envelope stays verbatim
+  ok("analog pad is today's pad, single-osc",
+    !!a && a.pad.osc.type === "sawtooth" && !a.pad.osc.count &&
+    a.pad.attack === 1.1 && a.pad.release === 1.6);
   ok("analog gate is today's gate voice", !!a && a.gate.osc.type === "fattriangle");
   ok("analog blip is today's blip", !!a && a.blip.osc.type === "square");
   ok("the reference world carries zero trims",
@@ -118,10 +122,12 @@ async function drive(Frunky, pieces, state) {
     ok(`${name} keeps the saw a single pane of glass`,
       ["bass", "pad", "gate", "blip"].filter((s) =>
         (W[s].osc.type || "").includes("saw")).length <= 1);
-    // lite devices must have a plain-oscillator variant for every fat voice —
-    // a world that forgets one silently loses that voice on the car unit
-    ok(`${name} names a lite oscillator for bass, pad and gate`,
-      ["bass", "pad", "gate"].every((s) => typeof W[s].lite === "string" && W[s].lite.length > 0));
+    // Build 64 (one mode): there IS no lite variant any more — a world that
+    // grows one back is re-splitting the graph the directive unified
+    ok(`${name} carries no lite oscillator variants`,
+      ["bass", "pad", "gate"].every((s) => W[s].lite === undefined));
+    // and the polyphonic carpet stays single-oscillator (the budget rule)
+    ok(`${name} keeps the pad carpet single-osc`, !W.pad.osc.count);
   }
 
   // neon v3, after the third field report ("much too loud, unbearable — no
@@ -134,7 +140,7 @@ async function drive(Frunky, pieces, state) {
   // only the pad keeps the one pane of glass
   const n = t ? t.neon : null;
   ok("neon bass stays in the triangle family, never a square again",
-    !!n && String(n.bass.osc.type).includes("triangle") && n.bass.lite === "triangle");
+    !!n && String(n.bass.osc.type).includes("triangle"));
   // v4 after "now a bit too dull": brightness was the wrong lever the
   // whole time — the synthwave answer is MOVEMENT (slight detune) and a
   // touch of filter resonance, not a wider-open window
@@ -146,7 +152,7 @@ async function drive(Frunky, pieces, state) {
   ok("neon bass has the analog squelch (a touch of resonance)",
     !!n && n.bass.q >= 1.1 && n.bass.q <= 1.6);
   ok("neon gate is hollow, not hard",
-    !!n && n.gate.osc.type === "fattriangle" && n.gate.lite === "triangle");
+    !!n && n.gate.osc.type === "fattriangle");
   // the hook rides the same chain in every world, and in neon that chain
   // was the sharpest thing left ("the hook line is quite sharp") — every
   // world now shades the hook: lowpass ceiling and presence gain

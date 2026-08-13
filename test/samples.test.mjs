@@ -281,9 +281,10 @@ function boot(seed) {
 
 // ---- 6. source pins: the load gate and the aria's celli ---------------------
 {
-  // lite devices never play the bed, so they must not pay for the fetch
-  ok("the strings are not fetched on lite devices",
-    /if \(!opts\.lite\) \{\s*\n\s*strHi = new Tone\.Sampler/.test(script));
+  // Build 64 (one mode): the crate loads on EVERY device — sample playback
+  // is the cheap luxury, which is exactly why the crate exists
+  ok("the strings are fetched on every device (no device gate)",
+    !/opts\.lite/.test(script) && /strHi = new Tone\.Sampler/.test(script));
   // the aria's octave doubling: celli when loaded, the triangle pad as
   // fallback — Puccini's texture, offline-tolerant
   ok("the aria doubles on the celli with a synth fallback",
