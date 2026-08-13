@@ -1097,7 +1097,7 @@
   const poly = (p, n) => { try { p.maxPolyphony = n; } catch (err) { void err; } return p; };
 
   let master, comp, limiter, makeup, tensionLp, masterHp, panner, duck, dry;
-  let carLow, carPres;
+  let carLow, carMud, carPres, carAir;
   let depthLp, depthGain;
   let busDrums, busBass, busHarm, busLead, busFx;
   let revSend, reverb, delaySend, delayRet, chorus;
@@ -1397,7 +1397,16 @@
     // the actual car. Gains start flat — the ctl in update() breathes them
     // in, and the same ctl is what the A/B switch flattens them with.
     carLow = reg(new Tone.Filter({ frequency: 100, type: "lowshelf", gain: 0 }));
+    // v3 (Build 65), from a MEASURED master spectrum (45 s simulated drive,
+    // tools/mix-spectrum.json): low-mids sat 11 dB above the mids and the
+    // 2-6 kHz band 20 dB below them — "massively dominant bass" even on
+    // laptop speakers, which cannot even reproduce the sub. Hence the two
+    // new bands: the classic 280 Hz mud cut (laptops and cabins both boom
+    // exactly there) and an air shelf that gives the hats back what the
+    // one-mode carpet's lost saw stack used to supply. Static biquads: free
+    carMud = reg(new Tone.Filter({ frequency: 280, type: "peaking", Q: 1, gain: 0 }));
     carPres = reg(new Tone.Filter({ frequency: 3200, type: "peaking", Q: 0.8, gain: 0 }));
+    carAir = reg(new Tone.Filter({ frequency: 7000, type: "highshelf", gain: 0 }));
     panner = reg(new Tone.Panner(0));
     duck = reg(new Tone.Gain(1));
     dry = reg(new Tone.Gain(1));
@@ -1411,7 +1420,7 @@
     // gestures pulling the same parameter opposite ways cancel out
     depthLp = reg(new Tone.Filter(18000, "lowpass"));
     depthGain = reg(new Tone.Gain(1));
-    panner.chain(depthLp, depthGain, tensionLp, masterHp, carLow, carPres,
+    panner.chain(depthLp, depthGain, tensionLp, masterHp, carLow, carMud, carPres, carAir,
       makeup, comp, master, limiter, Tone.getDestination());
     master.gain.rampTo(0.9, 0.1);
 
@@ -3313,8 +3322,12 @@
     // v2 after the 2026-08-12 field test ("still very bass-heavy, details
     // disappear under the driving noise"): the cabin adds its own low end
     // at speed — deeper shelf, detail band further forward
-    ctl(carLow.gain, "carLow", opts.carMix ? -6.5 : 0, 0.05, 0.2);
-    ctl(carPres.gain, "carPres", opts.carMix ? 4 : 0, 0.05, 0.2);
+    // v3 (Build 65, measured — see the carMud node comment): deeper shelf,
+    // mud cut, stronger presence, and an air shelf
+    ctl(carLow.gain, "carLow", opts.carMix ? -8.5 : 0, 0.05, 0.2);
+    ctl(carMud.gain, "carMud", opts.carMix ? -3 : 0, 0.05, 0.2);
+    ctl(carPres.gain, "carPres", opts.carMix ? 6 : 0, 0.05, 0.2);
+    ctl(carAir.gain, "carAir", opts.carMix ? 2.5 : 0, 0.05, 0.2);
   }
 
   // Silence has exactly two shapes and they need different answers: the clock
@@ -3679,7 +3692,7 @@
     // topology rather than trust the gesture (see performance.test.mjs)
     __graph: () => (revSend
       ? { chorus: chorus || null, revSend, reverb, padLp, gateLp, busHarm, shed: fxShed,
-          masterHp, carLow, carPres, makeup }
+          masterHp, carLow, carMud, carPres, carAir, makeup }
       : null),
     // test seam: the album layer — which recipe frames the current piece and
     // which nodes its groove and lead actually strike, so a test can measure

@@ -39,33 +39,39 @@ function frames(n) {
   }
 }
 
-for (const lite of [false, true]) {
-  Frunky.setOption("lite", lite);
+{
+  // one mode (Build 64): a single graph — no lite loop left to test
   Frunky.setOption("carMix", true);
   await Frunky.start();
-  const label = lite ? "lite: " : "full: ";
+  const label = "";
   const g = Frunky.__graph();
   ok(label + "the graph exposes the car voicing nodes",
-    !!(g && g.carLow && g.carPres && g.masterHp && g.makeup));
+    !!(g && g.carLow && g.carMud && g.carPres && g.carAir && g.masterHp && g.makeup));
 
   // topology: the voicing sits in the master chain, between the DJ highpass
   // and the makeup gain — so EVERYTHING passes through it, sends included
   ok(label + "masterHp feeds the low shelf", g.masterHp.outs.has(g.carLow));
-  ok(label + "the low shelf feeds the presence peak", g.carLow.outs.has(g.carPres));
-  ok(label + "the presence peak feeds onward into makeup", g.carPres.outs.has(g.makeup));
+  ok(label + "the low shelf feeds the mud cut", g.carLow.outs.has(g.carMud));
+  ok(label + "the mud cut feeds the presence peak", g.carMud.outs.has(g.carPres));
+  ok(label + "the presence peak feeds the air shelf", g.carPres.outs.has(g.carAir));
+  ok(label + "the air shelf feeds onward into makeup", g.carAir.outs.has(g.makeup));
 
   frames(24);
-  ok(label + "the low shelf pulls the cabin band back, got " + g.carLow.gain.value,
-    g.carLow.gain.value <= -3 && g.carLow.gain.value >= -8);
-  ok(label + "the presence peak lifts the detail band, got " + g.carPres.gain.value,
-    g.carPres.gain.value >= 1.5 && g.carPres.gain.value <= 5);
-  // v2 after the 2026-08-12 field test ("still very bass-heavy, details
-  // disappear under the driving noise"): the cabin adds its own low end at
-  // speed, so the shelf goes deeper and the detail band comes further
-  // forward — pinned exactly, because "somewhere in the band" is how the
+  // v3 (Build 65), from a MEASURED master spectrum (45 s simulated drive,
+  // tools/mix-spectrum.json): low-mids sat 11 dB over the mids, the 2-6 kHz
+  // band 20 dB under them — "massively dominant bass" even on laptop
+  // speakers. Deeper shelf, the classic 280 Hz mud cut, stronger presence,
+  // and an air shelf for what the one-mode carpet's lost saw stack used to
+  // supply. Pinned exactly, because "somewhere in the band" is how the
   // last calibration quietly stopped matching the car
-  ok(label + "v2 shelf depth is -6.5", g.carLow.gain.value === -6.5);
-  ok(label + "v2 presence lift is 4", g.carPres.gain.value === 4);
+  ok(label + "v3 shelf depth is -8.5, got " + g.carLow.gain.value,
+    g.carLow.gain.value === -8.5);
+  ok(label + "v3 mud cut is -3, got " + g.carMud.gain.value,
+    g.carMud.gain.value === -3);
+  ok(label + "v3 presence lift is 6, got " + g.carPres.gain.value,
+    g.carPres.gain.value === 6);
+  ok(label + "v3 air shelf is 2.5, got " + g.carAir.gain.value,
+    g.carAir.gain.value === 2.5);
 
   // the A/B: switching the profile off must genuinely flatten both stages
   Frunky.setOption("carMix", false);
@@ -74,6 +80,8 @@ for (const lite of [false, true]) {
     Math.abs(g.carLow.gain.value) < 0.01);
   ok(label + "off means flat on the peak too, got " + g.carPres.gain.value,
     Math.abs(g.carPres.gain.value) < 0.01);
+  ok(label + "and flat on mud and air, got " + g.carMud.gain.value + "/" + g.carAir.gain.value,
+    Math.abs(g.carMud.gain.value) < 0.01 && Math.abs(g.carAir.gain.value) < 0.01);
   Frunky.setOption("carMix", true);
   frames(24);
   ok(label + "and back on restores the voicing", g.carLow.gain.value <= -3);
