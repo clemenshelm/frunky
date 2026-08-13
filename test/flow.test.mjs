@@ -273,8 +273,10 @@ function boot(seed) {
   // polyphony of the string bed and the aria doubling ran past it. The
   // hook voice always sings; the octave luxuries are shed statically on
   // lite and dynamically under strain
+  // Build 61 moved the doubling's carrier to the celli (padTri stays the
+  // offline fallback) — the LUXURY gate is the invariant, not the instrument
   ok("the aria's doubling is a luxury (lite and lean skip it)",
-    /if \(!opts\.lite && !lean\) \{\s*\n\s*padTri\.triggerAttackRelease\(F\(57 \+ an\.s\)/.test(script));
+    /if \(!opts\.lite && !lean\) \{[\s\S]{0,260}\.triggerAttackRelease\(F\(57 \+ an\.s\)/.test(script));
   ok("the flow ghost sheds under strain",
     /!engine\.lean && engine\.setMotif/.test(script));
   ok("per-bar dice streams are pruned on hour-long drives",
@@ -294,7 +296,7 @@ function boot(seed) {
     /engine\.liftAria = engine\.clearingOn \|\| engine\.encore > 0 \|\|\s*\n\s*dicer\("aria:" \+ bar\)\(\) < 0\.35;/.test(script));
   ok("the aria is the theme in octaves (voice up, strings doubling below)",
     /hookNote\(t \+ an\.p \* 2 \* SPB, F\(69 \+ an\.s\)/.test(script) &&
-    /padTri\.triggerAttackRelease\(F\(57 \+ an\.s\)/.test(script));
+    /\(strLo && strLo\.loaded \? strLo : padTri\)\.triggerAttackRelease\(F\(57 \+ an\.s\)/.test(script));
   ok("the shimmer really crests, got " + shimmerBars + " bars", shimmerBars >= 4);
   ok("and never inside a lift, got " + shimmerInLift, shimmerInLift === 0);
   ok("the ghost theme drifts over the pedal too, got " +

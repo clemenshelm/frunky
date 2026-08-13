@@ -828,6 +828,13 @@
     // sound, exactly the recipe's rotation rule
     const world = pick(WORLD_POOL[mood], engine.piece ? engine.piece.world : null,
       dicer("world:" + num));
+    // the keys carrier: some pieces put a real piano under the figures —
+    // the same Rhodes on every piece was half of "always the same organ"
+    // (Build 61). Neon keeps the Rhodes: a grand in the glass world would
+    // break the orchestra's identity
+    const keysInst = world === "neon" ? "rhodes"
+      : dicer("keysinst:" + num)() < (world === "organic" ? 0.6 : 0.35)
+        ? "piano" : "rhodes";
     const A = rollBundle("verse", pA, mood, null, recipe, dicer("bundle:A:" + num));
     const B = rollBundle("chorus", pB, mood, A, recipe, dicer("bundle:B:" + num)); // chorus must contrast the verse
     const C = rollBundle("bridge", pC, mood, B, recipe, dicer("bundle:C:" + num)); // bridge must contrast the chorus
@@ -843,6 +850,7 @@
       arcName,
       paletteName,
       world,
+      keysInst,
       // a COPY: a launch rewrites this piece's script, and mutating the shared
       // pool entry would corrupt the form for every piece that follows
       form: pick(FORMS, null, dicer("form:" + num)).slice(),
@@ -950,6 +958,9 @@
     padS.releaseAll(t); padTri.releaseAll(t); gateS.releaseAll(t);
     bassSubS.triggerRelease(t);
     if (rhodes && rhodes.loaded) rhodes.releaseAll(t);
+    if (piano && piano.loaded) piano.releaseAll(t);
+    if (strHi && strHi.loaded) strHi.releaseAll(t);
+    if (strLo && strLo.loaded) strLo.releaseAll(t);
   }
 
   // swing lives in the Tone.js Transport now — hum() only adds micro-jitter
@@ -1156,7 +1167,7 @@
   let risePeak = 0, riseArrivalAt = -1;
   let riseHot = 0, riseFull = false, riseLastFullAt = -Infinity;
   // sampled instruments persist across play cycles — buffers load once
-  let rhodes = null, hookGit = null;
+  let rhodes = null, hookGit = null, piano = null, strHi = null, strLo = null;
   function ensureSamplers() {
     if (rhodes) return;
     hookGit = new Tone.Sampler({
@@ -1168,6 +1179,30 @@
         C4: "C4.mp3", Eb4: "Eb4.mp3", Gb4: "Gb4.mp3", A4: "A4.mp3", C5: "C5.mp3" },
       baseUrl: "samples/rhodes/",
     });
+    // the crate (Build 61, tonejs-instruments / VSCO2): a real piano as the
+    // alternative keys carrier, and real strings for the lift's bed. Sample
+    // playback is nearly free where synth polyphony was the most expensive
+    // layer in the graph — the price is decoded-PCM RAM, so the note sets
+    // stay small and everything falls back to the synth voices unloaded
+    piano = new Tone.Sampler({
+      urls: { A2: "A2.mp3", C3: "C3.mp3", E3: "E3.mp3", G3: "G3.mp3", A3: "A3.mp3",
+        C4: "C4.mp3", E4: "E4.mp3", G4: "G4.mp3", A4: "A4.mp3", C5: "C5.mp3" },
+      baseUrl: "samples/piano/",
+    });
+    // lite devices (Tesla, phones) never play the bed — it is gated on
+    // !opts.lite below — so they must not pay the fetch or the decode either
+    if (!opts.lite) {
+      strHi = new Tone.Sampler({
+        urls: { G4: "G4.mp3", A4: "A4.mp3", C5: "C5.mp3", E5: "E5.mp3",
+          G5: "G5.mp3", C6: "C6.mp3", E6: "E6.mp3" },
+        baseUrl: "samples/violin/",
+      });
+      strLo = new Tone.Sampler({
+        urls: { G3: "G3.mp3", A3: "A3.mp3", C4: "C4.mp3", E4: "E4.mp3",
+          G4: "G4.mp3", A4: "A4.mp3" },
+        baseUrl: "samples/cello/",
+      });
+    }
   }
   // How much of each sixteenth's budget the scheduler spends. It measures the
   // MAIN thread, not the audio renderer — no browser exposes an underrun
@@ -1494,6 +1529,20 @@
     rhodesPan = reg(new Tone.Panner(0)); rhodesPan.pan.value = -0.18;
     rhodes.connect(rhodesPan); rhodesPan.connect(busHarm);
     rhodes.connect(revSend);
+    // the piano sits where the Rhodes sits (they are the same ROLE, never
+    // together), mirrored to the other side of the stage
+    piano.disconnect(); piano.volume.value = db(0.5);
+    const pianoPan = reg(new Tone.Panner(0)); pianoPan.pan.value = 0.15;
+    piano.connect(pianoPan); pianoPan.connect(busHarm);
+    piano.connect(revSend);
+    // the strings ride the shared room generously — a bed, not a solo. They
+    // skip the pad's lowpass on purpose: a violin behind 1 kHz is a kazoo
+    if (strHi) {
+      strHi.disconnect(); strHi.volume.value = db(0.32);
+      strHi.connect(busHarm); strHi.connect(revSend);
+      strLo.disconnect(); strLo.volume.value = db(0.34);
+      strLo.connect(busHarm); strLo.connect(revSend);
+    }
 
     // the gate voice: a chord pulsed by a rhythm mask. The hard trance gate —
     // saw, instant attack, instant release — is a chop, and a chop next to
@@ -2099,9 +2148,17 @@
     // one bar plus a tail; the tail is what sounds through a closed step
     gateS.triggerAttackRelease(midis.map(F), SPB * 18, at("gate", t), 0.55);
   }
+  // the keys carrier: the piece's roll decides whether the Rhodes or the
+  // real piano sits under the figures — same role, never together. The
+  // Rhodes is the fallback while the piano's samples are still loading
+  function keysS() {
+    return engine.piece && engine.piece.keysInst === "piano" &&
+      piano && piano.loaded ? piano : rhodes;
+  }
   function rhodesChord(t, midis, vol) {
-    if (!rhodes || !rhodes.loaded) { stabChord(t, midis, vol); return; }
-    rhodes.triggerAttackRelease(midis.map(F), SPB * 6, at("rhodes", t), vv(vol, 0.25));
+    const k = keysS();
+    if (!k || !k.loaded) { stabChord(t, midis, vol); return; }
+    k.triggerAttackRelease(midis.map(F), SPB * 6, at("rhodes", t), vv(vol, 0.25));
   }
   function chordVoice(t, midis, dur, vol, cut) {
     // breath: a red light holds its breath. The pad voices a SUSPENDED
@@ -2124,10 +2181,12 @@
     // hole between hits. This is the single biggest reason a gated section
     // stops sounding brutal
     if (style === "gate") { pad(t, midis, dur, vol * 0.45, cut * 0.8); return; }
-    if (style === "keys" && rhodes && rhodes.loaded) {
-      // rolled Rhodes chord, pad reduced to glue underneath
+    const ks = keysS();
+    if (style === "keys" && ks && ks.loaded) {
+      // rolled keys chord (Rhodes or piano, per the piece), pad reduced to
+      // glue underneath
       midis.forEach((m, i) =>
-        rhodes.triggerAttackRelease(F(m), Math.min(dur, SPB * 12),
+        ks.triggerAttackRelease(F(m), Math.min(dur, SPB * 12),
           at("rhodes", t + i * 0.014), 0.55));
       pad(t, midis, dur, vol * 0.35, cut);
       return;
@@ -2837,8 +2896,19 @@
       // device sheds it at the barline like every other ornament
       if ((liftPhase || engine.clearingOn) && pos === 0 && chPh % 2 === 0 &&
           !opts.lite && !lean) {
-        padTri.triggerAttackRelease(progEff[ci].map((m) => F(m + 12)),
-          SPB * 30 * 0.9, at("padTri", t), vv(padVol * 0.5, 0.4));
+        if (strHi && strHi.loaded && strLo && strLo.loaded) {
+          // REAL strings (Build 61, VSCO2): violins on the octave bed,
+          // celli on the chord's floor. Sample playback is nearly free
+          // where the synth bed's polyphony was expensive — and the tear
+          // ducts get rosin instead of a triangle wave
+          strHi.triggerAttackRelease(progEff[ci].map((m) => F(m + 12)),
+            SPB * 30 * 0.9, at("strHi", t), vv(padVol * 0.5, 0.4));
+          strLo.triggerAttackRelease(progEff[ci].slice(0, 2).map(F),
+            SPB * 30 * 0.9, at("strLo", t), vv(padVol * 0.4, 0.4));
+        } else {
+          padTri.triggerAttackRelease(progEff[ci].map((m) => F(m + 12)),
+            SPB * 30 * 0.9, at("padTri", t), vv(padVol * 0.5, 0.4));
+        }
       }
       // the ARIA: Puccini's unison climax — the lap's theme sings
       // augmented over the lift, the hook voice an octave up with the
@@ -2853,9 +2923,11 @@
             hookNote(t + an.p * 2 * SPB, F(69 + an.s), an.d * 2 * SPB * 0.9,
               vel(0.13 * wake));
             // the octave doubling is the aria's luxury: the lite graph and a
-            // straining device keep the voice and skip the doubling
+            // straining device keep the voice and skip the doubling. When
+            // the celli are loaded THEY sing it — Puccini's own texture
             if (!opts.lite && !lean) {
-              padTri.triggerAttackRelease(F(57 + an.s), an.d * 2 * SPB * 0.85,
+              (strLo && strLo.loaded ? strLo : padTri).triggerAttackRelease(F(57 + an.s),
+                an.d * 2 * SPB * 0.85,
                 at("padTri", t + an.p * 2 * SPB), vv(0.06 * wake, 0.4));
             }
           }
@@ -2915,8 +2987,9 @@
         // the chord flows: Rhodes single notes walking the voicing in 8ths
         const bi = engine.brokenPat[Math.floor(s / 2) % 8];
         const m = chordNow[Math.min(bi, chordNow.length - 1)];
-        if (rhodes && rhodes.loaded) {
-          rhodes.triggerAttackRelease(F(m), SPB * 3, at("rhodes", hum(t, pos)),
+        const bk = keysS();
+        if (bk && bk.loaded) {
+          bk.triggerAttackRelease(F(m), SPB * 3, at("rhodes", hum(t, pos)),
             pos === 0 ? 0.5 : 0.32);
         } else {
           blip(hum(t, pos), F(m), vel(0.05));
@@ -3609,6 +3682,9 @@
       name: engine.piece ? engine.piece.world : null,
       applied: engine.worldApplied,
       cutScale: engine.worldCutScale,
+      keysInst: engine.piece ? engine.piece.keysInst : null,
+      padStyleNow: engine.padStyle,
+      samplers: rhodes ? { rhodes, piano, strHi, strLo, hookGit } : null,
       tables: JSON.parse(JSON.stringify(SOUNDWORLDS)),
       pool: JSON.parse(JSON.stringify(WORLD_POOL)),
       nodes: kickS ? { kick: kickS, hatC, hatO, snare: snareS, bass: bassS,
