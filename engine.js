@@ -1191,6 +1191,7 @@
   let riseHot = 0, riseFull = false, riseLastFullAt = -Infinity;
   // sampled instruments persist across play cycles — buffers load once
   let rhodes = null, hookGit = null, piano = null, strHi = null, strLo = null;
+  let strG = null; // the string section's shared bus (dark + wet, Build 63)
   function ensureSamplers() {
     if (rhodes) return;
     hookGit = new Tone.Sampler({
@@ -1206,24 +1207,39 @@
     // alternative keys carrier, and real strings for the lift's bed. Sample
     // playback is nearly free where synth polyphony was the most expensive
     // layer in the graph — the price is decoded-PCM RAM, so the note sets
-    // stay small and everything falls back to the synth voices unloaded
+    // stay small and everything falls back to the synth voices unloaded.
+    // Build 63 calibrated the crate against measurement (see SAMPLE_LOUD):
+    // the files were loudness-normalized and retuned in place, so their
+    // URLs carry a version — samples are cached a day, and a stale loud
+    // copy would defeat the calibration it was measured for
+    const SAMPLE_V = "63";
+    const withV = (urls) => Object.fromEntries(
+      Object.entries(urls).map(([k, f]) => [k, f + "?v=" + SAMPLE_V]));
     piano = new Tone.Sampler({
-      urls: { A2: "A2.mp3", C3: "C3.mp3", E3: "E3.mp3", G3: "G3.mp3", A3: "A3.mp3",
-        C4: "C4.mp3", E4: "E4.mp3", G4: "G4.mp3", A4: "A4.mp3", C5: "C5.mp3" },
+      urls: withV({ A2: "A2.mp3", C3: "C3.mp3", E3: "E3.mp3", G3: "G3.mp3", A3: "A3.mp3",
+        C4: "C4.mp3", E4: "E4.mp3", G4: "G4.mp3", A4: "A4.mp3", C5: "C5.mp3" }),
       baseUrl: "samples/piano/",
     });
     // lite devices (Tesla, phones) never play the bed — it is gated on
-    // !opts.lite below — so they must not pay the fetch or the decode either
+    // !opts.lite below — so they must not pay the fetch or the decode either.
+    // The section BREATHES: a real ensemble swells in and releases out, and
+    // the sampler's default 0.1 s release was heard exactly as "the strings
+    // die too fast" — an abrupt cut, nothing lifting about it
     if (!opts.lite) {
       strHi = new Tone.Sampler({
-        urls: { G4: "G4.mp3", A4: "A4.mp3", C5: "C5.mp3", E5: "E5.mp3",
-          G5: "G5.mp3", C6: "C6.mp3", E6: "E6.mp3" },
+        urls: withV({ G4: "G4.mp3", A4: "A4.mp3", C5: "C5.mp3", E5: "E5.mp3",
+          G5: "G5.mp3", C6: "C6.mp3", E6: "E6.mp3" }),
         baseUrl: "samples/violin/",
+        attack: 0.2, release: 1.4,
       });
+      // cello G3 was DROPPED from the crate: its intonation drifts +46
+      // cents within the note (measured at two windows) — no constant
+      // retune fixes a moving pitch, and A3 covers the gap at a -2 shift
       strLo = new Tone.Sampler({
-        urls: { G3: "G3.mp3", A3: "A3.mp3", C4: "C4.mp3", E4: "E4.mp3",
-          G4: "G4.mp3", A4: "A4.mp3" },
+        urls: withV({ A3: "A3.mp3", C4: "C4.mp3", E4: "E4.mp3",
+          G4: "G4.mp3", A4: "A4.mp3" }),
         baseUrl: "samples/cello/",
+        attack: 0.2, release: 1.4,
       });
     }
   }
@@ -1552,19 +1568,41 @@
     rhodesPan = reg(new Tone.Panner(0)); rhodesPan.pan.value = -0.18;
     rhodes.connect(rhodesPan); rhodesPan.connect(busHarm);
     rhodes.connect(revSend);
+    // MEASURED loudness calibration (Build 63, tools/measure-samples.mjs →
+    // tools/sample-loudness.json): sample collections are recorded at
+    // whatever level the session had — the new crates came in 12-15 dB
+    // hotter than the FluidR3 Rhodes the whole mix is balanced against
+    // ("the volumes don't fit any more"). Each sampler's volume is the
+    // rhodes reference level minus its measured median offset, plus a
+    // musical trim. The drift guard in samples.test.mjs pins SAMPLE_LOUD
+    // to the committed measurement
+    const SAMPLE_LOUD = { rhodes: -25.7, piano: -13.3, violin: -14.2, cello: -10.5 };
+    const SAMPLE_TRIM = { piano: 0, violin: -2, cello: -2 }; // the bed stands behind the band
+    const calVol = (set) =>
+      db(0.5) - (SAMPLE_LOUD[set] - SAMPLE_LOUD.rhodes) + (SAMPLE_TRIM[set] || 0);
     // the piano sits where the Rhodes sits (they are the same ROLE, never
-    // together), mirrored to the other side of the stage
-    piano.disconnect(); piano.volume.value = db(0.5);
+    // together), mirrored to the other side of the stage. A gentle highpass
+    // keeps the piano's low octaves out of the bass voice's register
+    piano.disconnect(); piano.volume.value = calVol("piano");
+    const pianoHp = reg(new Tone.Filter(85, "highpass"));
     const pianoPan = reg(new Tone.Panner(0)); pianoPan.pan.value = 0.15;
-    piano.connect(pianoPan); pianoPan.connect(busHarm);
-    piano.connect(revSend);
-    // the strings ride the shared room generously — a bed, not a solo. They
-    // skip the pad's lowpass on purpose: a violin behind 1 kHz is a kazoo
+    piano.connect(pianoHp); pianoHp.connect(pianoPan); pianoPan.connect(busHarm);
+    pianoHp.connect(revSend);
+    // the strings are a SECTION at the back of the hall, not a solo violin
+    // at the front ("too present, shrill, nothing lifting"): dark (a firm
+    // lowpass takes the bow's edge), distant (a generous extra reverb
+    // send — wet IS far), and behind the band (the calibrated level minus
+    // a musical trim). Static filters and gains: costs nothing at runtime
     if (strHi) {
-      strHi.disconnect(); strHi.volume.value = db(0.32);
-      strHi.connect(busHarm); strHi.connect(revSend);
-      strLo.disconnect(); strLo.volume.value = db(0.34);
-      strLo.connect(busHarm); strLo.connect(revSend);
+      strG = reg(new Tone.Gain(1));
+      const strHp = reg(new Tone.Filter(150, "highpass"));
+      const strLp = reg(new Tone.Filter(4800, "lowpass"));
+      const strRev = reg(new Tone.Gain(1.5));
+      strHi.disconnect(); strHi.volume.value = calVol("violin");
+      strLo.disconnect(); strLo.volume.value = calVol("cello");
+      strHi.connect(strG); strLo.connect(strG);
+      strG.chain(strHp, strLp); strLp.connect(busHarm);
+      strLp.connect(strRev); strRev.connect(revSend);
     }
 
     // the gate voice: a chord pulsed by a rhythm mask. The hard trance gate —
@@ -2923,11 +2961,15 @@
           // REAL strings (Build 61, VSCO2): violins on the octave bed,
           // celli on the chord's floor. Sample playback is nearly free
           // where the synth bed's polyphony was expensive — and the tear
-          // ducts get rosin instead of a triangle wave
+          // ducts get rosin instead of a triangle wave. The triangle pad
+          // stays QUIETLY underneath (Build 63): one sampled violin per
+          // note is thin — the synth glue is what reads as a section
           strHi.triggerAttackRelease(progEff[ci].map((m) => F(m + 12)),
             SPB * 30 * 0.9, at("strHi", t), vv(padVol * 0.5, 0.4));
           strLo.triggerAttackRelease(progEff[ci].slice(0, 2).map(F),
             SPB * 30 * 0.9, at("strLo", t), vv(padVol * 0.4, 0.4));
+          padTri.triggerAttackRelease(progEff[ci].map((m) => F(m + 12)),
+            SPB * 30 * 0.9, at("padTri", t), vv(padVol * 0.35, 0.4));
         } else {
           padTri.triggerAttackRelease(progEff[ci].map((m) => F(m + 12)),
             SPB * 30 * 0.9, at("padTri", t), vv(padVol * 0.5, 0.4));
@@ -3707,7 +3749,7 @@
       cutScale: engine.worldCutScale,
       keysInst: engine.piece ? engine.piece.keysInst : null,
       padStyleNow: engine.padStyle,
-      samplers: rhodes ? { rhodes, piano, strHi, strLo, hookGit } : null,
+      samplers: rhodes ? { rhodes, piano, strHi, strLo, hookGit, strG } : null,
       tables: JSON.parse(JSON.stringify(SOUNDWORLDS)),
       pool: JSON.parse(JSON.stringify(WORLD_POOL)),
       nodes: kickS ? { kick: kickS, hatC, hatO, snare: snareS, bass: bassS,

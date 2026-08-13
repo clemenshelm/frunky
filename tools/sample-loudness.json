@@ -1,0 +1,225 @@
+{
+ "note": "loudest-500ms-window RMS; pitch via autocorrelation; cents relative to the filename's pitch (octave errors folded)",
+ "sets": {
+  "rhodes": {
+   "medianRmsDb": -25.7,
+   "spreadDb": 7.9,
+   "notes": {
+    "A2.mp3": {
+     "rmsDb": -31.7,
+     "peakDb": -22.2,
+     "cents": 2
+    },
+    "A3.mp3": {
+     "rmsDb": -27.1,
+     "peakDb": -20.2,
+     "cents": 2
+    },
+    "A4.mp3": {
+     "rmsDb": -24,
+     "peakDb": -19,
+     "cents": 0
+    },
+    "C3.mp3": {
+     "rmsDb": -28.9,
+     "peakDb": -21.2,
+     "cents": -2
+    },
+    "C4.mp3": {
+     "rmsDb": -25.6,
+     "peakDb": -19.5,
+     "cents": 2
+    },
+    "C5.mp3": {
+     "rmsDb": -24,
+     "peakDb": -19.8,
+     "cents": 0
+    },
+    "Eb3.mp3": {
+     "rmsDb": -29,
+     "peakDb": -21.2,
+     "cents": -2
+    },
+    "Eb4.mp3": {
+     "rmsDb": -25.7,
+     "peakDb": -19.5,
+     "cents": 2
+    },
+    "Gb3.mp3": {
+     "rmsDb": -27,
+     "peakDb": -20.2,
+     "cents": 2
+    },
+    "Gb4.mp3": {
+     "rmsDb": -23.8,
+     "peakDb": -19.1,
+     "cents": 0
+    }
+   }
+  },
+  "guitar": {
+   "medianRmsDb": -36.9,
+   "spreadDb": 5,
+   "notes": {
+    "A3.mp3": {
+     "rmsDb": -34.8,
+     "peakDb": -15.2,
+     "cents": -8
+    },
+    "A4.mp3": {
+     "rmsDb": -37.6,
+     "peakDb": -15.5,
+     "cents": 22
+    },
+    "C4.mp3": {
+     "rmsDb": -33.3,
+     "peakDb": -15.4,
+     "cents": 4
+    },
+    "C5.mp3": {
+     "rmsDb": -38.3,
+     "peakDb": -15.3,
+     "cents": 22
+    },
+    "Eb4.mp3": {
+     "rmsDb": -38.2,
+     "peakDb": -15.4,
+     "cents": -40
+    },
+    "Gb4.mp3": {
+     "rmsDb": -36.9,
+     "peakDb": -15.6,
+     "cents": 22
+    }
+   }
+  },
+  "piano": {
+   "medianRmsDb": -13.3,
+   "spreadDb": 0.3,
+   "notes": {
+    "A2.mp3": {
+     "rmsDb": -13.5,
+     "peakDb": -3,
+     "cents": -10
+    },
+    "A3.mp3": {
+     "rmsDb": -13.3,
+     "peakDb": -3.3,
+     "cents": -4
+    },
+    "A4.mp3": {
+     "rmsDb": -13.3,
+     "peakDb": -3,
+     "cents": 0
+    },
+    "C3.mp3": {
+     "rmsDb": -13.3,
+     "peakDb": -2.4,
+     "cents": 0
+    },
+    "C4.mp3": {
+     "rmsDb": -13.3,
+     "peakDb": -2.1,
+     "cents": 0
+    },
+    "C5.mp3": {
+     "rmsDb": -13.3,
+     "peakDb": -1.5,
+     "cents": 0
+    },
+    "E3.mp3": {
+     "rmsDb": -13.2,
+     "peakDb": -3,
+     "cents": -4
+    },
+    "E4.mp3": {
+     "rmsDb": -13.3,
+     "peakDb": -3.7,
+     "cents": -2
+    },
+    "G3.mp3": {
+     "rmsDb": -13.3,
+     "peakDb": -3,
+     "cents": -2
+    },
+    "G4.mp3": {
+     "rmsDb": -13.3,
+     "peakDb": 0.4,
+     "cents": 2
+    }
+   }
+  },
+  "violin": {
+   "medianRmsDb": -14.2,
+   "spreadDb": 0.1,
+   "notes": {
+    "A4.mp3": {
+     "rmsDb": -14.2,
+     "peakDb": -2.4,
+     "cents": 12
+    },
+    "C5.mp3": {
+     "rmsDb": -14.2,
+     "peakDb": -6,
+     "cents": 10
+    },
+    "C6.mp3": {
+     "rmsDb": -14.2,
+     "peakDb": -4.6,
+     "cents": -2
+    },
+    "E5.mp3": {
+     "rmsDb": -14.2,
+     "peakDb": -3,
+     "cents": 14
+    },
+    "E6.mp3": {
+     "rmsDb": -14.1,
+     "peakDb": -1.2,
+     "cents": 0
+    },
+    "G4.mp3": {
+     "rmsDb": -14.2,
+     "peakDb": -4.1,
+     "cents": 4
+    },
+    "G5.mp3": {
+     "rmsDb": -14.2,
+     "peakDb": -2.4,
+     "cents": 6
+    }
+   }
+  },
+  "cello": {
+   "medianRmsDb": -10.5,
+   "spreadDb": 0.2,
+   "notes": {
+    "A3.mp3": {
+     "rmsDb": -10.5,
+     "peakDb": -5,
+     "cents": 0
+    },
+    "A4.mp3": {
+     "rmsDb": -10.6,
+     "peakDb": -3.3,
+     "cents": 0
+    },
+    "C4.mp3": {
+     "rmsDb": -10.7,
+     "peakDb": -3,
+     "cents": 0
+    },
+    "E4.mp3": {
+     "rmsDb": -10.5,
+     "peakDb": -0.3,
+     "cents": 0
+    },
+    "G4.mp3": {
+     "rmsDb": -10.5,
+     "peakDb": -3,
+     "cents": 0
+    }
+   }
+  }
+ }
+}

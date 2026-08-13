@@ -59,8 +59,11 @@ function boot(seed) {
     const files = Object.values(urls);
     ok(name + " declares a real note set (>= 4)", files.length >= 4);
     for (const f of files) {
+      // urls carry a cache-busting "?v=" (samples are cached a day, and a
+      // calibrated file behind a stale URL would defeat the calibration)
+      ok(name + " versions its urls: " + f, /\?v=\d+$/.test(f));
       ok(name + ": " + base + f + " exists on disk",
-        existsSync(new URL("../" + base + f, import.meta.url)));
+        existsSync(new URL("../" + base + f.replace(/\?.*$/, ""), import.meta.url)));
     }
   }
   Frunky.stop();
@@ -91,6 +94,75 @@ function boot(seed) {
   ok("samples/README.md credits tonejs-instruments (CC-BY)",
     /tonejs-instruments/.test(readme) && /CC[- ]BY/i.test(readme));
   ok("and names VSCO", /VSCO/i.test(readme));
+}
+
+// ---- 2b. the crate is calibrated: committed measurement, honest files -------
+// Build 63: "the volumes don't fit, nothing sounds harmonious." Measured
+// and fixed at the source — the committed measurement is the evidence, and
+// these pins keep the files honest against it.
+{
+  const loud = JSON.parse(readFileSync(
+    new URL("../tools/sample-loudness.json", import.meta.url), "utf8"));
+  for (const set of ["piano", "violin", "cello"]) {
+    ok(set + " is loudness-normalized (spread <= 1 dB), got " +
+      loud.sets[set].spreadDb, loud.sets[set].spreadDb <= 1);
+  }
+  // tuning: every sustained note within 18 cents. The guitar is excluded
+  // with reason: short muted plucks give the estimator no stable pitch —
+  // its readings scatter +-40 cents between windows on the SAME file
+  for (const set of ["rhodes", "piano", "violin", "cello"]) {
+    for (const [f, n] of Object.entries(loud.sets[set].notes)) {
+      ok(set + "/" + f + " is in tune (" + n.cents + " cents)",
+        Math.abs(n.cents ?? 0) <= 18);
+    }
+  }
+  // the engine's calibration constants ARE the measurement (drift guard):
+  // SAMPLE_LOUD in engine.js must equal the committed medians
+  const m = /const SAMPLE_LOUD = \{ rhodes: (-?[\d.]+), piano: (-?[\d.]+), violin: (-?[\d.]+), cello: (-?[\d.]+) \};/.exec(script);
+  ok("engine carries SAMPLE_LOUD calibration constants", !!m);
+  if (m) {
+    ok("...and they equal the committed measurement",
+      +m[1] === loud.sets.rhodes.medianRmsDb && +m[2] === loud.sets.piano.medianRmsDb &&
+      +m[3] === loud.sets.violin.medianRmsDb && +m[4] === loud.sets.cello.medianRmsDb);
+  }
+  // and the samplers really stand at the calibrated level: reference minus
+  // measured offset plus the musical trim the source declares
+  const tm = /const SAMPLE_TRIM = \{ piano: (-?[\d.]+), violin: (-?[\d.]+), cello: (-?[\d.]+) \};/.exec(script);
+  ok("engine declares the musical trims", !!tm);
+  if (m && tm) {
+    const Frunky = boot(0.03);
+    await Frunky.start();
+    const s = Frunky.__world().samplers;
+    const ref = 20 * Math.log10(0.5);
+    const expect = (set, trim) =>
+      ref - (loud.sets[set].medianRmsDb - loud.sets.rhodes.medianRmsDb) + trim;
+    ok("the piano plays at the calibrated level, got " + s.piano.volume.value.toFixed(1),
+      Math.abs(s.piano.volume.value - expect("piano", +tm[1])) < 0.05);
+    ok("the violins too, got " + s.strHi.volume.value.toFixed(1),
+      Math.abs(s.strHi.volume.value - expect("violin", +tm[2])) < 0.05);
+    ok("the celli too, got " + s.strLo.volume.value.toFixed(1),
+      Math.abs(s.strLo.volume.value - expect("cello", +tm[3])) < 0.05);
+    // the section breathes: a real ensemble swells in and releases out —
+    // the 0.1 s default release was "the strings die too fast"
+    ok("the strings swell in (attack 0.2)", s.strHi.settings.attack === 0.2 &&
+      s.strLo.settings.attack === 0.2);
+    ok("and release out (1.4 s)", s.strHi.settings.release === 1.4 &&
+      s.strLo.settings.release === 1.4);
+    // dark and wet, not front-of-stage: both samplers feed the shared
+    // section bus, which runs highpass -> lowpass before the stage
+    ok("the strings play through the section bus", !!s.strG &&
+      s.strHi.outs.has(s.strG) && s.strLo.outs.has(s.strG));
+    ok("the section is darkened and sent wet",
+      /const strHp = reg\(new Tone\.Filter\(150, "highpass"\)\);/.test(script) &&
+      /const strLp = reg\(new Tone\.Filter\(4800, "lowpass"\)\);/.test(script) &&
+      /const strRev = reg\(new Tone\.Gain\(1\.5\)\);/.test(script));
+    // the synth glue stays quietly underneath the sampled section — one
+    // violin per note is thin; the blend is what reads as an ensemble
+    ok("the triangle glue plays under the strings (0.35)",
+      /strLo\.triggerAttackRelease\(progEff\[ci\]\.slice\(0, 2\)\.map\(F\),[\s\S]{0,320}padTri\.triggerAttackRelease\(progEff\[ci\]\.map\(\(m\) => F\(m \+ 12\)\),\s*\n\s*SPB \* 30 \* 0\.9, at\("padTri", t\), vv\(padVol \* 0\.35, 0\.4\)\)/.test(script));
+    Frunky.stop();
+    transport.clear();
+  }
 }
 
 // ---- 3. the keys carrier rotates per piece ----------------------------------
