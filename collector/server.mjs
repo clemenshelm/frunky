@@ -25,8 +25,17 @@ export function startServer(options) {
     dir: opt.dir || DIR,
     retentionDays: opt.retentionDays || RETENTION_DAYS,
   });
+  // bench feedback (build 69): its own file family in the same directory.
+  // Retention is longer on purpose — a typed verdict is product feedback the
+  // operator wrote to be kept, not telemetry that must age out
+  const feedback = createStore({
+    dir: opt.dir || DIR,
+    prefix: "feedback",
+    retentionDays: opt.feedbackRetentionDays || Number(env.TRACE_FEEDBACK_RETENTION_DAYS || 365),
+  });
   const app = createApp({
     store,
+    feedback,
     origins: opt.origins || ORIGINS,
     maxBodyBytes: opt.maxBodyBytes || MAX_BODY,
     rateLimit: { perMinute: opt.perMinute || PER_MINUTE },
@@ -84,6 +93,8 @@ export function startServer(options) {
     try {
       const removed = store.sweep();
       if (removed) console.log("[frunky-trace] retention: " + removed + " Fahrten gelöscht");
+      const removedFb = feedback.sweep();
+      if (removedFb) console.log("[frunky-trace] retention: " + removedFb + " Feedback-Einträge gelöscht");
     } catch (err) { console.error("[frunky-trace] sweep failed:", err && err.message); }
   };
   sweep();
@@ -100,7 +111,7 @@ export function startServer(options) {
       console.log("[frunky-trace] hört auf " + (typeof a === "string" ? a : a.address + ":" + a.port) +
         " · Ablage " + store.dir + " · Aufbewahrung " + (opt.retentionDays || RETENTION_DAYS) + " Tage" +
         " · Herkunft " + (opt.origins || ORIGINS).join(", "));
-      resolve({ server, store, app, close: () => new Promise((r) => server.close(r)) });
+      resolve({ server, store, feedback, app, close: () => new Promise((r) => server.close(r)) });
     });
   });
 }

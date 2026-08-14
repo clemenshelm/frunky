@@ -77,6 +77,18 @@
            background: #1c2230; border-radius: 2px; overflow: hidden; }
   .force i { display: block; height: 100%; width: 0%;
              background: linear-gradient(90deg, var(--cyan), var(--hot)); }
+  /* the thumbs: car-sized tap targets, quiet until touched — a verdict is
+     one blind tap, never something to aim at while driving */
+  .thumbs { display: flex; gap: clamp(2rem, 12vw, 5rem); margin-top: clamp(1.4rem, 4vh, 2.6rem); }
+  .thumbs button {
+    font-size: clamp(2rem, 7vw, 3.2rem); line-height: 1;
+    background: #131820; color: var(--text);
+    border: 1px solid #232a38; border-radius: 18px;
+    padding: clamp(0.9rem, 3vh, 1.4rem) clamp(1.6rem, 7vw, 2.8rem);
+    cursor: pointer; opacity: 0.6;
+    transition: opacity 0.15s, transform 0.15s, border-color 0.15s;
+  }
+  .thumbs button.hit { opacity: 1; transform: scale(1.12); border-color: var(--cyan); }
 
   footer { display: flex; align-items: center; justify-content: space-between;
            gap: 1rem; padding: 0.9rem 1.1rem; color: var(--muted); font-size: 0.78rem; }
@@ -204,6 +216,12 @@
   <p class="unit">km/h</p>
   <p class="state" id="state">Warte auf GPS</p>
   <div class="force"><i id="forceBar"></i></div>
+  <!-- the driver's verdict channel (build 69): one tap, no typing. Lands as
+       a trace event with the drive clock and the piece number on it -->
+  <div class="thumbs">
+    <button id="thumbDown" type="button" aria-label="Gefällt mir nicht">👎</button>
+    <button id="thumbUp" type="button" aria-label="Gefällt mir">👍</button>
+  </div>
 </main>
 
 <div id="diagOpts">
@@ -220,12 +238,12 @@
 </footer>
 
 <script src="vendor/Tone.js"></script>
-<script src="engine.js?v=68"></script>
-<script src="geo.js?v=68"></script>
-<script src="diagnose.js?v=68"></script>
-<script src="trace-schema.js?v=68"></script>
-<script src="trace.js?v=68"></script>
-<script src="fresh.js?v=68"></script>
+<script src="engine.js?v=69"></script>
+<script src="geo.js?v=69"></script>
+<script src="diagnose.js?v=69"></script>
+<script src="trace-schema.js?v=69"></script>
+<script src="trace.js?v=69"></script>
+<script src="fresh.js?v=69"></script>
 <script>
 (() => {
   "use strict";
@@ -233,7 +251,7 @@
   // to know whether a trip tested the code we shipped is to read it back —
   // three reports in a row turned out to be the same stale build.
   // (Loading the page as ?v=<something-new> is what forces a fresh copy.)
-  const BUILD = "68";
+  const BUILD = "69";
   const el = (id) => document.getElementById(id);
   const startBtn = el("start"), stopBtn = el("stop");
   const speedEl = el("speed"), stateEl = el("state"), forceEl = el("forceBar");
@@ -797,6 +815,9 @@
           // the drift watch (build 68): the hiccup layer no other counter
           // can see — glitch episodes, worst stall, the path's own jitter
           gl: dw ? dw.gl : -1, gx: dw ? dw.gx : -1, aj: dw ? dw.aj : -1,
+          // which recipe frames the current piece (build 69) — what a thumb
+          // verdict gets read against
+          rcp: h.recipeIdx,
         });
         const sw = silenceWatch(now, h.out, notesPerSec);
         if (sw) tracer.event("watchdog", sw.code, sw.n);
@@ -822,6 +843,26 @@
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+
+  // The thumbs (build 69): the driver's verdict, one tap, no typing. It
+  // lands as a trace event — the drive clock plus the piece number anchor it
+  // to the surrounding samples, and over many drives the pattern is the
+  // answer. Without trace consent nothing leaves the device, same as every
+  // other trace write; the tap still flashes, honestly acknowledging the
+  // press rather than pretending a send.
+  const pieceNum = () => {
+    try {
+      const d = Frunky.describe ? Frunky.describe() : null;
+      return d && d.num ? d.num : 0;
+    } catch (err) { void err; return 0; }
+  };
+  const thumbTap = (b, fire) => b.addEventListener("click", () => {
+    try { fire(); tracer.flush(); } catch (err) { void err; }
+    b.classList.add("hit");
+    setTimeout(() => b.classList.remove("hit"), 700);
+  });
+  thumbTap(el("thumbUp"), () => tracer.event("thumb", "up", pieceNum()));
+  thumbTap(el("thumbDown"), () => tracer.event("thumb", "down", pieceNum()));
 
   // Say the version out loud, before anything else. If this number is not the
   // one that was deployed, the browser is serving an old copy — load the page

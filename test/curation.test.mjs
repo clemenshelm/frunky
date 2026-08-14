@@ -46,9 +46,9 @@ function boot(seed) {
   ok("deep never gets the stomp or the strut: club and dub only",
     !!pool && JSON.stringify(pool.deep) === JSON.stringify(["club", "dub"]));
   ok("neutral keeps the open field except the colossus",
-    !!pool && JSON.stringify(pool.neutral) === JSON.stringify(["club", "strut", "dub"]));
-  ok("anthem is where the colossus lives, and halftime dub stays out",
-    !!pool && JSON.stringify(pool.anthem) === JSON.stringify(["club", "strut", "colossus"]));
+    !!pool && JSON.stringify(pool.neutral) === JSON.stringify(["club", "strut", "dub", "soul"]));
+  ok("anthem is where the colossus and the soul stomp live, and halftime dub stays out",
+    !!pool && JSON.stringify(pool.anthem) === JSON.stringify(["club", "strut", "colossus", "soul"]));
   const r = c ? c.recipes : null;
   ok("every pooled recipe exists",
     !!r && Object.values(pool || {}).flat().every((n) => !!r[n]));
@@ -61,6 +61,10 @@ function boot(seed) {
     !!r && JSON.stringify(r.dub.palettes) === JSON.stringify(["sus", "modal"]));
   ok("the strut speaks light or modal",
     !!r && JSON.stringify(r.strut.palettes) === JSON.stringify(["light", "modal"]));
+  // Motown leans major: the soul chapter brightens or stays modal, and the
+  // lament's drama belongs to the colossus
+  ok("the soul speaks light or modal",
+    !!r && JSON.stringify(r.soul.palettes) === JSON.stringify(["light", "modal"]));
   ok("club stays the generalist", !!r && r.club.palettes == null);
   // the stomp lives on a straight pulse (Witek's inverted U): anticipated
   // harmonic rhythms would syncopate the one groove that must not be

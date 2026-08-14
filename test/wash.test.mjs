@@ -38,7 +38,16 @@ function boot(seed) {
   let t = 0, s = 0;
   const uncovered = [];
   const seenHr = new Map(); // hr -> checked wash bars
-  while (s < 16 * 16 * 22 && (!Frunky.__set().piece || Frunky.__set().piece.num < 4)) {
+  // run until the coverage this file's non-vacuity guards demand has been
+  // seen (anticipated AND plain wash bars), with a hard cap. Pieces roll
+  // their harmonic rhythms from a five-recipe rotation now (build 69), so a
+  // fixed three-piece window can miss push/sync by honest dice — the guard
+  // thresholds stay untouched, the walk simply continues until they are met
+  const coverageMet = () =>
+    ((seenHr.get("push") || 0) + (seenHr.get("sync") || 0)) >= 3 &&
+    ((seenHr.get("bar") || 0) + (seenHr.get("twobar") || 0)) >= 5;
+  while (s < 16 * 16 * 80 &&
+         ((!Frunky.__set().piece || Frunky.__set().piece.num < 4) || !coverageMet())) {
     for (let f = 0; f < 4; f++) Frunky.update(SPB / 4, { speed: 60, lateralG: 0 });
     transport.cb(t); t += SPB;
     const pos = s % 16, bar = Math.floor(s / 16);

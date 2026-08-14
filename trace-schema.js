@@ -72,6 +72,12 @@
     // parking and NOT at every slow red light is the question the next
     // drives answer — coordinate-free, like everything here.
     "reversal", "coda",
+    // the driver's own verdict (build 69): one tap on a thumb in the drive
+    // display. code carries the direction, n the piece number, and the
+    // event's own clock anchors it to the surrounding samples — a judgment
+    // ABOUT THE MUSIC at a moment, never anything about the person beyond
+    // the fact that they pressed it
+    "thumb",
   ];
   // The vocabulary an event may add to its kind. An enum rather than a string,
   // so an event can carry a cause without opening a text channel.
@@ -88,6 +94,8 @@
     // values = a real sensor, silent = API without sensor, gated = iOS-style
     // permission wall the probe deliberately never pushes on
     "values", "silent", "gated",
+    // the thumb's two directions
+    "up", "down",
   ];
 
   // What a browser may say about an audio context. A suspended context is
@@ -268,6 +276,12 @@
     gl: int(-1, 100000, -1),    // output-clock glitch episodes, cumulative
     gx: int(-1, 600000, -1),    // worst stall excess, ms
     aj: int(-1, 10000, -1),     // learned natural jitter of the path, ms
+    // Which recipe framed the current piece (build 69) — an index into the
+    // engine's fixed RECIPES table. Exists so a thumb event (and any other
+    // finding) can be read against WHAT was playing: which musical frame the
+    // field actually gets, and which one the verdicts cluster on. A song
+    // frame, never a place or a person; -1 = no piece yet / older build.
+    rcp: int(-1, 30, -1),
   });
 
   const EVENT = obj({
@@ -315,6 +329,75 @@
     end: END,
   };
 
+  // ---- the feedback spec (build 69) ----------------------------------------
+  // The bench's verdict channel: thumbs plus a text box, posted to the
+  // collector's own endpoint. It shares the trace spec's machinery — the
+  // redaction walks the SPEC, an undeclared field cannot arrive — but its one
+  // free-text field plays by a DIFFERENT rule than a trace msg, and the
+  // difference is who wrote it: `text` is typed BY the operator INTO a box
+  // labelled feedback on the bench page, first-person authorship rather than
+  // a telemetry echo of page state. So digits and punctuation survive ("the
+  // drop at 2:31 cracks"), because destroying them would destroy the field's
+  // whole value. It is still bounded (FEEDBACK_TEXT_MAX), control-stripped,
+  // and declared in FEEDBACK_FREE_TEXT_FIELDS so the poison sweep can exempt
+  // exactly it and nothing else. The ctx block is engine state at send time —
+  // which piece, which recipe, which scene, the SIMULATED bench speed — all
+  // about the music, nothing about a person or a place.
+  const FEEDBACK_TEXT_MAX = 500;
+  function sanitizeFeedback(s) {
+    if (typeof s !== "string") return "";
+    return s
+      .replace(/[\u0000-\u001f\u007f]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, FEEDBACK_TEXT_MAX);
+  }
+  // a shaped token, not free text: a name survives only as a plain word
+  const WORD_TOKEN_RE = /^[A-Za-z]{1,16}$/;
+  const word = () => ({ t: "word" });
+  const feedbackText = () => ({ t: "feedbackText" });
+
+  const FEEDBACK = {
+    v: { t: "version" },
+    id: { t: "id" },
+    build: { t: "build" },
+    // load-bearing: a record whose verdict we cannot name is not feedback.
+    // "note" is the text-only send — a remark without a thumb attached
+    verdict: oneOf(["up", "down", "note"], null),
+    text: feedbackText(),
+    ctx: obj({
+      num: int(0, 10000),        // piece number
+      part: word(),              // form slot label (A/B/C)
+      recipe: word(),            // the album frame
+      mood: word(),              // set-wave mood
+      scene: word(),             // the scene machine's word
+      kmh: int(0, 300),          // the BENCH SLIDER's speed — simulated, not a person
+    }),
+  };
+
+  function redactFeedback(raw) {
+    const dropped = [];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return { ok: false, feedback: null, dropped, reason: "not an object" };
+    }
+    if (raw.v !== VERSION) return { ok: false, feedback: null, dropped, reason: "schema version" };
+    if (typeof raw.id !== "string" || !ID_RE.test(raw.id)) {
+      return { ok: false, feedback: null, dropped, reason: "id" };
+    }
+    const feedback = { v: VERSION, id: raw.id };
+    feedback.build = typeof raw.build === "string" && BUILD_RE.test(raw.build) ? raw.build : "0";
+    for (const key of Object.keys(FEEDBACK)) {
+      if (key === "v" || key === "id" || key === "build") continue;
+      const v = coerce(FEEDBACK[key], raw[key], dropped, key);
+      if (v === NOTHING) return { ok: false, feedback: null, dropped, reason: key };
+      feedback[key] = v;
+    }
+    for (const key of Object.keys(raw)) {
+      if (!Object.prototype.hasOwnProperty.call(FEEDBACK, key)) dropped.push(key);
+    }
+    return { ok: true, feedback, dropped, reason: "" };
+  }
+
   const ID_RE = /^[0-9a-f]{16}$/;
   const BUILD_RE = /^[0-9]{1,4}$/;
 
@@ -338,6 +421,10 @@
       }
       case "text":
         return sanitizeMessage(value);
+      case "feedbackText":
+        return sanitizeFeedback(value);
+      case "word":
+        return typeof value === "string" && WORD_TOKEN_RE.test(value) ? value : "";
       case "ua":
         return uaTokens(value);
       case "obj": {
@@ -438,6 +525,13 @@
     // the fields somebody remembered to put in it, which is precisely the field
     // a newly added leak would not be in.
     SPEC: TRACE,
+    // The feedback channel (build 69): same machinery, its own spec, its own
+    // single free-text exemption — see the block above FEEDBACK for why the
+    // text box plays by a different rule than a trace msg.
+    redactFeedback, sanitizeFeedback,
+    FEEDBACK_SPEC: FEEDBACK,
+    FEEDBACK_FREE_TEXT_FIELDS: ["text"],
+    FEEDBACK_TEXT_MAX,
   };
   if (typeof window !== "undefined") window.FrunkyTraceSchema = api;
   globalThis.FrunkyTraceSchema = api;

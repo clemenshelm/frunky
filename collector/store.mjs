@@ -13,25 +13,30 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync, appendFileSync,
 import { join } from "node:path";
 
 const DAY_MS = 24 * 3600e3;
-const FILE_RE = /^frunky-(\d{4})-(\d{2})-(\d{2})\.ndjson$/;
 
 const dayKey = (ms) => new Date(ms).toISOString().slice(0, 10);
-const fileFor = (ms) => "frunky-" + dayKey(ms) + ".ndjson";
-
-// The end of the day a file covers — the youngest a record in it can be. Using
-// the day's END is what stops a sweep from deleting a file holding records that
-// are still inside the window.
-function dayEnd(name) {
-  const m = FILE_RE.exec(name);
-  if (!m) return null;
-  return Date.UTC(+m[1], +m[2] - 1, +m[3]) + DAY_MS;
-}
 
 export function createStore(config) {
   const cfg = config || {};
   const dir = cfg.dir;
   const now = typeof cfg.now === "function" ? cfg.now : () => Date.now();
   const retentionMs = (cfg.retentionDays || 30) * DAY_MS;
+  // Two record kinds share the directory but never a file: the prefix names
+  // the family ("frunky" = drive traces, "feedback" = bench verdicts), and a
+  // store only ever reads, sweeps and erases its OWN family — a feedback
+  // erasure must not be able to touch a trace, nor the other way round.
+  const prefix = /^[a-z]+$/.test(cfg.prefix || "") ? cfg.prefix : "frunky";
+  const FILE_RE = new RegExp("^" + prefix + "-(\\d{4})-(\\d{2})-(\\d{2})\\.ndjson$");
+  const fileFor = (ms) => prefix + "-" + dayKey(ms) + ".ndjson";
+
+  // The end of the day a file covers — the youngest a record in it can be.
+  // Using the day's END is what stops a sweep from deleting a file holding
+  // records that are still inside the window.
+  function dayEnd(name) {
+    const m = FILE_RE.exec(name);
+    if (!m) return null;
+    return Date.UTC(+m[1], +m[2] - 1, +m[3]) + DAY_MS;
+  }
 
   mkdirSync(dir, { recursive: true });
 

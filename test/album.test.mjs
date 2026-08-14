@@ -30,6 +30,10 @@ const EXPECT = {
   // the Muse element: a glam stomp, nearly straight, and the hook in the
   // hands of a FUZZ BASS — the bass as the star is the signature move
   colossus: { groove: "stomp", lead: "fuzz", swing: 0.08 },
+  // the Motown chapter (build 69): backbeat that always speaks, tambourine
+  // riding the eighths, and a forced melodic Jamerson bass — soul.test.mjs
+  // owns the deep assertions; this table keeps the frame honest here too
+  soul: { groove: "motown", lead: "guitar", swing: 0.14 },
 };
 
 let rc = 0;
@@ -89,7 +93,7 @@ ok("every piece plays a known recipe, got " + names.join(","),
   names.every((n) => EXPECT[n]));
 ok("no recipe plays twice in a row",
   names.every((n, i) => i === 0 || n !== names[i - 1]));
-ok("the run visits at least three of the four recipes, got " + [...new Set(names)].join(","),
+ok("the run visits at least three of the five recipes, got " + [...new Set(names)].join(","),
   new Set(names).size >= 3 && names.every((n) => !!EXPECT[n]));
 // the crate declares every designed recipe — a table entry nothing rolls is
 // how a new frame silently never ships

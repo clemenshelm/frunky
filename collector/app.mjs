@@ -23,6 +23,9 @@ const ID_RE = /^[0-9a-f]{16}$/;
 export function createApp(config) {
   const cfg = config || {};
   const store = cfg.store;
+  // the bench's verdict channel (build 69) — its own store, its own family
+  // of day files, so trace retention and feedback retention stay separable
+  const feedback = cfg.feedback || null;
   const now = typeof cfg.now === "function" ? cfg.now : () => Date.now();
   const origins = Array.isArray(cfg.origins) ? cfg.origins : ["*"];
   const maxBodyBytes = cfg.maxBodyBytes || 256 * 1024;
@@ -131,6 +134,12 @@ export function createApp(config) {
 
     if (method === "POST" && path === "/api/v1/trace") return ingest(req, cors);
     if (method === "DELETE" && path.startsWith("/api/v1/trace/")) return erase(path, cors);
+    if (feedback && method === "POST" && path === "/api/v1/feedback") {
+      return ingestFeedback(req, cors);
+    }
+    if (feedback && method === "DELETE" && path.startsWith("/api/v1/feedback/")) {
+      return eraseFeedback(path, cors);
+    }
 
     if (method === "GET" && path === "/api/v1/traces") {
       if (!authorised(headers)) return needAuth();
@@ -138,7 +147,8 @@ export function createApp(config) {
     }
     if (method === "GET" && (path === "/" || path === "/index.html")) {
       if (!authorised(headers)) return needAuth();
-      return reply(200, renderViewer(store.list(), store.stats()), {
+      return reply(200, renderViewer(store.list(), store.stats(),
+        feedback ? feedback.list() : []), {
         "content-type": "text/html; charset=utf-8",
         "x-frame-options": "DENY",
         "x-robots-tag": "noindex, nofollow",
@@ -176,6 +186,32 @@ export function createApp(config) {
     return reply(204, "", cors.headers);
   }
 
+  // feedback walks the same doors as a trace: redacted by the shared schema
+  // before anything touches disk, replaced on retry, erased by its own id
+  function ingestFeedback(req, cors) {
+    const raw = typeof req.body === "string" ? req.body : "";
+    if (Buffer.byteLength(raw, "utf8") > maxBodyBytes) {
+      return reply(413, "Zu gross.\n", cors.headers);
+    }
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch (err) {
+      void err;
+      return reply(400, "Kein JSON.\n", cors.headers);
+    }
+    const r = SCHEMA.redactFeedback(parsed);
+    if (!r.ok) return reply(400, "Ungültiges Feedback: " + r.reason + "\n", cors.headers);
+    try { feedback.remove(r.feedback.id); } catch (err) { void err; }
+    feedback.append(r.feedback);
+    return reply(204, "", cors.headers);
+  }
+
+  function eraseFeedback(path, cors) {
+    const id = decodeURIComponent(path.slice("/api/v1/feedback/".length));
+    if (!ID_RE.test(id)) return reply(400, "Ungültige Kennung.\n", cors.headers);
+    feedback.remove(id);
+    return reply(204, "", cors.headers);
+  }
+
   return { handle, __rateKeys: () => [...counts.keys()] };
 }
 
@@ -183,7 +219,8 @@ export function createApp(config) {
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-function renderViewer(traces, stats) {
+function renderViewer(traces, stats, feedbackList) {
+  const fb = Array.isArray(feedbackList) ? feedbackList : [];
   const rows = traces.map((t) => {
     const end = t.end || {};
     const mins = end.t ? (end.t / 60000).toFixed(1) : "—";
@@ -244,6 +281,24 @@ ${traces.length ? `<table>
 ${rows}
 </tbody></table>` : '<p class="empty">Noch keine Fahrt angekommen.</p>'}
 <div id="detail"></div>
+<h1 style="margin-top:2rem">Feedback · Testbank</h1>
+${fb.length ? `<table>
+<thead><tr><th>Wann (UTC)</th><th>Build</th><th>Urteil</th><th>Kontext</th><th>Text</th></tr></thead>
+<tbody>
+${fb.map((f) => {
+    const c = f.ctx || {};
+    const ctx = ["Stück " + (c.num ?? "—"), c.part, c.recipe, c.mood, c.scene,
+      typeof c.kmh === "number" ? c.kmh + " km/h" : ""]
+      .filter(Boolean).join(" · ");
+    return "<tr>" +
+      "<td>" + esc(new Date(f.at).toISOString().replace("T", " ").slice(0, 13)) + "h</td>" +
+      "<td>" + esc(f.build || "—") + "</td>" +
+      "<td>" + (f.verdict === "up" ? "👍" : f.verdict === "down" ? "👎" : "✎") + "</td>" +
+      "<td>" + esc(ctx) + "</td>" +
+      '<td style="white-space:normal;max-width:44ch">' + esc(f.text || "") + "</td>" +
+      "</tr>";
+  }).join("\n")}
+</tbody></table>` : '<p class="empty">Noch kein Feedback von der Testbank.</p>'}
 <script id="data" type="application/json">${JSON.stringify(traces).replace(/</g, "\\u003c")}</script>
 <script>
 (() => {
@@ -268,9 +323,15 @@ ${rows}
     // the render thread's own load, where the browser reported one (-1 = no
     // probe on that device, and pre-probe builds default to -1 on arrival)
     const hasRender = s.some((p) => typeof p.rload === "number" && p.rload >= 0);
-    const marks = (trace.events || []).map((e) =>
-      '<line x1="' + x(e.t).toFixed(1) + '" y1="0" x2="' + x(e.t).toFixed(1) +
-      '" y2="' + h + '" stroke="#ffd166" stroke-dasharray="2 3" opacity=".7"/>').join("");
+    // a thumb is the driver's own verdict — it must not drown among the
+    // yellow diagnostics: up is green, down is red, and it draws solid
+    const marks = (trace.events || []).map((e) => {
+      const colour = e.kind === "thumb"
+        ? (e.code === "up" ? "#7dff9b" : "#ff6b6b") : "#ffd166";
+      const dash = e.kind === "thumb" ? "" : ' stroke-dasharray="2 3"';
+      return '<line x1="' + x(e.t).toFixed(1) + '" y1="0" x2="' + x(e.t).toFixed(1) +
+        '" y2="' + h + '" stroke="' + colour + '"' + dash + ' opacity=".8"/>';
+    }).join("");
     return '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%;height:150px">' +
       marks +
       line((p) => p.speed, 13, "#6ee7ff") +

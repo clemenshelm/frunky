@@ -186,6 +186,11 @@
     [2, 6, 11, 14], // funk push on the and-of-three
     [2, 10, 13],    // laid back, with holes
     [0, 2, 4, 6, 8, 10, 12, 14], // driving straight 8ths — the Muse engine
+    // the Jamerson walker (build 69): root ON the one, then syncopated
+    // sixteenth pickups — the and-a of one, the and of two, beat three and
+    // its push, the and-a of four. Six hits = the dense-pattern rule plays
+    // it detached, which is exactly the plucked Precision-bass articulation
+    [0, 3, 6, 8, 11, 14],
   ];
   // harmonic rhythm: per bar / held / anticipated on the and-of-four / anticipated
   // at an odd spot. Changes ARRIVE early but always belong to the NEXT bar —
@@ -312,6 +317,12 @@
     [0, 0, 7, 0],
     [0, 12, 7, 10],
     [0, 3, 5, 7],
+    // the Jamerson lines (build 69), shaped for the six-hit walker but safe
+    // under any pattern (modulo indexing): the octave pop answers the root,
+    // then the line comes DOWN through fifth and fourth toward the change —
+    // a bass that walks somewhere instead of marking time
+    [0, 12, 7, 0, 10, 5],
+    [0, 7, 12, 10, 7, 3],
   ];
 
   // (the sung-voice engine lived here — parked and removed; git remembers.
@@ -515,7 +526,8 @@
       progIdx,
       hr: hrPool[Math.floor(rnd() * hrPool.length)],
       bassPat: pick(bassChoices, notLike && notLike.bassPat, rnd),
-      bassMel: rnd() < (role === "chorus" ? 0.5 : 0.3)
+      // soul forces the walk on (melBass): WHICH line is still the dice's
+      bassMel: recipe.melBass || rnd() < (role === "chorus" ? 0.5 : 0.3)
         ? BASSMELS[Math.floor(rnd() * BASSMELS.length)] : null,
       arpSeq: ARPS[Math.floor(rnd() * ARPS.length)],
       arpOct: role === "bridge" ? 12 : rnd() < 0.2 ? 12 : 0,
@@ -581,6 +593,14 @@
     // speaks — arena drums under the fuzz bass, no ghost chatter
     stomp: { kick: [0, 4, 8, 12], hat: [2, 6, 10, 14], snareAt: [4, 12],
       ghostAt: [], coreSnare: true, kickW: 1.1, swing: 0.08 },
+    // the Motown beat (build 69): four on the floor under a backbeat that
+    // ALWAYS speaks, light swing, and the tambourine riding the eighths —
+    // hitting hardest WITH the snare on 2 and 4. The tambourine is the
+    // Motown mix trick for exactly our room: highs survive road noise where
+    // the low end fights the engine, so the timekeeper lives up top
+    motown: { kick: [0, 4, 8, 12], hat: [2, 6, 10, 14], snareAt: [4, 12],
+      ghostAt: [7, 15], coreSnare: true, kickW: 1, swing: 0.14,
+      tamb: [2, 4, 6, 10, 12, 14] },
   };
   // bass entries are BASSPATS indices: one rhythmic protagonist per recipe —
   // a broken kick over a funk-push bass is two soloists fighting (Bregman),
@@ -603,6 +623,12 @@
     // pattern drives in 8ths — Bregman still holds: ONE protagonist
     { name: "colossus", groove: "stomp", lead: "fuzz", bass: [3],
       palettes: ["lament", "modal"], hrs: ["bar", "twobar"] },
+    // the Motown chapter: the rhythm section is the star. The Jamerson
+    // walker is the ONLY bass pattern and the melodic line is FORCED on
+    // (melBass) — a soul bass that pedals its root is not a soul bass.
+    // Major-leaning harmony (light), the guitar keeps the hook
+    { name: "soul", groove: "motown", lead: "guitar", bass: [4],
+      palettes: ["light", "modal"], hrs: null, melBass: true },
   ];
   // the mood curates the recipes the way it curates palette, arc and world:
   // deep never stomps or struts (introspection has no glam), anthem never
@@ -611,8 +637,8 @@
   // frame and the mood told different stories, so no groove emerged
   const RECIPE_POOL = {
     deep: ["club", "dub"],
-    neutral: ["club", "strut", "dub"],
-    anthem: ["club", "strut", "colossus"],
+    neutral: ["club", "strut", "dub", "soul"],
+    anthem: ["club", "strut", "colossus", "soul"],
   };
 
   // ---- story arc -----------------------------------------------------------
@@ -1218,7 +1244,7 @@
     ctlLast.set(key, value);
     param.rampTo(value, ramp);
   }
-  let kickS, heartS, tomS, hatC, hatO, shakerS, percS;
+  let kickS, heartS, tomS, hatC, hatO, shakerS, percS, tambS, tambPan;
   let bassS, bassLp, growlS, growlLp, thrustSub, thrustSubGain;
   // the calibrated base volumes of the four voices the world trims may move —
   // captured at build time so a rebuild always re-anchors on the fresh park
@@ -1607,6 +1633,14 @@
     shakerHp.connect(shakerPan); shakerPan.connect(busDrums);
     shakerS = reg(new Tone.NoiseSynth({ envelope: { attack: 0.015, decay: 0.055, sustain: 0 } }));
     shakerS.volume.value = db(0.16); shakerS.connect(shakerHp);
+    // the tambourine (build 69, soul recipe): jingles read as a brighter,
+    // longer noise burst than the shaker — higher highpass, twice the ring,
+    // panned opposite so the two timekeepers sit on different shoulders
+    const tambHp = reg(new Tone.Filter(7800, "highpass"));
+    tambPan = reg(new Tone.Panner(0)); tambPan.pan.value = -0.16;
+    tambHp.connect(tambPan); tambPan.connect(busDrums);
+    tambS = reg(new Tone.NoiseSynth({ envelope: { attack: 0.002, decay: 0.11, sustain: 0 } }));
+    tambS.volume.value = db(0.18); tambS.connect(tambHp);
     const percBp = reg(new Tone.Filter({ frequency: 2600, type: "bandpass", Q: 5 }));
     percPan = reg(new Tone.Panner(0)); percPan.pan.value = -0.3;
     percBp.connect(percPan); percPan.connect(busDrums);
@@ -2097,6 +2131,7 @@
       at(open ? "hatO" : "hatC", t), vv(vol, 0.2));
   }
   function shaker(t, vol) { shakerS.triggerAttackRelease(0.055, at("shaker", t), vv(vol, 0.16)); }
+  function tamb(t, vol) { tambS.triggerAttackRelease(0.11, at("tamb", t), vv(vol, 0.18)); }
   function snare(t, vol, ghost = false, roll = -1) {
     const tt = at("snare", t);
     // per-hit color: the band-pass wanders a little on every hit, so a
@@ -2952,6 +2987,14 @@
       if (push > 0.06 && pos % 4 === 2) stabChord(t, progEff[ci], 0.12 * Math.pow(push, 1.3));
       if (engine.groove.hat.includes(pos)) hat(hum(t, pos), false,
         vel((0.03 + 0.05 * u) * (1 - 0.55 * flowHigh * (liftPhase ? (engine.liftTaper ? 0.7 : 0.3) : 1)) * wake));
+      // the tambourine grid (soul): the accents land WITH the backbeat —
+      // the light eighths are ornament and step aside when the device leans
+      if (engine.groove.tamb && engine.groove.tamb.includes(pos) &&
+          !breather && !bridgeDown) {
+        const acc = engine.groove.snareAt.includes(pos);
+        if (acc || !lean) tamb(hum(t, pos), vel((acc ? 0.3 : 0.1) *
+          (1 - 0.4 * flowHigh) * wake));
+      }
       // snare: the groove decides WHERE, the trait decides WHETHER — except a
       // groove whose backbone is the snare (halftime's three), which speaks
       // regardless. Ghost chatter stays a trait, on the groove's ghost spots.
@@ -3659,6 +3702,9 @@
       form: p.form, idx: p.idx, num: p.num,
       partLabel: engine.partLabel, partName: PART_NAMES[engine.partLabel],
       bar: engine.barInPart + 1, chips,
+      // named for the bench's feedback context (build 69) — the chips carry
+      // these as display strings, and a machine consumer must not parse chips
+      recipe: engine.recipe, mood: p.mood, scene: engine.scene,
     };
   }
 
@@ -3853,6 +3899,9 @@
       running: engine.running, step: stepIdx, audio: state,
       errors: errCount, resumes, stalls, lateSteps, worstLate, notes, idleCut,
       load: stepCost, peakLoad: peakCost,
+      // which recipe frames the current piece (build 69) — the index the
+      // trace carries so a thumb verdict can be read against the frame
+      recipeIdx: engine.piece ? RECIPES.findIndex((r) => r.name === engine.recipe) : -1,
       // the render thread's own account, where the browser gives one:
       // -1 means "no probe here", which is a different fact from "idle"
       renderLoad, renderPeak, underruns: underrunWins,
@@ -3949,11 +3998,12 @@
       recipe: engine.recipe, groove: engine.grooveName, lead: engine.lead,
       swing: transport ? transport.swing : 0,
       bassPatIdx: BASSPATS.indexOf(engine.bassPat),
+      bassMel: !!engine.bassMel,
       recipes: Object.fromEntries(RECIPES.map((r) =>
         [r.name, { groove: r.groove, lead: r.lead, bass: r.bass.slice() }])),
       nodes: kickS
         ? { kick: kickS, snare: snareS, guitar: hookGit, square: hookS,
-            warm: leadTri, fuzz: leadFuzz, rhodes }
+            warm: leadTri, fuzz: leadFuzz, rhodes, tamb: tambS }
         : null,
     }),
     // test seam: the leitmotif — the set's melodic DNA and how the current

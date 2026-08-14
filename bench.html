@@ -212,6 +212,28 @@
     </p>
   </div>
 
+  <div class="panel">
+    <p class="eyebrow">Feedback · direkt an Frunky</p>
+    <div class="row">
+      <button id="fbUp" type="button" title="Gefällt mir">👍</button>
+      <button id="fbDown" type="button" title="Gefällt mir nicht">👎</button>
+      <span class="status" id="fbStatus">—</span>
+    </div>
+    <textarea id="fbText" rows="3" maxlength="500"
+      placeholder="Was war gut, was war schlimm? Zeitangaben helfen (z. B. „Drop bei 2:31&#8220;)."
+      style="width:100%; margin-top:0.9rem; background:var(--bg); color:var(--text);
+        border:1px solid var(--line); border-radius:7px; padding:0.6rem 0.8rem;
+        font-family:inherit; font-size:0.9rem; resize:vertical;"></textarea>
+    <div class="row" style="margin-top:0.75rem">
+      <button id="fbSend" class="btn-play" type="button">Senden</button>
+    </div>
+    <p class="mode-caption">
+      Geht mit dem Engine-Kontext des Moments (Stück, Rezept, Stimmung, Szene,
+      Slider-Tempo) an den Frunky-Collector — die Testbank zeichnet sonst
+      nichts auf.
+    </p>
+  </div>
+
   <p class="hint">
     <strong>Probier diese vier Dinge:</strong> ① Auf 0 bremsen — beim Bremsen schließt
     sich ein Filter über der ganzen Mischung und eine dunkle Druck-Textur lehnt sich
@@ -243,10 +265,13 @@
   <p class="foot" id="buildInfo"></p>
 </div>
 <script src="vendor/Tone.js"></script>
-<script src="engine.js?v=68"></script>
+<script src="engine.js?v=69"></script>
+<script src="trace-schema.js?v=69"></script>
 <script>
 (() => {
   "use strict";
+  // must match the deployed BUILD in index.html — pages.test pins the pair
+  const BUILD = "69";
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
   // ---- driving simulation --------------------------------------------------
@@ -471,6 +496,65 @@
     Frunky.setOption("carMix", !Frunky.options().carMix); paintOpts();
   });
   paintOpts();
+
+  // ---- feedback ------------------------------------------------------------
+  // The bench's verdict channel (build 69): thumbs plus a text box, because
+  // the bench runs at a desk where typing is fine — and because the bench has
+  // no tracer, so without this its verdicts never leave the room. The payload
+  // carries the ENGINE's moment (piece, recipe, mood, scene, slider speed);
+  // everything else in it was typed by the person pressing send.
+  const FB_ENDPOINT = "https://frunky.clemenshelm.com/api/v1/feedback";
+  const fbUp = document.getElementById("fbUp");
+  const fbDown = document.getElementById("fbDown");
+  const fbText = document.getElementById("fbText");
+  const fbSend = document.getElementById("fbSend");
+  const fbStatus = document.getElementById("fbStatus");
+  let fbVerdict = null;
+  function paintFb() {
+    fbUp.style.borderColor = fbVerdict === "up" ? "var(--cyan)" : "transparent";
+    fbDown.style.borderColor = fbVerdict === "down" ? "var(--amber)" : "transparent";
+  }
+  fbUp.addEventListener("click", () => { fbVerdict = fbVerdict === "up" ? null : "up"; paintFb(); });
+  fbDown.addEventListener("click", () => { fbVerdict = fbVerdict === "down" ? null : "down"; paintFb(); });
+  fbSend.addEventListener("click", async () => {
+    const text = (fbText.value || "").trim();
+    if (!fbVerdict && !text) { fbStatus.textContent = "Nichts zu senden"; return; }
+    const S = window.FrunkyTraceSchema;
+    const d = Frunky.describe ? Frunky.describe() : null;
+    const body = {
+      v: 1, id: S.newTraceId(), build: BUILD,
+      verdict: fbVerdict || "note",
+      text: text.slice(0, S.FEEDBACK_TEXT_MAX),
+      ctx: {
+        num: d ? d.num : 0,
+        part: d ? d.partLabel : "",
+        recipe: d ? d.recipe : "",
+        mood: d ? d.mood : "",
+        scene: d ? d.scene : "",
+        kmh: Math.round(sim.est),
+      },
+    };
+    fbSend.disabled = true;
+    fbStatus.textContent = "Sende …";
+    try {
+      const r = await fetch(FB_ENDPOINT, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (r.status === 204) {
+        fbStatus.textContent = "Angekommen ✓";
+        fbText.value = ""; fbVerdict = null; paintFb();
+      } else {
+        fbStatus.textContent = "Abgelehnt (" + r.status + ")";
+      }
+    } catch (err) {
+      void err;
+      fbStatus.textContent = "Keine Verbindung";
+    } finally {
+      fbSend.disabled = false;
+    }
+  });
 
   // guard against reviewing a stale copy: show when THIS page file was built
   const bi = document.getElementById("buildInfo");

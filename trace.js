@@ -187,6 +187,9 @@
           // stall ms, and the path's learned jitter — the hiccup layer no
           // other counter here can see
           gl: probe(state.gl), gx: probe(state.gx), aj: probe(state.aj),
+          // which recipe frames the current piece (build 69) — the index a
+          // thumb event is read against. -1 = no piece yet
+          rcp: probe(state.rcp),
         });
       } catch (err) { void err; }
     }
