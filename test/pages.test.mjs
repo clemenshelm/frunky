@@ -362,6 +362,13 @@ ok("the new scene words map onto the trace vocabulary",
 ok("the coda life cycle reaches the trace", /tracer\.event\("coda"/.test(drive));
 ok("and so does the reversal arm", /tracer\.event\("reversal"/.test(drive));
 
+// ---- the bench triggers the Steigerung on demand (build 70) -----------------
+// Iterating on the build→crash moment by waiting for the highway hazard costs
+// minutes per audition; the button costs ten seconds. It arms the engine's
+// OWN lift path (four build bars, crash at the one) — it does not fake one.
+ok("the bench has the lift button", /id="liftBtn"/.test(bench));
+ok("…and it arms the real lift", /__forceLift\(\)/.test(bench));
+
 if (failures.length) {
   console.error("FAILURES:");
   for (const f of failures) console.error("  -", f);

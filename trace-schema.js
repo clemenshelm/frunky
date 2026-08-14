@@ -282,6 +282,23 @@
     // field actually gets, and which one the verdicts cluster on. A song
     // frame, never a place or a person; -1 = no piece yet / older build.
     rcp: int(-1, 30, -1),
+    // Which output path actually played (build 70). Three Tesla drives on
+    // builds 68/69 heard total silence while every field here said healthy —
+    // because none of them names the LAST hop. ABOUT THE ENGINE's output
+    // routing, never the person: -1 = older build / no graph, 0 = direct
+    // AudioContext output, 1 = media element, 2 = the media element stalled
+    // and the engine fell back to direct.
+    snk: int(-1, 3, -1),
+    // The render-thread pulse (build 70). The drift watch exonerated the
+    // audio CLOCK on the stuttering 376 s phone drive — but Chrome
+    // extrapolates that clock across render stalls, and that phone's Chrome
+    // has no RenderCapacity, so the render thread itself was still unheard.
+    // An AudioWorklet stamps its own wall clock from inside the render
+    // thread; a stall cannot stamp, so a stamp gap IS the audible gap.
+    // Episode count and worst excess in ms — ABOUT THE ENGINE's render
+    // thread, never the person; -1 = no probe / older build.
+    pg: int(-1, 100000, -1),
+    px: int(-1, 600000, -1),
   });
 
   const EVENT = obj({

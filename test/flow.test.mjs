@@ -209,8 +209,25 @@ function boot(seed) {
   // drops at all now, and the old every-lift-has-a-drop assertion inverts
   ok("the highway knows no drops at all: " + dropsTotal + " drops across " +
     liftStarts.length + " lifts", dropsTotal === 0 && liftStarts.length > 0);
+  // build 70, field report: "the crash is barely audible after the build" —
+  // the whole band crescendos INTO the lift's one, so the crash arrives at
+  // maximum masking with the limiter already deep in reduction. Three moves,
+  // all at the one: the crash hits harder (0.92, not the drop's 0.75), the
+  // band under it ducks out of the way for a beat (the crash lives on the
+  // un-ducked fx bus, so the spotlight lights exactly one player), and the
+  // impact opens bright before the tail tames itself (12.5 kHz falling to
+  // the 8.5 kHz wall — transient bright, tail dark, the producer's cymbal)
   ok("the lift's one is marked by the crash, not a gap",
-    /engine\.liftStart = bar; engine\.liftArm = -1; crash\(t\);/.test(script));
+    /engine\.liftStart = bar; engine\.liftArm = -1; crash\(t, 0\.92\);/.test(script));
+  ok("the band ducks out of the crash's way at the one",
+    /crash\(t, 0\.92\); duckAt\(t, 0\.5, 0\.6\);/.test(script));
+  ok("the crash impact opens bright and the tail tames itself",
+    /setValueAtTime\(12500, tt\)/.test(script) &&
+    /exponentialRampToValueAtTime\(8500, tt \+ 1\.2\)/.test(script));
+  // duckAt re-anchors the whole timeline, so the kick landing ON the one
+  // would overwrite the deep spotlight with its shallow 0.28 s pump
+  ok("the kick's own duck yields inside the spotlight window",
+    /if \(!\(engine\.duckSpotUntil > t\)\) duckAt\(t, 0\.3/.test(script));
   ok("no hush at the lift's boundaries — the wave recedes, never stops",
     !/engine\.lastLiftEnd = bar; engine\.liftStart = -1; hush/.test(script) &&
     !/engine\.liftStart = bar; engine\.liftArm = -1; hush/.test(script));
@@ -314,6 +331,53 @@ function boot(seed) {
   ok("the carrier rotates: the Rhodes answers in the pedal phase, got " +
     rhodesPedalTrigs, rhodesPedalTrigs > 0);
   ok("zero engine errors across 300 highway bars", Frunky.health().errors === 0);
+  Frunky.stop();
+  transport.clear();
+}
+
+// ---- the forced lift (build 70) --------------------------------------------
+// "Bau mir einen Button, mit dem ich die Steigerung triggern kann" — the
+// bench needs to iterate on the build→crash moment in seconds, not wait for
+// the highway hazard to roll it. __forceLift() arms the natural path (the
+// same four build bars, the same crash at the one), it does not fake one:
+// what the button plays is exactly what a drive plays. It also HOLDS the
+// flow latch until the lift ends, so it works at any bench speed — a forced
+// lift at city energy must not be unlatched one bar later.
+{
+  const Frunky = boot(0.041);
+  await Frunky.start();
+  ok("__forceLift exists", typeof Frunky.__forceLift === "function");
+  let t = 1000, s = 0;
+  // low speed on purpose: the latch would never engage on its own here
+  const stepOnce = () => {
+    for (let f = 0; f < 4; f++) Frunky.update(SPB / 4, { speed: 30, lateralG: 0 });
+    transport.cb(t); t += SPB; s++;
+  };
+  while (s < 16 * 24 && !Frunky.__set().piece) stepOnce();
+  ok("a piece is playing before the trigger", !!Frunky.__set().piece);
+  const crashNode = Frunky.__transition().nodes
+    ? Frunky.__transition().nodes.crash : null;
+  ok("the crash node is on the seam", !!crashNode);
+  const crashesBefore = crashNode ? crashNode.trigs : 0;
+  ok("no lift is running yet", !Frunky.__drive().lift.active);
+  Frunky.__forceLift();
+  let armedAt = -1, startedAt = -1;
+  for (let i = 0; i < 16 * 12 && startedAt < 0; i++) {
+    stepOnce();
+    const d = Frunky.__drive().lift;
+    if (armedAt < 0 && d.arm >= 0) armedAt = d.arm;
+    if (d.start >= 0) startedAt = d.start;
+  }
+  ok("the trigger arms a lift", armedAt >= 0);
+  ok("the lift really starts", startedAt >= 0);
+  ok("with the natural four build bars in front (armed " + armedAt +
+    ", started " + startedAt + ")", startedAt === armedAt);
+  ok("the crash marks the forced one too",
+    !!crashNode && crashNode.trigs > crashesBefore);
+  // and the hold releases: the latch may fall again after the lift ends
+  ok("the forced hold is a hold, not a permanent latch",
+    /engine\.liftHold = false/.test(script));
+  ok("zero engine errors around the forced lift", Frunky.health().errors === 0);
   Frunky.stop();
   transport.clear();
 }

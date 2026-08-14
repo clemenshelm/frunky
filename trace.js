@@ -190,6 +190,10 @@
           // which recipe frames the current piece (build 69) — the index a
           // thumb event is read against. -1 = no piece yet
           rcp: probe(state.rcp),
+          // build 70: which output path actually played (snk), and the
+          // render-thread pulse (pg episodes / px worst ms) — the layer the
+          // extrapolated audio clock cannot see
+          snk: probe(state.snk), pg: probe(state.pg), px: probe(state.px),
         });
       } catch (err) { void err; }
     }
@@ -460,8 +464,43 @@
     return feed;
   }
 
+  // The pulse watch (build 70). The drift watch above came back CLEAN on the
+  // very drive that stuttered (376 s, build 68: gl 0, aj 53) — and that is
+  // not an acquittal, because Chrome's audio clock is EXTRAPOLATED: it keeps
+  // advancing smoothly across render-thread stalls, which is exactly the
+  // audible layer on a phone whose Chrome has no RenderCapacity. This watch
+  // is fed wall-clock stamps taken INSIDE the render thread (an AudioWorklet
+  // posts Date.now() every ~0.5 s of rendered audio): a stalled render
+  // thread cannot stamp, so the gap between stamps IS the audible gap —
+  // immune to main-thread jank, because a queued message carries the stamp
+  // it was made with, not the time it arrived.
+  function makePulseWatch() {
+    const NOMINAL = 500;   // the worklet's stamping cadence, ms of audio time
+    const THR = 1500;      // a gap beyond this is a stall, not scheduling jitter
+    let last = -1, pg = 0, px = 0;
+    function feed(stampMs) {
+      try {
+        if (typeof stampMs !== "number" || !Number.isFinite(stampMs)) return;
+        if (last >= 0) {
+          const gap = stampMs - last;
+          if (gap > THR) {
+            pg++;
+            const ex = Math.round(gap - NOMINAL);
+            if (ex > px) px = ex;
+          }
+        }
+        last = stampMs;
+      } catch (err) { void err; }
+    }
+    feed.read = () => ({ pg, px });
+    // a suspend/resume is a legitimate silence, not a stall: reset forgives
+    // the NEXT gap while the episode ledger stands
+    feed.reset = () => { last = -1; };
+    return feed;
+  }
+
   const api = { create, CONSENT_KEY, PENDING_KEY, STORAGE_KEYS, makeSilenceWatch,
-    makeDriftWatch };
+    makeDriftWatch, makePulseWatch };
   if (typeof window !== "undefined") window.FrunkyTrace = api;
   globalThis.FrunkyTrace = api;
 })();

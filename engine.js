@@ -1113,6 +1113,9 @@
     pullChorus: false, // a launch pulls the chorus forward at the next boundary
     dropAt: -1,        // step index of a scheduled drop-gap release
     liftActive: false,
+    liftForce: false,  // build 70: the bench asked for the Steigerung NOW
+    liftHold: false,   // …and holds the flow latch until that lift ends
+    duckSpotUntil: 0,  // the crash spotlight window — the kick's duck yields
     riseOn: false,    // rise-figure engagement latch (thrust hysteresis)
     warp: 0,          // auditory exclusion under hard push, 0..1
     flowOn: false,    // latched highway-harmony switch (hysteresis, barline only)
@@ -1159,6 +1162,19 @@
 
   let master, comp, limiter, makeup, tensionLp, masterHp, panner, duck, dry;
   let outMeter, sinkDest, sinkEl;
+  // The gesture-blessed element and the sink watchdog (build 70). Three real
+  // Tesla drives on 68/69 heard NOTHING while the graph produced signal —
+  // the media element never truly played. play() used to run at graph-build
+  // time, far past the user-activation window on car LTE; the blessed
+  // element is created and played synchronously inside the click, and the
+  // watchdog reads the one truth an element cannot fake: currentTime.
+  let blessedEl = null, sinkFellBack = false, sinkWatchTimer = null;
+  let sinkLastCt = -1, sinkLastAdvanceAt = -1;
+  // The render-thread pulse (build 70): an AudioWorklet stamps its own wall
+  // clock from inside the render thread (~every 0.5 s of rendered audio) —
+  // a stalled render thread cannot stamp, so a stamp gap IS the audible gap
+  // the extrapolated audio clock hides. -1 = no probe, the rload contract.
+  let pulseWatch = null, pulseGaps = -1, pulseWorst = -1, pulseGapsSeen = 0;
   let carLow, carMud, carPres, carAir;
   let depthLp, depthGain;
   let busDrums, busBass, busHarm, busLead, busFx;
@@ -1400,6 +1416,130 @@
     renderCap = null;
   }
 
+  // ---- the gesture blessing (build 70) -------------------------------------
+  // Called SYNCHRONOUSLY from the start button's click handler, before
+  // anything can await. The media element is created and played while the
+  // gesture is live — with an empty stream, because the real one does not
+  // exist yet. A play() granted under a gesture stays granted when the sink
+  // stream is swapped in at graph-build time, which on car LTE happens far
+  // outside any activation window (consent dialog, Tone.start, the sample
+  // downloads). Everywhere the media path is off this is a no-op.
+  function blessSink() {
+    try {
+      if (!opts.mediaSink) return null;
+      const w = typeof window !== "undefined" ? window : null;
+      const AudioEl = w && w.Audio;
+      const MS = w && w.MediaStream;
+      if (typeof AudioEl !== "function" || typeof MS !== "function") return null;
+      if (!blessedEl) {
+        blessedEl = new AudioEl();
+        blessedEl.srcObject = new MS();
+        const p = blessedEl.play();
+        if (p && typeof p.catch === "function") p.catch((err) => void err);
+      }
+      return blessedEl;
+    } catch (err) { void err; return null; }
+  }
+
+  // ---- the sink watchdog (build 70) ----------------------------------------
+  // A play() promise that never settles — or an element the car starves —
+  // is silence with a healthy graph behind it, and the old fallback fired
+  // only on REJECTION. currentTime is the one truth an element cannot fake:
+  // if it stops advancing for 6 s while the engine runs, the sink is dead.
+  // Fall back to the direct path and say so, so the next drive's trace
+  // names the path that actually played.
+  function sinkFallbackToDirect(why) {
+    try {
+      if (sinkDest) { try { limiter.disconnect(sinkDest); } catch (err) { void err; } }
+      if (sinkEl) { try { sinkEl.pause(); } catch (err) { void err; } }
+      sinkDest = null; sinkEl = null; sinkFellBack = true;
+      try { limiter.connect(Tone.getDestination()); } catch (err) { void err; }
+      note("sink", "media element " + why + " — fell back to direct output");
+    } catch (err) { void err; }
+  }
+  function sinkWatchTick(now) {
+    try {
+      if (!sinkEl || !engine.running) return;
+      const ct = Number(sinkEl.currentTime) || 0;
+      if (sinkLastAdvanceAt < 0 || ct > sinkLastCt + 0.25) {
+        sinkLastCt = ct;
+        sinkLastAdvanceAt = now;
+        return;
+      }
+      if (now - sinkLastAdvanceAt > 6000) {
+        sinkFallbackToDirect("stalled at " + ct.toFixed(1) + "s");
+      }
+    } catch (err) { void err; }
+  }
+  // -1 no graph yet, 0 direct, 1 media element, 2 fell back after a stall —
+  // the code the trace's snk field carries
+  function sinkStateCode() {
+    if (!limiter) return -1;
+    if (sinkFellBack) return 2;
+    return sinkEl ? 1 : 0;
+  }
+
+  // ---- the render-thread pulse (build 70) ----------------------------------
+  // The drift watch exonerated the audio CLOCK on the stuttering phone drive
+  // — but Chrome extrapolates that clock across render stalls, and that
+  // phone's Chrome has no RenderCapacity. A worklet runs ON the render
+  // thread: it stamps its own wall clock every ~0.5 s of rendered audio and
+  // posts the stamp out. A stalled thread cannot stamp; the gap between
+  // stamps is the audible gap, immune to main-thread jank because a queued
+  // message carries the stamp it was made with, not its arrival time.
+  function feedPulse(stamp) {
+    try {
+      if (!pulseWatch) return;
+      pulseWatch(stamp);
+      const r = pulseWatch.read();
+      pulseGaps = r.pg; pulseWorst = r.px;
+      if (pulseGaps > pulseGapsSeen) {
+        pulseGapsSeen = pulseGaps;
+        // a render stall is the audible mechanism — the arrangement thins
+        // in answer to it, exactly as it does for a reported underrun
+        strain = 1;
+        if (pulseGaps <= 3 || pulseGaps % 20 === 0) {
+          note("pulse", "render pulse gap #" + pulseGaps +
+            " (worst " + pulseWorst + "ms)");
+        }
+      }
+    } catch (err) { void err; }
+  }
+  function startPulseProbe() {
+    try {
+      const T = (typeof window !== "undefined" && window.FrunkyTrace) || null;
+      if (!T || typeof T.makePulseWatch !== "function") return;
+      const raw = Tone.getContext().rawContext;
+      const WN = typeof window !== "undefined" ? window.AudioWorkletNode : null;
+      if (!raw || !raw.audioWorklet ||
+          typeof raw.audioWorklet.addModule !== "function" ||
+          typeof WN !== "function") return;
+      if (typeof Blob === "undefined" || typeof URL === "undefined" ||
+          typeof URL.createObjectURL !== "function") return;
+      const src = "class P extends AudioWorkletProcessor {" +
+        " constructor() { super(); this._l = 0; }" +
+        " process() {" +
+        "  if (currentTime - this._l >= 0.5) {" +
+        "   this._l = currentTime;" +
+        "   this.port.postMessage(Date.now());" +
+        "  }" +
+        "  return true;" +
+        " } }" +
+        " registerProcessor(\"frunky-pulse\", P);";
+      const url = URL.createObjectURL(new Blob([src], { type: "application/javascript" }));
+      raw.audioWorklet.addModule(url).then(() => {
+        try {
+          const node = new WN(raw, "frunky-pulse");
+          // silence into the master: keeps the node pulled by the graph on
+          // whichever output path is live, without touching the signal
+          Tone.connect(node, master);
+          pulseWatch = T.makePulseWatch();
+          node.port.onmessage = (e) => feedPulse(e && e.data);
+        } catch (err) { void err; }
+      }).catch((err) => void err);
+    } catch (err) { void err; }
+  }
+
   // ---- lean sheds the render-thread costs ----------------------------------
   // Thinning drops NOTES — main-thread work and voices — but the two
   // per-sample costs, the chorus (a modulated delay) and the convolution
@@ -1510,7 +1650,8 @@
     // "media", the category the car's streaming apps audibly live in. So the
     // limiter feeds an <audio> element by default, with the direct
     // connection kept as A/B and fallback — exactly one of the two, ever.
-    sinkDest = null; sinkEl = null;
+    sinkDest = null; sinkEl = null; sinkFellBack = false;
+    sinkLastCt = -1; sinkLastAdvanceAt = -1;
     if (opts.mediaSink) {
       try {
         const raw = Tone.getContext().rawContext;
@@ -1519,7 +1660,10 @@
             typeof AudioEl === "function") {
           sinkDest = raw.createMediaStreamDestination();
           limiter.connect(sinkDest);
-          sinkEl = new AudioEl();
+          // adopt the gesture-blessed element when the click handler made
+          // one — an element that started playing UNDER the gesture keeps
+          // its permission when the real stream is swapped in later
+          sinkEl = blessedEl || new AudioEl();
           sinkEl.srcObject = sinkDest.stream;
           const played = sinkEl.play();
           if (played && typeof played.catch === "function") {
@@ -2039,13 +2183,26 @@
   // decay, sent into the fx bus so the room answers the hit. A payoff reads
   // as expensive when the whole spectrum returns at once; the crash is the
   // marker every produced drop carries and ours lacked
-  function crash(t) {
+  function crash(t, vel) {
     // v3 ("a torn tin roof, the hiss foreground and penetrant"): filtered
     // noise IS a tin roof — a cymbal's identity lives in inharmonic
     // metallic partials, which is what MetalSynth is built from. The
     // synth rings behind a lowpass so the shimmer sits behind the wall
     // v4: the trigger lets the tail ring — 0.7 s cut the 3.2 s decay short
-    if (crashS) crashS.triggerAttackRelease(2.8, at("crash", t), 0.75);
+    // v5 (build 70): the impact opens BRIGHT and the tail tames itself —
+    // 12.5 kHz falling to the 8.5 kHz wall over the ring. The sizzle band
+    // is the one place a full mix leaves free, so the transient reads even
+    // at the climax, while the tail keeps v3's manners
+    if (!crashS) return;
+    const tt = at("crash", t);
+    try {
+      if (crashLp && crashLp.frequency) {
+        crashLp.frequency.cancelScheduledValues(tt);
+        crashLp.frequency.setValueAtTime(12500, tt);
+        crashLp.frequency.exponentialRampToValueAtTime(8500, tt + 1.2);
+      }
+    } catch (err) { void err; }
+    crashS.triggerAttackRelease(2.8, tt, vel || 0.75);
   }
 
   // the drop's release half: the riser's mirror — a falling sweep after
@@ -2094,7 +2251,7 @@
     // audio nodes — four times a bar, forever, for nothing audible
     if (click > 0.12) kickClick(t, click * vol);
   }
-  function duckAt(t, depth) {
+  function duckAt(t, depth, rec) {
     const g = duck.gain;
     g.cancelScheduledValues(t);
     // Anchor at 1, dip over 4 ms, recover over 0.28 s — three explicit points,
@@ -2104,10 +2261,12 @@
     // cancelScheduledValues can leave the whole melodic bus parked at the
     // ducked level with nothing scheduled to bring it back — everything
     // through this gain quietly dies while the drums keep playing.
-    // An anchored ramp cannot get stuck: every kick re-states where it starts
+    // An anchored ramp cannot get stuck: every kick re-states where it starts.
+    // The recovery is a parameter since build 70: the crash spotlight holds
+    // the dip longer than a kick's pump
     g.setValueAtTime(1, t);
     g.linearRampToValueAtTime(1 - depth, t + 0.004);
-    g.linearRampToValueAtTime(1, t + 0.28);
+    g.linearRampToValueAtTime(1, t + (rec || 0.28));
   }
   function heartbeat(t, vol, f0) {
     heartS.triggerAttackRelease(f0 * 0.35, 0.3, at("heart", t), vv(vol, 0.6));
@@ -2614,10 +2773,24 @@
       const fH = clamp((eL - 0.5) / 0.35, 0, 1);
       const wasFlow = engine.flowOn;
       if (!engine.flowOn && fH > 0.65) { engine.flowOn = true; engine.flowStartBar = bar; }
-      else if (engine.flowOn && fH < 0.5) engine.flowOn = false;
+      // the hold (build 70): a FORCED lift must survive at any energy — the
+      // bench triggers at city speed, and unlatching one bar later would
+      // silently cancel exactly the build the button promised
+      else if (engine.flowOn && fH < 0.5 && !engine.liftHold) engine.flowOn = false;
       if (wasFlow !== engine.flowOn) {
         hush(t);
         if (!engine.flowOn) { engine.liftStart = -1; engine.liftArm = -1; }
+      }
+      // the forced lift (build 70): arm the engine's OWN path — the same
+      // four build bars, the same crash at the one — never a faked event
+      if (engine.liftForce) {
+        engine.liftForce = false;
+        if (engine.liftStart < 0 && engine.liftArm < 0) {
+          if (!engine.flowOn) { engine.flowOn = true; engine.flowStartBar = bar; }
+          engine.liftHold = true;
+          engine.liftArm = bar + 4;
+          engine.liftLen = dicer("liftlen")() < 0.5 ? 8 : 12;
+        }
       }
       if (engine.flowOn) {
         // v3: waves, not events. The lift's boundaries carry no hush — the
@@ -2625,6 +2798,8 @@
         // cymbal style) and the wave RECEDES at its end (taper below)
         if (engine.liftStart >= 0 && bar - engine.liftStart >= (engine.liftLen || 8)) {
           engine.lastLiftEnd = bar; engine.liftStart = -1;
+          // the forced hold releases with its lift — a hold, never a latch
+          engine.liftHold = false;
           // the ENCORE ("the lift should repeat, in a variant, escalating"):
           // a lift may be answered after only a short breath — longer, and
           // it always sings; the second encore gallops. Two encores at
@@ -2638,7 +2813,14 @@
         }
         if (engine.liftStart < 0) {
           if (engine.liftArm >= 0 && bar >= engine.liftArm) {
-            engine.liftStart = bar; engine.liftArm = -1; crash(t);
+            // build 70, field report "the crash is barely audible after the
+            // build": the whole band crescendos INTO this one, so the crash
+            // arrives at maximum masking. It hits harder than the drop's
+            // (0.92), and the band ducks out of its way for a beat — the
+            // crash lives on the un-ducked fx bus, so the spotlight lights
+            // exactly one player
+            engine.liftStart = bar; engine.liftArm = -1; crash(t, 0.92); duckAt(t, 0.5, 0.6);
+            engine.duckSpotUntil = t + 0.6;
             // the Freudensturm: some lifts SING — and a lift rising out of
             // the clearing always does (light + lift = the storm). Every
             // encore sings too: the repetition IS the escalation
@@ -2915,7 +3097,11 @@
         kick(t, (0.85 + 0.1 * e) * (1 - 0.18 * flowHigh * (liftPhase ? (engine.liftTaper ? 0.6 : 0.2) : 1)) * wake
           * engine.groove.kickW * sceneKick,
           0.05 + 0.3 * push);
-        duckAt(t, 0.3 * (1 - 0.3 * flowHigh) + 0.28 * push);
+        // the kick's own duck YIELDS inside the crash spotlight (build 70):
+        // duckAt re-anchors the whole timeline, so a kick at the lift's one
+        // would overwrite the deep spotlight with its shallow 0.28 s pump
+        // and bury the crash it was meant to clear room for
+        if (!(engine.duckSpotUntil > t)) duckAt(t, 0.3 * (1 - 0.3 * flowHigh) + 0.28 * push);
       }
       // bass follows the chord roots and a groove pattern with holes in it;
       // it reaches full weight at city speeds already, not only on the highway
@@ -3853,6 +4039,14 @@
     }, "16n");
     transport.start("+0.05");
     engine.running = true;
+    // build 70: the sink watchdog rides its own slow timer (2 s a tick is
+    // plenty for a 6 s verdict), and the render-thread pulse starts fresh
+    if (sinkWatchTimer) { try { clearInterval(sinkWatchTimer); } catch (err) { void err; } }
+    try {
+      sinkWatchTimer = setInterval(() => sinkWatchTick(Date.now()), 2000);
+      if (sinkWatchTimer && typeof sinkWatchTimer.unref === "function") sinkWatchTimer.unref();
+    } catch (err) { void err; }
+    startPulseProbe();
     return true;
   }
 
@@ -3860,6 +4054,13 @@
     if (!engine.running) return;
     engine.running = false;
     stopRenderProbe();
+    if (sinkWatchTimer) {
+      try { clearInterval(sinkWatchTimer); } catch (err) { void err; }
+      sinkWatchTimer = null;
+    }
+    // a stop is a legitimate silence: the pulse must not read the pause as
+    // a render stall when the next start resumes stamping
+    if (pulseWatch) { try { pulseWatch.reset(); } catch (err) { void err; } }
     transport.stop();
     if (repeatId !== null) transport.clear(repeatId);
     transport.cancel(0);
@@ -3934,6 +4135,11 @@
         } catch (err) { void err; return -1; }
       })(),
       sink: !!sinkEl,
+      // build 70: the path that ACTUALLY plays (-1 no graph, 0 direct,
+      // 1 media element, 2 fell back after a stall) and the render-thread
+      // pulse — episodes and worst excess ms, -1 = no probe
+      snk: sinkStateCode(),
+      pg: pulseGaps, px: pulseWorst,
       gm: centiGain(master), gd: centiGain(duck),
       gh: centiGain(busHarm), gdr: centiGain(busDrums),
       air: (() => {
@@ -3971,6 +4177,8 @@
   // screen sleeps, and it does not always come back on its own
   async function resume() {
     try { await Tone.getContext().resume(); } catch (err) { void err; }
+    // a suspend was a legitimate silence — forgive the pulse's next gap
+    if (pulseWatch) { try { pulseWatch.reset(); } catch (err) { void err; } }
   }
 
   function setOption(key, value) {
@@ -3981,7 +4189,12 @@
 
   window.Frunky = {
     start, stop, update, status, describe, force, levels, setOption, options, resume,
-    load, peakLoad, health, log,
+    load, peakLoad, health, log, blessSink,
+    // bench seams (build 70): trigger the Steigerung on demand — the engine's
+    // OWN lift path, four build bars and the crash at the one — and tick the
+    // sink watchdog by hand so a test can stall the clock
+    __forceLift: () => { engine.liftForce = true; },
+    __sinkWatch: (now) => sinkWatchTick(now),
     isRunning: () => engine.running,
     isBuilding: () => building,
     // test seam: the parties of the fx shed, so a test can assert the

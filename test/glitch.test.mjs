@@ -159,6 +159,120 @@ const mk = typeof T.makeDriftWatch === "function"
     /getOutputTimestamp/.test(page));
 }
 
+// ---- 11. the pulse watch (build 70) ----------------------------------------
+// The drift watch came back CLEAN on the very drive that stuttered (376 s,
+// build 68: gl 0, aj 53) — and that is not an acquittal, because Chrome's
+// audio clock is EXTRAPOLATED: it advances smoothly across render-thread
+// stalls, which is exactly the audible layer on a phone without
+// RenderCapacity. The pulse watch closes that blind spot from the inside: an
+// AudioWorklet stamps its own wall clock from the render thread (~every
+// 0.5 s of rendered audio) and posts the stamps out. A stalled render thread
+// cannot stamp — the gap between stamps IS the audible gap, immune to
+// main-thread jank because queued messages carry the stamp, not the arrival.
+ok("makePulseWatch is exported", typeof T.makePulseWatch === "function");
+const mkP = typeof T.makePulseWatch === "function"
+  ? T.makePulseWatch : () => Object.assign(() => {}, { read: () => ({}), reset: () => {} });
+
+// 11a. a healthy render thread counts nothing
+{
+  const w = mkP();
+  for (let i = 0; i < 100; i++) w(1000 + i * 500);
+  const r = w.read();
+  eq("no episodes on steady stamps", r.pg, 0);
+  eq("no worst excess either", r.px, 0);
+}
+
+// 11b. scheduling jitter is not a stall
+{
+  const w = mkP();
+  let t = 1000;
+  for (let i = 0; i < 100; i++) { t += i % 2 ? 700 : 400; w(t); }
+  const r = w.read();
+  eq("sub-second jitter never counts", r.pg, 0);
+}
+
+// 11c. a real render stall is one episode with its excess on record
+{
+  const w = mkP();
+  let t = 1000;
+  for (let i = 0; i < 10; i++) { t += 500; w(t); }
+  t += 2500; w(t);                       // the render thread went away for 2 s
+  for (let i = 0; i < 10; i++) { t += 500; w(t); }
+  const r = w.read();
+  eq("one oversized gap is one episode", r.pg, 1);
+  eq("the excess over the nominal cadence is the worst", r.px, 2000);
+}
+
+// 11d. repeated stalls accumulate, the worst wins
+{
+  const w = mkP();
+  let t = 1000;
+  for (let i = 0; i < 5; i++) { t += 500; w(t); }
+  t += 2000; w(t);
+  for (let i = 0; i < 5; i++) { t += 500; w(t); }
+  t += 4500; w(t);
+  const r = w.read();
+  eq("two stalls, two episodes", r.pg, 2);
+  eq("the worst excess is kept", r.px, 4000);
+}
+
+// 11e. reset() forgives the next gap (suspend/resume is not a stall) but
+// keeps the counters — the drive's ledger survives a pause
+{
+  const w = mkP();
+  let t = 1000;
+  for (let i = 0; i < 5; i++) { t += 500; w(t); }
+  t += 3000; w(t);
+  eq("the stall before the reset counted", w.read().pg, 1);
+  w.reset();
+  t += 60000; w(t);                      // a minute of legitimate silence
+  for (let i = 0; i < 5; i++) { t += 500; w(t); }
+  const r = w.read();
+  eq("the post-reset gap is forgiven", r.pg, 1);
+  eq("the worst excess still stands", r.px, 2500);
+}
+
+// ---- 12. the engine runs the worklet and reports pg/px ----------------------
+{
+  const engineSrc = readFileSync(new URL("../engine.js", import.meta.url), "utf8");
+  ok("the engine registers a pulse worklet processor",
+    /registerProcessor\(\\"frunky-pulse\\", P\)/.test(engineSrc));
+  ok("the worklet stamps its own wall clock, not the arrival time",
+    /postMessage\(Date\.now\(\)\)/.test(engineSrc));
+  ok("a fresh episode feeds the strain machine (the arrangement thins in " +
+    "answer to the actual mechanism)",
+    /pulseGaps > pulseGapsSeen[\s\S]{0,200}strain = 1/.test(engineSrc));
+  ok("health reports pg/px with the -1 no-probe contract",
+    /pg: pulseGaps, px: pulseWorst/.test(engineSrc));
+}
+
+// ---- 13. schema + tracer + page carry pg/px --------------------------------
+{
+  const S = globalThis.FrunkyTraceSchema;
+  const base = { v: S.VERSION, id: "0123456789abcdef", build: "70",
+    samples: [{ t: 1000, pg: 2, px: 1234 }] };
+  const r = S.redactTrace(base);
+  ok("the schema carries pg", r.ok && r.trace.samples[0].pg === 2);
+  ok("the schema carries px", r.ok && r.trace.samples[0].px === 1234);
+  const r2 = S.redactTrace({ v: S.VERSION, id: "0123456789abcdef", build: "70",
+    samples: [{ t: 1000 }] });
+  ok("an older build reads as -1, never 0",
+    r2.ok && r2.trace.samples[0].pg === -1 && r2.trace.samples[0].px === -1);
+  const tr = T.create({ build: "70", endpoint: "https://x/api/v1/traces",
+    store: (() => { const m = new Map(); return { getItem: (k) => m.get(k) ?? null,
+      setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k) }; })(),
+    userAgent: "TestUA", fetch: async () => ({ ok: true }) });
+  tr.setConsent(true);
+  tr.begin({});
+  tr.sample({ speed: 10, pg: 3, px: 900 });
+  const snap = tr.snapshot();
+  eq("tracer forwards pg", snap.samples[0].pg, 3);
+  eq("tracer forwards px", snap.samples[0].px, 900);
+  ok("the page samples pg/px from health",
+    /pg: h\.pg/.test(page) && /px: h\.px/.test(page));
+  tr.end("user", {});
+}
+
 if (failures.length) {
   console.error("FAILURES:");
   for (const f of failures) console.error("  -", f);

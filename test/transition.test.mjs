@@ -217,8 +217,12 @@ function boot(seed, store) {
     /crashS\.volume\.value = db\(0\.3\)/.test(script));
   ok("… with a real cymbal tail (decay 3.2, release 1.4)",
     /envelope: \{ attack: 0\.001, decay: 3\.2, release: 1\.4 \}/.test(script));
+  // build 70 gave crash() a velocity so the LIFT's one can hit harder than
+  // the drop's — the tail is unchanged and the drop keeps its 0.75 default
   ok("… and the trigger lets the tail ring (2.8 s, not 0.7)",
-    /crashS\.triggerAttackRelease\(2\.8, at\("crash", t\), 0\.75\)/.test(script));
+    /crashS\.triggerAttackRelease\(2\.8, tt, vel \|\| 0\.75\)/.test(script));
+  ok("… the drop's crash keeps the old velocity (it calls without one)",
+    /impact\(t\); crash\(t\); fallSweep/.test(script));
   // drop body v2 (same report: "the kick at the climax is still quite
   // weak"): the car-mix shelf now takes -10 dB at 100 Hz — right for the
   // CONTINUOUS bass bed, but the one-shot drop impact pays the same toll.

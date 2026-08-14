@@ -158,6 +158,7 @@
     <div class="row">
       <button class="btn-play" id="play">Play</button>
       <button class="btn-launch" id="launch" disabled>Ampelsprint</button>
+      <button class="btn-launch" id="liftBtn" disabled title="Vier Build-Takte, dann der Crash auf die Eins">Steigerung ▲</button>
       <span class="status" id="status">—</span>
     </div>
 
@@ -265,13 +266,13 @@
   <p class="foot" id="buildInfo"></p>
 </div>
 <script src="vendor/Tone.js"></script>
-<script src="engine.js?v=69"></script>
-<script src="trace-schema.js?v=69"></script>
+<script src="engine.js?v=70"></script>
+<script src="trace-schema.js?v=70"></script>
 <script>
 (() => {
   "use strict";
   // must match the deployed BUILD in index.html — pages.test pins the pair
-  const BUILD = "69";
+  const BUILD = "70";
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
   // ---- driving simulation --------------------------------------------------
@@ -402,7 +403,7 @@
 
   // ---- controls ------------------------------------------------------------
 
-  const btns = ["launch", "city", "autobahn", "brake", "curveL", "curveR"]
+  const btns = ["launch", "liftBtn", "city", "autobahn", "brake", "curveL", "curveR"]
     .map((id) => document.getElementById(id));
   const playBtn = document.getElementById("play");
 
@@ -442,6 +443,18 @@
         setTimeout(() => { sim.targetSpeed = 80; sim.accel = 26; }, 2200);
       }
     }, 100);
+  });
+  // the Steigerung on demand (build 70): auditioning the build→crash moment
+  // by waiting for the highway hazard to roll it costs minutes per pass.
+  // This arms the engine's OWN lift — four build bars, then the crash on
+  // the one — so what the button plays is exactly what a drive plays. The
+  // speed goes up with it, because a lift at a standstill is not the sound
+  // under test; the engine holds the flow latch until the lift ends.
+  document.getElementById("liftBtn").addEventListener("click", () => {
+    if (sim.targetSpeed < 100) { sim.targetSpeed = 130; sim.accel = 22; }
+    if (Frunky.__forceLift) Frunky.__forceLift();
+    ui.status.textContent = "Steigerung angesetzt — vier Takte Build";
+    ui.status.className = "status launch";
   });
   document.getElementById("city").addEventListener("click", () => { sim.targetSpeed = 45; sim.accel = 14; });
   document.getElementById("autobahn").addEventListener("click", () => { sim.targetSpeed = 130; sim.accel = 15; });
