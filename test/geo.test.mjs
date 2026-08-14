@@ -171,6 +171,63 @@ ok("standing still has no lateral force", Geo.lateralG(0, 30) === 0);
     d2.headingSource === "track");
 }
 
+// ---- the receiver lies too (build 74) ---------------------------------------
+// The derived path always asked for corroboration; the REPORTED path was
+// trusted raw. But Android's fused location does produce isolated speed
+// spikes at rest (multipath in a street canyon) — and an accepted 0→60
+// teleport arms slope +60 km/h/s, spikes the music's energy, and can fire
+// the launch cannon while parked at a light. Same contract as the derived
+// path: an isolated implausible report is refused, two consecutive reports
+// that agree are a moving car. ~1.5 g stays the plausibility line, so a
+// real Tesla launch (about half of that) is accepted on the first fix.
+{
+  const r = Geo.createReader();
+  const t0 = 6_000_000;
+  for (let i = 0; i < 4; i++) {
+    r.push({ lat: 48, lon: 11, speed: 0, heading: null, accuracy: 6, t: t0 + i * 1000 });
+  }
+  // one teleport: 60 km/h out of nowhere, gone again on the next fix
+  r.push({ lat: 48, lon: 11, speed: 16.7, heading: null, accuracy: 6, t: t0 + 4000 });
+  let s = { speed: 0 };
+  for (let i = 0; i < 40; i++) s = r.sample(t0 + 4000 + i * 16, 0.016);
+  ok("an isolated reported spike does not move the car (got " +
+    s.speed.toFixed(1) + " km/h)", s.speed < 10);
+  ok("and is counted as rejected", r.diagnostics(t0 + 4600).rejected >= 1);
+  r.push({ lat: 48, lon: 11, speed: 0, heading: null, accuracy: 6, t: t0 + 5000 });
+  for (let i = 0; i < 40; i++) s = r.sample(t0 + 5000 + i * 16, 0.016);
+  ok("after the spike the car is still parked (got " + s.speed.toFixed(1) + ")",
+    s.speed < 5);
+}
+{
+  // a REAL launch is about 27 km/h/s and must pass on the FIRST fix — the
+  // launch moment is the one the whole product exists for
+  const r = Geo.createReader();
+  const t0 = 6_100_000;
+  for (let i = 0; i < 3; i++) {
+    r.push({ lat: 48, lon: 11, speed: 0, heading: null, accuracy: 6, t: t0 + i * 1000 });
+  }
+  r.push({ lat: 48, lon: 11.0001, speed: 7.5, heading: null, accuracy: 6, t: t0 + 3000 });
+  let s = { speed: 0 };
+  for (let i = 0; i < 60; i++) s = r.sample(t0 + 3000 + i * 16, 0.016);
+  ok("a plausible launch is accepted without delay (got " +
+    s.speed.toFixed(1) + " km/h)", s.speed > 15);
+}
+{
+  // two consecutive high reports that agree are a moving car, however
+  // implausible the first jump looked — the corroboration contract
+  const r = Geo.createReader();
+  const t0 = 6_200_000;
+  for (let i = 0; i < 3; i++) {
+    r.push({ lat: 48, lon: 11, speed: 0, heading: null, accuracy: 6, t: t0 + i * 1000 });
+  }
+  r.push({ lat: 48, lon: 11.0004, speed: 16.7, heading: null, accuracy: 6, t: t0 + 3000 });
+  r.push({ lat: 48, lon: 11.0008, speed: 16.9, heading: null, accuracy: 6, t: t0 + 4000 });
+  let s = { speed: 0 };
+  for (let i = 0; i < 80; i++) s = r.sample(t0 + 4000 + i * 16, 0.016);
+  ok("two agreeing reports overrule the plausibility line (got " +
+    s.speed.toFixed(1) + " km/h)", s.speed > 35);
+}
+
 // ---- the clock trap ---------------------------------------------------------
 // position.timestamp may be a Unix epoch value OR milliseconds since page load,
 // and browsers really do differ. Reading the second as the first puts every fix

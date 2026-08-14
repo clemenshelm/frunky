@@ -82,6 +82,7 @@
     let slope = 0;        // km/h per second, for dead reckoning
     let rawG = 0;         // lateral g at the last fix
     let pendingDerived = null; // last track-derived speed, accepted or not
+    let pendingReported = null; // last receiver-reported speed, accepted or not
     let est = 0, estG = 0;
     let fixes = 0;
     // field-test diagnostics: what the receiver actually gave us, as opposed
@@ -113,8 +114,27 @@
       const prev = last ? last.speed : 0;
       let speed, accepted = true;
       if (reported != null) {
-        speed = reported;
         stats.speedSource = "coords";
+        // The receiver lies too (build 74): Android's fused location makes
+        // isolated speed spikes at rest, and one accepted 0→60 teleport
+        // arms slope +60 km/h/s and can fire the launch cannon while
+        // parked. Same contract as the derived path below: an isolated
+        // implausible report is refused, two consecutive reports that
+        // agree are a moving car. A real launch (~half the 1.5 g line)
+        // passes on its first fix, and a fix after a long gap divides by
+        // that gap — so a tunnel exit is plausible by construction
+        const plausible = !(last && dt > 0.05) ||
+          Math.abs(reported - prev) / dt <= MAX_ACCEL_KMH_S;
+        const corroborated = pendingReported != null && dt > 0.05 &&
+          Math.abs(reported - pendingReported) / dt <= MAX_ACCEL_KMH_S;
+        if (plausible || corroborated) {
+          speed = reported;
+        } else {
+          speed = prev;
+          accepted = false;
+          stats.rejected++;
+        }
+        pendingReported = reported;
       } else if (!(Number.isFinite(fix.accuracy) && fix.accuracy <= ACC_TRUST_M)) {
         // the position is a neighbourhood, not a car: the difference between
         // two such guesses is noise, and noise divided by a second is a speed
