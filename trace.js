@@ -148,6 +148,9 @@
       try {
         if (!enabled() || !id || !state) return;
         const n = (v, d) => (typeof v === "number" && Number.isFinite(v) ? v : (d || 0));
+        // a probe value: non-negative numbers pass, everything else is "no probe"
+        const probe = (v) =>
+          typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : -1;
         pushSample({
           t: now() - startedAt,
           speed: S.speedBucket(state.speed),
@@ -176,6 +179,10 @@
           heap: typeof state.heap === "number" && Number.isFinite(state.heap) &&
             state.heap >= 0 ? Math.round(state.heap) : -1,
           voices: Math.round(n(state.voices)),
+          // the audibility layers: output RMS and the automated gain
+          // positions. -1 = "no probe", which must never read as "parked"
+          out: probe(state.out), gm: probe(state.gm), gd: probe(state.gd),
+          gh: probe(state.gh), gdr: probe(state.gdr), air: probe(state.air),
         });
       } catch (err) { void err; }
     }
@@ -355,7 +362,37 @@
     };
   }
 
-  const api = { create, CONSENT_KEY, PENDING_KEY, STORAGE_KEYS };
+  // The silence watchdog: turns "the engine schedules notes but the master
+  // output carries no signal" from 200 samples a human must read into ONE
+  // event with a duration. A pure decision so it can be tested without a
+  // browser. Musical silence is not a failure: it only watches stretches
+  // where notes ARE being scheduled (a coda fade or a stopped engine stands
+  // it down), and a browser without the output probe (out = -1) can never
+  // arm it. Fires "on" once per episode after `armMs`, and "off" with the
+  // episode's total duration when signal returns.
+  function makeSilenceWatch(armMs) {
+    const arm = typeof armMs === "number" && Number.isFinite(armMs) && armMs > 0
+      ? armMs : 10000;
+    let since = null;   // when the current silent-while-scheduling stretch began
+    let fired = false;
+    return (t, out, notes) => {
+      try {
+        const silent = typeof out === "number" && out >= 0 && out < 2 &&
+          typeof notes === "number" && notes > 0;
+        if (!silent) {
+          if (fired) { const dur = t - since; since = null; fired = false;
+            return { code: "off", n: dur }; }
+          since = null;
+          return null;
+        }
+        if (since === null) since = t;
+        if (!fired && t - since >= arm) { fired = true; return { code: "on", n: t - since }; }
+        return null;
+      } catch (err) { void err; return null; }
+    };
+  }
+
+  const api = { create, CONSENT_KEY, PENDING_KEY, STORAGE_KEYS, makeSilenceWatch };
   if (typeof window !== "undefined") window.FrunkyTrace = api;
   globalThis.FrunkyTrace = api;
 })();

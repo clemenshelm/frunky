@@ -1097,6 +1097,7 @@
   const poly = (p, n) => { try { p.maxPolyphony = n; } catch (err) { void err; } return p; };
 
   let master, comp, limiter, makeup, tensionLp, masterHp, panner, duck, dry;
+  let outMeter;
   let carLow, carMud, carPres, carAir;
   let depthLp, depthGain;
   let busDrums, busBass, busHarm, busLead, busFx;
@@ -1422,6 +1423,15 @@
     depthGain = reg(new Tone.Gain(1));
     panner.chain(depthLp, depthGain, tensionLp, masterHp, carLow, carMud, carPres, carAir,
       makeup, comp, master, limiter, Tone.getDestination());
+    // The output witness (build 66). Four real Tesla drives recorded a
+    // perfectly healthy sequencer — errors 0, notes flowing — while the
+    // driver heard silence: the trace could not say where between "note
+    // scheduled" and "signal at the speaker" the sound was lost. This
+    // analyser taps the LAST node before the destination, so health() can
+    // report whether the graph is actually producing signal. Passive: it
+    // costs nothing until someone reads it, once per trace sample.
+    outMeter = reg(new Tone.Analyser("waveform", 1024));
+    limiter.connect(outMeter);
     master.gain.rampTo(0.9, 0.1);
 
     // ---- submix buses ------------------------------------------------------
@@ -3620,6 +3630,14 @@
   // the music dying and is visible nowhere else
   const load = () => stepCost;
   const peakLoad = () => peakCost;
+  // a gain's position in centi-units, -1 where the node (or its param) is
+  // not there to ask — "no probe" and "parked at zero" are different facts
+  function centiGain(node) {
+    try {
+      return node && node.gain && Number.isFinite(node.gain.value)
+        ? Math.round(node.gain.value * 100) : -1;
+    } catch (err) { void err; return -1; }
+  }
   // everything a stuck engine can say about itself
   function health() {
     let state = "?";
@@ -3647,6 +3665,30 @@
       voices: ((padS && padS.activeVoices) || 0) +
         ((padTri && padTri.activeVoices) || 0) +
         ((gateS && gateS.activeVoices) || 0),
+      // The audibility layers (build 66): voices says what is ringing, `out`
+      // says whether the master output carries SIGNAL (RMS x1000 from the
+      // meter behind the limiter), and the gains say which automated fader
+      // could have parked. -1 always means "no probe", never "zero" — the
+      // same contract renderLoad already keeps.
+      out: (() => {
+        try {
+          if (!outMeter || typeof outMeter.getValue !== "function") return -1;
+          const v = outMeter.getValue();
+          if (!v || !v.length) return -1;
+          let sum = 0;
+          for (let i = 0; i < v.length; i++) sum += v[i] * v[i];
+          return Math.round(Math.sqrt(sum / v.length) * 1000);
+        } catch (err) { void err; return -1; }
+      })(),
+      gm: centiGain(master), gd: centiGain(duck),
+      gh: centiGain(busHarm), gdr: centiGain(busDrums),
+      air: (() => {
+        try {
+          return depthLp && depthLp.frequency &&
+            Number.isFinite(depthLp.frequency.value)
+            ? Math.round(depthLp.frequency.value) : -1;
+        } catch (err) { void err; return -1; }
+      })(),
       dice: diceStreams.size,
       strain, strainPct: totalSteps ? (strainSteps / totalSteps) * 100 : 0,
       lean: engine.lean,
@@ -3692,7 +3734,7 @@
     // topology rather than trust the gesture (see performance.test.mjs)
     __graph: () => (revSend
       ? { chorus: chorus || null, revSend, reverb, padLp, gateLp, busHarm, shed: fxShed,
-          masterHp, carLow, carMud, carPres, carAir, makeup }
+          masterHp, carLow, carMud, carPres, carAir, makeup, limiter, outMeter }
       : null),
     // test seam: the album layer — which recipe frames the current piece and
     // which nodes its groove and lead actually strike, so a test can measure

@@ -246,6 +246,19 @@
     // field, where no devtools ever attach
     heap: int(-1, 100000, -1),  // used JS heap, MB (-1 = no probe)
     voices: int(0, 10000),      // ringing synth voices right now
+    // The audibility layers (build 66). Four real Tesla drives on build 65
+    // recorded a spotless engine — errors 0, notes flowing — while the driver
+    // heard the music die within seconds: the trace could not say where
+    // between "note scheduled" and "signal at the speaker" the sound was
+    // lost. All of these are ABOUT THE ENGINE's signal chain, never about the
+    // person, and -1 always means "no probe / older build", never "zero" —
+    // the same contract rload keeps.
+    out: int(-1, 1000, -1),     // master-output RMS x1000, behind the limiter
+    gm: int(-1, 200, -1),       // master gain, centi (the stop ramp parks it)
+    gd: int(-1, 200, -1),       // duck gain, centi (the sidechain automates it)
+    gh: int(-1, 200, -1),       // harmony bus gain, centi (the warp closes it)
+    gdr: int(-1, 200, -1),      // drums bus gain, centi
+    air: int(-1, 30000, -1),    // depth lowpass cutoff, Hz (parked low = mute)
   });
 
   const EVENT = obj({

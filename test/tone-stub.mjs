@@ -150,6 +150,9 @@ function toneNode() {
       }
     },
     triggerAttack() {}, triggerRelease() {}, releaseAll() {},
+    // Tone.Analyser's read: a silent window by default. Tests that need a
+    // signal at a meter replace this on the node they got from a seam
+    getValue() { return new Float32Array(1024); },
     calls: [],
     ready: Promise.resolve(),
     gain: param(1), frequency: param(440), Q: param(1), pan: param(0),
