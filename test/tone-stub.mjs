@@ -189,7 +189,24 @@ const transport = {
 // ONE context wrapper, not a fresh object per call: the engine writes
 // lookAhead onto it and a later read has to see that write, exactly as with
 // the real Tone context
-const toneCtx = { rawContext: fakeCtx, lookAhead: 0.1, resume() {} };
+// Tone wraps the native context (standardized-audio-context), so the GLOBAL
+// AudioWorkletNode constructor rejects it — "parameter 1 is not of type
+// BaseAudioContext". Build 72 hit exactly that live: the pulse worklet never
+// started and the field kept reading pg -1 as "no probe here". Tone's own
+// context API is the one that works, so the stub models THAT and nothing
+// else — a stub that accepts both would let the broken path pass again.
+export const worklet = { modules: [], nodes: [], reset() {
+  worklet.modules.length = 0; worklet.nodes.length = 0;
+} };
+const toneCtx = { rawContext: fakeCtx, lookAhead: 0.1, resume() {},
+  async addAudioWorkletModule(url) { worklet.modules.push(url); },
+  createAudioWorkletNode(name) {
+    const n = toneNode();
+    n.workletName = name;
+    n.port = { onmessage: null, postMessage() {} };
+    worklet.nodes.push(n);
+    return n;
+  } };
 const Tone = new Proxy({}, {
   get(_, key) {
     if (key === "start") return async () => {};

@@ -19,6 +19,7 @@
 //     a phantom glitch: the audio clock legitimately stops there.
 // All three ride the existing trace probe contract: -1 = "no probe", never 0.
 import { readFileSync } from "node:fs";
+import { transport, worklet } from "./tone-stub.mjs";
 
 const failures = [];
 const ok = (label, cond) => { if (!cond) failures.push(label); };
@@ -237,6 +238,15 @@ const mkP = typeof T.makePulseWatch === "function"
   const engineSrc = readFileSync(new URL("../engine.js", import.meta.url), "utf8");
   ok("the engine registers a pulse worklet processor",
     /registerProcessor\(\\"frunky-pulse\\", P\)/.test(engineSrc));
+  // Build 72 shipped this probe dead: it built the node with the GLOBAL
+  // AudioWorkletNode against Tone's wrapped context, which throws
+  // "parameter 1 is not of type BaseAudioContext". Nothing was red — a
+  // failed probe reports pg -1, which is indistinguishable from "this
+  // browser has no probe", the exact silence this watch exists to break.
+  ok("it goes through Tone's own context API, never the global constructor",
+    /addAudioWorkletModule\(/.test(engineSrc) &&
+    /createAudioWorkletNode\("frunky-pulse"\)/.test(engineSrc) &&
+    !/new WN\(/.test(engineSrc) && !/new AudioWorkletNode\(/.test(engineSrc));
   ok("the worklet stamps its own wall clock, not the arrival time",
     /postMessage\(Date\.now\(\)\)/.test(engineSrc));
   ok("a fresh episode feeds the strain machine (the arrangement thins in " +
@@ -271,6 +281,47 @@ const mkP = typeof T.makePulseWatch === "function"
   ok("the page samples pg/px from health",
     /pg: h\.pg/.test(page) && /px: h\.px/.test(page));
   tr.end("user", {});
+}
+
+// ---- 14. the probe really starts, against a Tone-shaped context ------------
+// The source pin above is not enough on its own — it is exactly what build 72
+// had, and the probe was still dead in the field. This boots the engine and
+// asserts the module, the node and the wiring, so "the worklet started" is
+// checked rather than described.
+{
+  worklet.reset();
+  let rc = 0;
+  Math.random = () => (rc = (rc + 0.03) % 1);
+  transport.manual = true;
+  const m = new Map();
+  const win = { Tone: globalThis.Tone, FrunkyTrace: T, localStorage: {
+    getItem: (k) => (m.has(k) ? m.get(k) : null),
+    setItem: (k, v) => { m.set(k, String(v)); }, removeItem: (k) => { m.delete(k); } } };
+  globalThis.window = win;
+  eval(readFileSync(new URL("../engine.js", import.meta.url), "utf8"));
+  const F = win.Frunky;
+  await F.start();
+  // the module load resolves on a microtask chain; let it land
+  for (let i = 0; i < 10 && !worklet.nodes.length; i++) await Promise.resolve();
+  if (!worklet.nodes.length) await new Promise((r) => setTimeout(r, 0));
+  ok("the engine loaded a worklet module", worklet.modules.length === 1);
+  ok("…and built the pulse node through Tone's context",
+    worklet.nodes.length === 1 && worklet.nodes[0].workletName === "frunky-pulse");
+  const node = worklet.nodes[0];
+  ok("…and listens on its port",
+    !!node && typeof node.port.onmessage === "function");
+  if (!node) { failures.push("no pulse node — the rest cannot be checked"); }
+  // now speak as the render thread would: steady stamps, then a 2 s stall
+  let t = 1000;
+  const feed = (ms) => { if (node && node.port.onmessage) node.port.onmessage({ data: ms }); };
+  for (let i = 0; i < 8; i++) { t += 500; feed(t); }
+  eq("a healthy render thread counts nothing", F.health().pg, 0);
+  t += 2500; feed(t);
+  eq("a real stall reaches health()", F.health().pg, 1);
+  eq("with its excess in ms", F.health().px, 2000);
+  F.stop();
+  transport.clear();
+  globalThis.window = globalThis;
 }
 
 if (failures.length) {

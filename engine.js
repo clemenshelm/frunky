@@ -1564,11 +1564,16 @@
     try {
       const T = (typeof window !== "undefined" && window.FrunkyTrace) || null;
       if (!T || typeof T.makePulseWatch !== "function") return;
-      const raw = Tone.getContext().rawContext;
-      const WN = typeof window !== "undefined" ? window.AudioWorkletNode : null;
-      if (!raw || !raw.audioWorklet ||
-          typeof raw.audioWorklet.addModule !== "function" ||
-          typeof WN !== "function") return;
+      // Tone WRAPS the native context (standardized-audio-context), so the
+      // global AudioWorkletNode constructor rejects it outright:
+      // "parameter 1 is not of type BaseAudioContext". Build 72 shipped
+      // exactly that and nothing went red, because a probe that fails
+      // reports pg -1 — which is indistinguishable from "this browser has
+      // no probe", the very silence this watch exists to break. Tone's own
+      // context API is the one that works; there is no second path.
+      const ctx = Tone.getContext();
+      if (!ctx || typeof ctx.addAudioWorkletModule !== "function" ||
+          typeof ctx.createAudioWorkletNode !== "function") return;
       if (typeof Blob === "undefined" || typeof URL === "undefined" ||
           typeof URL.createObjectURL !== "function") return;
       const src = "class P extends AudioWorkletProcessor {" +
@@ -1582,9 +1587,9 @@
         " } }" +
         " registerProcessor(\"frunky-pulse\", P);";
       const url = URL.createObjectURL(new Blob([src], { type: "application/javascript" }));
-      raw.audioWorklet.addModule(url).then(() => {
+      Promise.resolve(ctx.addAudioWorkletModule(url)).then(() => {
         try {
-          const node = new WN(raw, "frunky-pulse");
+          const node = ctx.createAudioWorkletNode("frunky-pulse");
           // silence into the master: keeps the node pulled by the graph on
           // whichever output path is live, without touching the signal
           Tone.connect(node, master);
