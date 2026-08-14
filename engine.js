@@ -1006,13 +1006,23 @@
     if (engine.worldApplied !== piece.world) applySoundWorld(piece.world);
     // the piece's frame: groove template, lead voice, and the swing that
     // belongs to the groove (Transport-level — the step length never moves)
-    engine.recipe = engine.piece.recipe;
-    engine.grooveName = engine.piece.groove;
-    engine.groove = GROOVES[engine.piece.groove];
-    engine.lead = engine.piece.lead;
-    // the genre's signature voice (build 71): read off the table by name,
-    // so the recipe stays the single source of what this genre sounds like
-    engine.recipeSig = (RECIPES.find((r) => r.name === engine.recipe) || {}).sig || null;
+    // The lock outranks the piece. A part boundary re-applies the RUNNING
+    // piece, which was rolled before the audition started — so without this
+    // the locked genre survived until the next verse and then quietly went
+    // back, with the bench button still lit. Found on the deployed bench,
+    // two bars after locking the soul chapter.
+    const frame = (engine.genreLock
+      && RECIPES.find((r) => r.name === engine.genreLock))
+      || RECIPES.find((r) => r.name === engine.piece.recipe)
+      || { name: engine.piece.recipe, groove: engine.piece.groove,
+        lead: engine.piece.lead, sig: null };
+    engine.recipe = frame.name;
+    engine.grooveName = frame.groove;
+    engine.groove = GROOVES[frame.groove];
+    engine.lead = frame.lead;
+    // the genre's signature voice (build 71): read off the same frame, so
+    // the recipe stays the single source of what this genre sounds like
+    engine.recipeSig = frame.sig || null;
     if (transport) transport.swing = engine.groove.swing;
     // per-occurrence freshness: ornaments re-roll, one trait may flip.
     // One keyed stream per (piece, slot): this occurrence's rolls can never

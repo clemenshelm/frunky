@@ -188,6 +188,48 @@ function boot(seed) {
   }
 }
 
+// ---- 5b. the lock survives the part boundary INSIDE a running piece --------
+// Found live on the deployed bench: lock the soul, hear the horns, and two
+// bars later the frame is back to club. A part boundary re-applies the
+// RUNNING piece — which was rolled before the lock existed — so the
+// audition silently ended while the button still said soul. A lock that
+// only holds until the next verse is not a lock.
+{
+  const F = boot(0.031);
+  await F.start();
+  let t = 1000, s = 0;
+  const step = () => {
+    // town speed on purpose: the form only advances while the highway
+    // latch is OFF (the flow holds the form still), and a part boundary is
+    // exactly what this regression is about
+    for (let f = 0; f < 4; f++) F.update(SPB / 4, { speed: 40, lateralG: 0 });
+    transport.cb(t); t += SPB; s++;
+  };
+  while (s < 16 * 4 && !F.__set().piece) step();
+  const startPiece = F.__set().piece ? F.__set().piece.num : -1;
+  F.setGenre("soul");
+  const labels = new Set([F.describe().partLabel]);
+  const drifted = [];
+  // far enough to cross every part boundary of a seven-part form AND roll
+  // the next piece: the lock must survive both, and they are different code
+  for (let i = 0; i < 16 * 130; i++) {
+    step();
+    labels.add(F.describe().partLabel);
+    if (F.__genre().recipe !== "soul") {
+      drifted.push("bar " + Math.floor(s / 16) + ": " + F.__genre().recipe);
+    }
+  }
+  ok("the run really crossed part boundaries, saw " + [...labels].join(","),
+    labels.size >= 2);
+  ok("the locked genre never drifts, even across boundaries and new " +
+    "pieces — " + drifted.slice(0, 3).join(" · "), drifted.length === 0);
+  ok("and the signature holds with it", F.__genre().sig === "horns");
+  ok("started at piece " + startPiece + ", ended at " + F.__set().piece.num,
+    F.__set().piece.num > startPiece);
+  F.stop();
+  transport.clear();
+}
+
 // ---- 6. the signatures live inside the existing discipline -----------------
 // A new voice that ignores the arrangement rules is a new mix problem: the
 // breather must silence it like everything else, lean must shed it, and it
