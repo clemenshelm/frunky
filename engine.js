@@ -134,7 +134,7 @@
       pad: { osc: { type: "sawtooth" }, attack: 1.1, release: 1.6, trim: 0 },
       gate: { osc: { type: "fattriangle", count: 2, spread: 12 }, trim: 0 },
       blip: { osc: { type: "square" }, trim: 0 },
-      hook: { lp: 2300, pres: 2 }, // today's hook chain, verbatim
+      hook: { lp: 2300, pres: 2, trim: 0 }, // today's hook chain, verbatim
     },
     organic: { // round and woody — soft kick, breathy hats, triangle washes
       kick: { pitchDecay: 0.15, octaves: 1.4, decay: 0.34 },
@@ -145,7 +145,7 @@
       pad: { osc: { type: "triangle" }, attack: 1.5, release: 2.2, trim: 2.5 },
       gate: { osc: { type: "fattriangle", count: 2, spread: 8 }, trim: 0.5 },
       blip: { osc: { type: "triangle" }, trim: 2 },
-      hook: { lp: 2100, pres: 1.5 }, // woody: a touch rounder than analog
+      hook: { lp: 2100, pres: 1.5, trim: -0.5 }, // woody: a touch rounder than analog
     },
     neon: { // tight and cold — clarity, one pane of glass, crisp air.
       // v3 after the third field report ("much too loud, unbearable"): the
@@ -170,7 +170,12 @@
       pad: { osc: { type: "sawtooth" }, attack: 0.8, release: 1.2, trim: -2 },
       gate: { osc: { type: "fattriangle", count: 2, spread: 10 }, trim: -1 },
       blip: { osc: { type: "square" }, trim: -1 },
-      hook: { lp: 1900, pres: 0.5 },
+      // v5, field verdict "Neon Hook ist zu laut": the world shaded the
+      // hook's colour but never its LEVEL, while trimming the bass -1 and
+      // the pad -2 — so relative to the band it sits over, the hook came
+      // out ~2 dB HOTTER here than anywhere else. A lead belongs by
+      // sharing the band's level, not by clearing it
+      hook: { lp: 1900, pres: 0.5, trim: -2.5 },
     },
   };
   // deep rounds off, anthem goes cold and bright, analog stays everyone's
@@ -611,24 +616,42 @@
   // stays the generalist (null = whatever the mood offers). hrs: the stomp
   // lives on a straight pulse (Witek: groove is an inverted U over
   // syncopation), so anticipated chords are the one thing it never does
+  // worlds (build 71): the recipe owns its ORCHESTRA too. The world used to
+  // be drawn from the mood's pool alone, free of the recipe — a cross
+  // product that shipped a Motown rhythm section inside the cold synthwave
+  // glass of neon, and Muse stadium drama in the same glass. Both came home
+  // from the Autobahn as "die Kombi der Instrumente passt nicht zusammen",
+  // and both are that cross product rather than a wrong note. A genre
+  // CARRIES its orchestration — that is what a genre is — so the recipe
+  // names the worlds it may wear and the mood only narrows the list.
+  // sig: the one voice this genre owns and nobody else plays. Five recipes
+  // reaching into one shared instrument park still sound like one band
+  // playing five ways; identity needs a voice you recognise in one bar.
   const RECIPES = [
     { name: "club", groove: "four", lead: "guitar", bass: [0, 1, 2],
-      palettes: null, hrs: null },
+      palettes: null, hrs: null, worlds: ["analog", "neon"], sig: null },
     { name: "strut", groove: "broken", lead: "square", bass: [0, 2],
-      palettes: ["light", "modal"], hrs: null },
+      palettes: ["light", "modal"], hrs: null,
+      worlds: ["analog", "organic"], sig: "clav" },
     { name: "dub", groove: "half", lead: "warm", bass: [2],
-      palettes: ["sus", "modal"], hrs: null },
+      palettes: ["sus", "modal"], hrs: null,
+      worlds: ["organic", "analog"], sig: "skank" },
     // the Muse element: the bass is the star. The hook moves into a fuzz
     // bass an octave down, the drums stomp nearly straight, and the bass
-    // pattern drives in 8ths — Bregman still holds: ONE protagonist
+    // pattern drives in 8ths — Bregman still holds: ONE protagonist.
+    // One world: a stadium has one sound, and the glass one was the
+    // combination the field named
     { name: "colossus", groove: "stomp", lead: "fuzz", bass: [3],
-      palettes: ["lament", "modal"], hrs: ["bar", "twobar"] },
+      palettes: ["lament", "modal"], hrs: ["bar", "twobar"],
+      worlds: ["analog"], sig: "timp" },
     // the Motown chapter: the rhythm section is the star. The Jamerson
     // walker is the ONLY bass pattern and the melodic line is FORCED on
     // (melBass) — a soul bass that pedals its root is not a soul bass.
-    // Major-leaning harmony (light), the guitar keeps the hook
+    // Major-leaning harmony (light), the guitar keeps the hook, and the
+    // horn section answers it — woody worlds only
     { name: "soul", groove: "motown", lead: "guitar", bass: [4],
-      palettes: ["light", "modal"], hrs: null, melBass: true },
+      palettes: ["light", "modal"], hrs: null, melBass: true,
+      worlds: ["organic", "analog"], sig: "horns" },
   ];
   // the mood curates the recipes the way it curates palette, arc and world:
   // deep never stomps or struts (introspection has no glam), anthem never
@@ -781,6 +804,8 @@
       padS.volume.value = worldBaseVol.pad + W.pad.trim;
       gateS.volume.value = worldBaseVol.gate + W.gate.trim;
       blipS.volume.value = worldBaseVol.blip + W.blip.trim;
+      if (hookS) hookS.volume.value = worldBaseVol.hook + W.hook.trim;
+      if (leadTri) leadTri.volume.value = worldBaseVol.lead + W.hook.trim;
     }
     // v4: the world also colors the bass filter's character (a touch of
     // resonance is the analog squelch) and shades the hook chain — the
@@ -884,9 +909,16 @@
     // makes consecutive pieces read as different SONGS. Rolled BEFORE the
     // palette, because the frame curates its harmonic language
     const recipePool = RECIPE_POOL[mood].map((n) => RECIPES.find((r) => r.name === n));
-    const recipe = pick(recipePool,
-      engine.piece ? RECIPES.find((r) => r.name === engine.piece.recipe) : null,
-      dicer("recipe:" + num));
+    // the genre lock (build 71): the bench auditions ONE genre for as long
+    // as it wants to hear it. Locking the recipe rather than patching the
+    // running piece is what keeps the audition honest — the world, the
+    // palette and the bundles are all rolled FROM the locked genre, so what
+    // you hear is a real piece of that genre and not a hybrid
+    const recipe = engine.genreLock
+      ? RECIPES.find((r) => r.name === engine.genreLock)
+      : pick(recipePool,
+        engine.piece ? RECIPES.find((r) => r.name === engine.piece.recipe) : null,
+        dicer("recipe:" + num));
     // the palette: the piece's harmonic world — the mood's pool, narrowed
     // by the recipe's language (a funk strut never walks the lament). The
     // walk continues inside a palette and RESETS to home when the palette
@@ -907,11 +939,16 @@
     // the arc: the piece's character — where its peak lies. Chosen from the
     // mood's pool, so the wave shapes the story, not only the density
     const arcName = pick(ARC_POOL[mood], null, dicer("arc:" + num));
-    // the sound world: the piece's orchestra, drawn from the mood's pool and
-    // never the same twice in a row — consecutive tracks must not share a
-    // sound, exactly the recipe's rotation rule
-    const world = pick(WORLD_POOL[mood], engine.piece ? engine.piece.world : null,
-      dicer("world:" + num));
+    // the sound world: the piece's orchestra — the RECIPE's list narrowed by
+    // the mood's, never the same twice in a row. The intersection is the
+    // whole point (build 71): the genre owns its orchestration, the mood
+    // only narrows it, and the old free cross product is what put Motown in
+    // the glass world. An empty intersection would mean the mood disowns
+    // every orchestra the genre wears — the genre wins then, because a
+    // recipe playing the wrong instruments is the louder mistake
+    const worldPool = WORLD_POOL[mood].filter((w) => recipe.worlds.includes(w));
+    const world = pick(worldPool.length ? worldPool : recipe.worlds,
+      engine.piece ? engine.piece.world : null, dicer("world:" + num));
     // the keys carrier: some pieces put a real piano under the figures —
     // the same Rhodes on every piece was half of "always the same organ"
     // (Build 61). Neon keeps the Rhodes: a grand in the glass world would
@@ -973,6 +1010,9 @@
     engine.grooveName = engine.piece.groove;
     engine.groove = GROOVES[engine.piece.groove];
     engine.lead = engine.piece.lead;
+    // the genre's signature voice (build 71): read off the table by name,
+    // so the recipe stays the single source of what this genre sounds like
+    engine.recipeSig = (RECIPES.find((r) => r.name === engine.recipe) || {}).sig || null;
     if (transport) transport.swing = engine.groove.swing;
     // per-occurrence freshness: ornaments re-roll, one trait may flip.
     // One keyed stream per (piece, slot): this occurrence's rolls can never
@@ -1279,6 +1319,11 @@
   let blipS, brassS, brassLp, bassSubS, snareS, snareBody, hookS, leadTri, gateS, gateAmp, gateLp;
   let hookLp, hookPres; // module scope: applySoundWorld shades the hook per world
   let crashS, crashLp;  // the cymbal: a MetalSynth, not filtered noise
+  // the signature voices (build 71) — one per genre, and nobody else plays
+  // them. Five recipes reaching into one shared instrument park still sound
+  // like one band playing five ways; a genre is recognised in a bar by a
+  // voice that belongs to it alone
+  let hornS, hornBp, clavS, clavBp, skankS, skankLp, skankSend, timpS;
   let hookThrowG; // the delay throw's dedicated send — a gesture, not a level
   let leadFuzz;   // colossus: the hook in the hands of a fuzz bass
   // the rise figure: its own pool of mono voices — overlapping entries on one
@@ -1997,6 +2042,60 @@
     poly(brassS, 10);
     brassS.connect(brassLp); brassLp.connect(busHarm); brassLp.connect(revSend);
 
+    // ---- the signature voices (build 71) ------------------------------------
+    // One per genre, built once and played by one recipe alone. They are
+    // ORNAMENTS in the engine's existing sense: the breather silences them,
+    // lean sheds them, and each speaks in a slot no other answerer occupies.
+    //
+    // the horn section (soul) — Motown's punctuation. A real section is
+    // several players slightly apart, which is why this is a poly saw with a
+    // fixed bandpass rather than a filter sweep: brass lives in a band
+    // (roughly 350–3000 Hz), and the stab's identity is its ATTACK.
+    hornBp = reg(new Tone.Filter({ frequency: 1250, type: "bandpass", Q: 0.7 }));
+    hornS = reg(new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: "fatsawtooth", count: 2, spread: 14 },
+      envelope: { attack: 0.012, decay: 0.14, sustain: 0.25, release: 0.14 },
+    }));
+    hornS.volume.value = db(0.2);
+    poly(hornS, 8);
+    hornS.chain(hornBp, busHarm); hornBp.connect(revSend);
+
+    // the clavinet (strut) — the funk comp. Short, bright, percussive: a
+    // plucked string through a pickup, so the envelope is nearly all attack
+    // and the band sits above the pad it dances over
+    clavBp = reg(new Tone.Filter({ frequency: 1800, type: "bandpass", Q: 1.4 }));
+    clavS = reg(new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: "square" },
+      envelope: { attack: 0.002, decay: 0.085, sustain: 0, release: 0.05 },
+    }));
+    clavS.volume.value = db(0.17);
+    poly(clavS, 6);
+    clavS.chain(clavBp, busHarm); clavBp.connect(revSend);
+
+    // the skank (dub) — the offbeat chop that IS reggae/dub, and the one
+    // voice here that belongs in the delay rather than the room: the echo
+    // is the genre, not an effect on it
+    skankLp = reg(new Tone.Filter({ frequency: 2600, type: "lowpass", Q: 1 }));
+    skankS = reg(new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: "fatsquare", count: 2, spread: 8 },
+      envelope: { attack: 0.004, decay: 0.1, sustain: 0, release: 0.06 },
+    }));
+    skankS.volume.value = db(0.15);
+    poly(skankS, 6);
+    skankS.chain(skankLp, busHarm);
+    skankSend = reg(new Tone.Gain(0.5));
+    skankLp.connect(skankSend); skankSend.connect(delaySend);
+
+    // the timpani (colossus) — the stadium's floor. A membrane with a long
+    // pitch fall and a long body, on the drum bus because it is a drum:
+    // it must duck with the band rather than float over it
+    timpS = reg(new Tone.MembraneSynth({
+      pitchDecay: 0.28, octaves: 1.1,
+      envelope: { attack: 0.004, decay: 0.9, sustain: 0, release: 0.5 },
+    }));
+    timpS.volume.value = db(0.24);
+    timpS.connect(busDrums); timpS.connect(revSend);
+
     growlLp = reg(new Tone.Filter({ frequency: 160, type: "lowpass", Q: 1 }));
     const growlDist = reg(new Tone.Distortion(0.7));
     growlS = reg(new Tone.Synth({
@@ -2073,7 +2172,12 @@
     // calibrated base captured HERE, so a rebuilt park re-anchors cleanly and
     // no world ever compounds on another world's trim
     worldBaseVol = { bass: bassS.volume.value, pad: padS.volume.value,
-      gate: gateS.volume.value, blip: blipS.volume.value };
+      gate: gateS.volume.value, blip: blipS.volume.value,
+      // build 71: the hook anchors here too. "Neon Hook ist zu laut" was
+      // not a colour problem — the world moved the band's level and left
+      // the lead where it was, so the lead climbed out of the mix by
+      // standing still. Both hook voices ride the same trim
+      hook: hookS.volume.value, lead: leadTri.volume.value };
     engine.worldApplied = null;
     engine.worldCutScale = 1;
     engine.worldRoom = 1;
@@ -2577,6 +2681,62 @@
     f.linearRampToValueAtTime(2400, t + 0.04);
     f.linearRampToValueAtTime(800, t + 0.28);
     brassS.triggerAttackRelease(midis.map(F), 0.22, at("brass", t), vv(vol, 0.16));
+  }
+  // ---- the signature player (build 71) --------------------------------------
+  // ONE entry point, so the discipline is written once rather than four
+  // times: the genre's own voice, in the genre's own slot, and never when
+  // the arrangement has asked for silence. Each genre's slots are chosen to
+  // miss the existing answerers (blips on 6/10/13, brass on 14) — a
+  // signature that talks over the answerer is chatter, not identity.
+  function sigPlay(t, pos, bar, ctx) {
+    const sig = engine.recipeSig;
+    if (!sig) return;
+    // an ornament, like every other: the device at its limit sheds it, and
+    // the breather and the bridge-down mean the band is not playing
+    if (engine.lean || ctx.breather || ctx.bridgeDown) return;
+    const chord = ctx.chord;
+    if (!chord || !chord.length) return;
+    const v = (x) => ctx.vel(x * ctx.wake);
+    if (sig === "horns" && hornS) {
+      // Motown answers the singer between her lines: the and-of-two and the
+      // and-of-four, the two holes a vocal phrase leaves. Louder in the
+      // chorus, because that is where a section earns its seat
+      if (pos === 6 || pos === 14) {
+        const top = chord.slice(-3);
+        hornS.triggerAttackRelease(top.map(F), 0.16, at("horn", t),
+          vv(v(pos === 14 ? 0.09 : 0.065) * (ctx.role === "chorus" ? 1.25 : 1), 0.2));
+      }
+      return;
+    }
+    if (sig === "clav" && clavS) {
+      // the funk comp lives on the sixteenth AFTER the beat — the "e" and
+      // the "a" — which is where the broken kick is not
+      if (pos === 3 || pos === 7 || pos === 11 || pos === 15) {
+        const two = chord.slice(-2);
+        clavS.triggerAttackRelease(two.map((m) => F(m + 12)), 0.07, at("clav", t),
+          vv(v(pos === 7 || pos === 15 ? 0.075 : 0.05), 0.17));
+      }
+      return;
+    }
+    if (sig === "skank" && skankS) {
+      // the offbeat chop: the eighths BETWEEN the beats, which in halftime
+      // is the whole rhythmic conversation the drums leave open
+      if (pos === 2 || pos === 6 || pos === 10 || pos === 14) {
+        const mid = chord.slice(1, 4);
+        skankS.triggerAttackRelease(mid.map((m) => F(m + 12)), 0.09, at("skank", t),
+          vv(v(0.07), 0.15));
+      }
+      return;
+    }
+    if (sig === "timp" && timpS) {
+      // the stadium floor: the one of every second bar, and the four
+      // before a chorus — a timpani that speaks every bar is a tom
+      if (pos === 0 && (bar % 2 === 0 || ctx.role === "chorus")) {
+        timpS.triggerAttackRelease(F(chord[0] - 24), 0.55, at("timp", t),
+          vv(v(ctx.role === "chorus" ? 0.28 : 0.2), 0.24));
+      }
+      return;
+    }
   }
   function arpNote(t, freq, cut, vol, dur = SPB) {
     // the filter has to follow the note's OWN (possibly nudged) time, or a
@@ -3288,6 +3448,11 @@
       if (engine.brassy && pos === 14 && bar % 4 === 1 && !breather && !flowMode && !lean) {
         brassHit(t, progEff[ciNext], vel(0.09 + 0.07 * e));
       }
+      // the genre's own voice (build 71) — the one instrument nobody else
+      // plays, in the slot its genre leaves open
+      sigPlay(hum(t, pos), pos, bar, { chord: progEff[ci], vel, wake,
+        breather, bridgeDown,
+        role: engine.partLabel === "B" ? "chorus" : "verse" });
       // bridge rebuild: after the breakdown the drums return, and a long riser
       // carries the last bars into the chorus drop
       if (engine.partLabel === "C" && bar % 16 === 13 && pos === 0) fillSwell(t, SPB * 40);
@@ -3937,7 +4102,8 @@
     engine.liftActive = false; engine.pullChorus = false; engine.dropAt = -1;
     engine.lean = false;
     engine.recipe = "club"; engine.grooveName = "four";
-    engine.groove = GROOVES.four; engine.lead = "guitar";
+    engine.groove = GROOVES.four; engine.lead = "guitar"; engine.recipeSig = null;
+    engine.genreLock = null;
     engine.stage = 1; engine.snareGhosts = false;
     engine.stageBase = 1; engine.rolledFlags = null; engine.gatesDirty = false;
     engine.scene = "ouverture"; engine.sceneCap = SCENE_CAP.ouverture;
@@ -4195,6 +4361,50 @@
     // sink watchdog by hand so a test can stall the clock
     __forceLift: () => { engine.liftForce = true; },
     __sinkWatch: (now) => sinkWatchTick(now),
+    // test seam (build 71): the genre layer — which signature the current
+    // recipe owns and the four voices themselves, so a test can prove the
+    // genre really sounds different rather than trust the table
+    __genre: () => ({
+      recipe: engine.recipe, sig: engine.recipeSig || null,
+      world: engine.piece ? engine.piece.world : null,
+      nodes: hornS ? { horns: hornS, clav: clavS, skank: skankS, timp: timpS } : null,
+    }),
+    // Audition one genre (build 71). The bench needs to hear a genre on
+    // demand — waiting for the album's rotation to offer the soul chapter
+    // costs minutes per pass — and the field needs it to answer "does THIS
+    // one still not fit?". Pass null to hand the album back to its rotation.
+    setGenre: (name) => {
+      if (name == null) { engine.genreLock = null; return true; }
+      const r = RECIPES.find((x) => x.name === name);
+      if (!r) return false;
+      engine.genreLock = r.name;
+      // take effect NOW rather than at the next piece: the frame is what a
+      // listener hears first, and an audition that starts in two minutes is
+      // not an audition
+      engine.recipe = r.name; engine.grooveName = r.groove;
+      engine.groove = GROOVES[r.groove]; engine.lead = r.lead;
+      engine.recipeSig = r.sig || null;
+      if (transport) transport.swing = engine.groove.swing;
+      return true;
+    },
+    genre: () => ({ locked: engine.genreLock || null, now: engine.recipe,
+      names: RECIPES.map((r) => r.name) }),
+    __forceWorld: (name) => {
+      if (!SOUNDWORLDS[name]) return false;
+      applySoundWorld(name);
+      return true;
+    },
+    // the roll itself, without playing it: dozens of pieces of curation
+    // evidence in a millisecond, which is the only way to test a
+    // combination MATRIX rather than the two combinations one run happens
+    // to visit. Each call advances the album by one piece, exactly as a
+    // part boundary does
+    __rollNextPiece: () => {
+      newPiece();
+      const p = engine.piece;
+      return p ? { num: p.num, mood: p.mood, recipe: p.recipe,
+        world: p.world, palette: p.paletteName } : null;
+    },
     isRunning: () => engine.running,
     isBuilding: () => building,
     // test seam: the parties of the fx shed, so a test can assert the
@@ -4281,7 +4491,8 @@
       tables: JSON.parse(JSON.stringify(SOUNDWORLDS)),
       pool: JSON.parse(JSON.stringify(WORLD_POOL)),
       nodes: kickS ? { kick: kickS, hatC, hatO, snare: snareS, bass: bassS,
-        bassLp, pad: padS, gate: gateS, blip: blipS, hookLp, hookPres } : null,
+        bassLp, pad: padS, gate: gateS, blip: blipS, hookLp, hookPres,
+        hook: hookS, lead: leadTri } : null,
     }),
     // test seam: the harmonic palette — the tables with their smoothness
     // rules, the mood pools, and where the current piece stands, so a test
@@ -4366,7 +4577,10 @@
       recipes: Object.fromEntries(RECIPES.map((r) => [r.name, {
         palettes: r.palettes ? r.palettes.slice() : null,
         hrs: r.hrs ? r.hrs.slice() : null,
+        worlds: r.worlds.slice(),
       }])),
+      // which voice each genre owns — null for the generalist
+      signatures: Object.fromEntries(RECIPES.map((r) => [r.name, r.sig || null])),
       piece: engine.piece ? {
         num: engine.piece.num, mood: engine.piece.mood,
         recipe: engine.piece.recipe, palette: engine.piece.paletteName,

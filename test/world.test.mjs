@@ -57,6 +57,7 @@ async function drive(Frunky, pieces, state) {
       const w = Frunky.__world();
       seen.push({
         num: p.num, mood: p.mood, world: w.name, applied: w.applied,
+        recipe: Frunky.__album().recipe,
         kickPd: w.nodes ? w.nodes.kick.settings.pitchDecay : null,
         bassOsc: w.nodes ? w.nodes.bass.settings.oscillator.type : null,
         padOsc: w.nodes ? w.nodes.pad.settings.oscillator.type : null,
@@ -187,9 +188,26 @@ async function drive(Frunky, pieces, state) {
   const w = Frunky.__world();
   ok("every piece draws its world from its mood's pool",
     run.every((r) => w.pool[r.mood] && w.pool[r.mood].includes(r.world)));
-  ok("never the same world twice in a row — consecutive pieces differ, saw " +
-    run.map((r) => r.world).join("→"),
-    run.every((r, i) => i === 0 || r.world !== run[i - 1].world));
+  // Build 71 put a stronger rule above this one: the GENRE owns its
+  // orchestra (the field heard Motown in the glass world and called it what
+  // it was). Two different genres can legitimately share one orchestra —
+  // the colossus wears analog and nothing else — so "never twice in a row"
+  // is no longer always satisfiable, and it must not be: a genre in the
+  // wrong instruments is the louder mistake. What survives is the rule with
+  // the teeth: a repeat is allowed ONLY where the incoming genre had no
+  // other orchestra to wear.
+  {
+    const cur = Frunky.__curation();
+    const wp = Frunky.__world().pool;
+    const forced = run.filter((r, i) => i > 0 && r.world === run[i - 1].world)
+      .filter((r) => {
+        const allowed = wp[r.mood].filter((x) => cur.recipes[r.recipe].worlds.includes(x));
+        return allowed.length > 1;   // it HAD a choice and repeated anyway
+      });
+    ok("a world only ever repeats where the genre had no other to wear, " +
+      "saw " + run.map((r) => r.recipe + ":" + r.world).join(" → "),
+      forced.length === 0);
+  }
   ok("the run is not vacuous: at least two worlds actually sounded",
     new Set(run.map((r) => r.world)).size >= 2);
   // the application proof: the nodes must CARRY the world's values, piece by

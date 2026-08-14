@@ -369,6 +369,15 @@ ok("and so does the reversal arm", /tracer\.event\("reversal"/.test(drive));
 ok("the bench has the lift button", /id="liftBtn"/.test(bench));
 ok("…and it arms the real lift", /__forceLift\(\)/.test(bench));
 
+// ---- the bench auditions one genre at a time (build 71) ---------------------
+// Waiting for the album's rotation to offer the soul chapter costs minutes
+// per pass, and the whole point of build 71 is that the genres now differ.
+for (const g of ["Club", "Strut", "Dub", "Colossus", "Soul"]) {
+  ok("the bench has a " + g.toLowerCase() + " button", bench.includes('id="genre' + g + '"'));
+}
+ok("…and a way back to the album's own rotation", bench.includes('id="genreAuto"'));
+ok("the buttons drive the real audition API", /Frunky\.setGenre\(/.test(bench));
+
 if (failures.length) {
   console.error("FAILURES:");
   for (const f of failures) console.error("  -", f);

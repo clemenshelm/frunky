@@ -192,6 +192,21 @@
       <button id="curveR" disabled>Kurve rechts</button>
     </div>
 
+    <div class="mode" role="group" aria-label="Musikrichtung">
+      <button id="genreAuto" class="on">Album-Rotation</button>
+      <button id="genreClub">club</button>
+      <button id="genreStrut">strut · Clav</button>
+      <button id="genreDub">dub · Skank</button>
+      <button id="genreColossus">colossus · Timpani</button>
+      <button id="genreSoul">soul · Bläser</button>
+    </div>
+    <p class="mode-caption">
+      Jede Musikrichtung bringt ihr eigenes Instrument und ihre eigene Klangwelt
+      mit — hier hörst du eine davon am Stück, statt auf die Album-Rotation zu
+      warten. Der Wechsel greift sofort, das nächste Stück wird ganz in dieser
+      Richtung gewürfelt.
+    </p>
+
     <div class="mode" role="group" aria-label="Messmodus">
       <button id="modeGps" class="on">GPS-Realität (1 Hz + Latenz)</button>
       <button id="modeDirect">Ideale Messung</button>
@@ -266,13 +281,13 @@
   <p class="foot" id="buildInfo"></p>
 </div>
 <script src="vendor/Tone.js"></script>
-<script src="engine.js?v=70"></script>
-<script src="trace-schema.js?v=70"></script>
+<script src="engine.js?v=71"></script>
+<script src="trace-schema.js?v=71"></script>
 <script>
 (() => {
   "use strict";
   // must match the deployed BUILD in index.html — pages.test pins the pair
-  const BUILD = "70";
+  const BUILD = "71";
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
   // ---- driving simulation --------------------------------------------------
@@ -456,6 +471,23 @@
     ui.status.textContent = "Steigerung angesetzt — vier Takte Build";
     ui.status.className = "status launch";
   });
+  // the genre audition (build 71): one button per musical direction, plus
+  // the way back to the album's own rotation. setGenre locks the RECIPE, so
+  // the next piece rolls its world, its palette and its bundles from that
+  // genre — you hear a real piece of it, never a hybrid patched onto one
+  {
+    const GEN = { genreAuto: null, genreClub: "club", genreStrut: "strut",
+      genreDub: "dub", genreColossus: "colossus", genreSoul: "soul" };
+    const ids = Object.keys(GEN);
+    for (const id of ids) {
+      document.getElementById(id).addEventListener("click", () => {
+        if (!Frunky.setGenre) return;
+        Frunky.setGenre(GEN[id]);
+        ids.forEach((x) => document.getElementById(x)
+          .classList.toggle("on", x === id));
+      });
+    }
+  }
   document.getElementById("city").addEventListener("click", () => { sim.targetSpeed = 45; sim.accel = 14; });
   document.getElementById("autobahn").addEventListener("click", () => { sim.targetSpeed = 130; sim.accel = 15; });
   document.getElementById("brake").addEventListener("click", () => { sim.targetSpeed = 0; sim.accel = 28; });
