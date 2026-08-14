@@ -252,6 +252,16 @@ ok("driver page loads the tracer", /src="trace\.js(\?v=\d+)?"/.test(drive));
 for (const m of drive.matchAll(/src="([\w.-]+)\.js\?v=(\d+)"/g)) {
   ok("the version query on " + m[1] + ".js matches BUILD", m[2] === BUILD);
 }
+// ...and on EVERY page, not only the driver page. privacy.html sat on ?v=34
+// for forty builds: under the immutable cache headers a returning visitor
+// keeps that copy forever, and the scripts behind the consent-withdrawal
+// buttons are the last ones that may silently run last month's build
+for (const [name, src] of [["bench.html", bench], ["privacy.html", privacy]]) {
+  for (const m of src.matchAll(/src="([\w.-]+)\.js\?v=(\d+)"/g)) {
+    ok(name + ": the version query on " + m[1] + ".js matches BUILD",
+      m[2] === BUILD);
+  }
+}
 
 // The single most important structural guarantee on this page: everything that
 // leaves the browser goes through trace.js, which is the file the privacy tests

@@ -281,17 +281,17 @@
   <p class="foot" id="buildInfo"></p>
 </div>
 <script src="vendor/Tone.js"></script>
-<script src="engine.js?v=75"></script>
-<script src="trace-schema.js?v=75"></script>
+<script src="engine.js?v=76"></script>
+<script src="trace-schema.js?v=76"></script>
 <!-- trace.js is not only the tracer: it carries the pulse watch the engine's
      render-thread probe needs. Without it the probe is silently dead on the
      bench — the very tool built to iterate on stutter -->
-<script src="trace.js?v=75"></script>
+<script src="trace.js?v=76"></script>
 <script>
 (() => {
   "use strict";
   // must match the deployed BUILD in index.html — pages.test pins the pair
-  const BUILD = "75";
+  const BUILD = "76";
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
   // ---- driving simulation --------------------------------------------------

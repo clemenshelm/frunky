@@ -104,8 +104,9 @@
             Einpark-Erkennung auf dem Gerät arbeiten kann.</td></tr>
     <tr><td>Messpunkte (alle 5 s)</td>
         <td>Geschwindigkeitsklasse, Szene, Rechenlast, Noten/s, GPS-Quelle, Alter des letzten
-            Fixes, lange Browseraufgaben, Audio-Render-Last und -Aussetzer, welches
-            Musik-Rezept gerade spielt</td>
+            Fixes, lange Browseraufgaben, Audio-Render-Last und -Aussetzer, welcher
+            Audio-Ausgabepfad spielt, welches Musik-Rezept gerade spielt und in welchem
+            musikalischen Zustand die Engine ist (z.&nbsp;B. „Atempause an der Ampel")</td>
         <td>Die eigentliche Diagnose: läuft der Sequencer noch, während nichts zu hören ist?</td></tr>
     <tr><td>Ereignisse</td><td><code>freeze</code>, <code>stall</code>, <code>launch</code> …</td>
         <td>Wann etwas passiert ist, aus einer festen Liste von Begriffen — kein Freitext.</td></tr>
@@ -205,8 +206,8 @@
   <p>Stand dieser Erklärung: August 2026.</p>
 </footer>
 
-<script src="trace-schema.js?v=34"></script>
-<script src="trace.js?v=34"></script>
+<script src="trace-schema.js?v=76"></script>
+<script src="trace.js?v=76"></script>
 <script>
 (() => {
   "use strict";
