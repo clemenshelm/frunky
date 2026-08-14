@@ -225,6 +225,11 @@
   const MAX_EVENTS = 200;
   const MAX_MSGS = 8;
 
+  // The ENGINE's scene machine (ouverture/free/breath/patience/coda) — a
+  // different vocabulary from SCENES above, which is the kmh-classifier's.
+  // "" is the honest value for a build that did not carry the field yet.
+  const ENGINE_SCENES = ["", "ouverture", "free", "breath", "patience", "coda"];
+
   const SAMPLE = obj({
     t: int(0, DAY_MS),
     speed: int(0, TOP_BUCKET),
@@ -299,6 +304,15 @@
     // thread, never the person; -1 = no probe / older build.
     pg: int(-1, 100000, -1),
     px: int(-1, 600000, -1),
+    // The engine's own musical state (build 74). The catastrophic 150 s
+    // queue drive traced CLEAN — scheduling, graph and clocks all healthy —
+    // because the fault was three crawl-band thresholds flapping states no
+    // trace field carried. esc is the engine's scene word; cst packs the
+    // crawl gates as bits (still=1, awake=2, standing=4). Both are ABOUT
+    // THE ENGINE: derived from speed the trace already buckets, they name
+    // what the music decided, never where anyone was. -1/"" = older build.
+    esc: oneOf(ENGINE_SCENES, ""),
+    cst: int(-1, 7, -1),
   });
 
   const EVENT = obj({

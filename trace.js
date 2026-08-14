@@ -194,6 +194,11 @@
           // render-thread pulse (pg episodes / px worst ms) — the layer the
           // extrapolated audio clock cannot see
           snk: probe(state.snk), pg: probe(state.pg), px: probe(state.px),
+          // build 74: the engine's own musical state — scene word and the
+          // crawl gates. The queue drive traced clean because no field
+          // carried the states that were flapping
+          esc: typeof state.esc === "string" ? state.esc : "",
+          cst: probe(state.cst),
         });
       } catch (err) { void err; }
     }

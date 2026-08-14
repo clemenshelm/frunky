@@ -1196,6 +1196,11 @@
     partLabel: "",
     standstillSince: null,
     armed: false,
+    // crawl-band Schmitt states (build 74): a single threshold flaps with
+    // GPS jitter in a queue; a state with two edges cannot. Each of these
+    // HOLDS between its edges — same speed, two histories, two answers
+    awakeOn: false,
+    stillOn: true,
   };
 
   // ---- Tone.js graph -------------------------------------------------------
@@ -2876,7 +2881,12 @@
     const wake = clamp(engine.wake, 0, 1); // the rhythm section fading in
     const ff = clamp(engine.flowFade, 0, 1); // the motorway layer fading in
     const e = clamp(engine.energy + engine.launchBoost * 0.3, 0, 1);
-    const still = e < 0.06;
+    // still is the third crawl-band Schmitt gate (build 74): the old single
+    // 0.06 edge gated drums and figures on and off with queue jitter. Enter
+    // below ~5 km/h of smoothed energy, leave above ~8; hold between
+    if (engine.stillOn) { if (e > 0.075) engine.stillOn = false; }
+    else if (e < 0.045) engine.stillOn = true;
+    const still = engine.stillOn;
     const push = engine.thrust;
     const u = engine.urban;
     const flowHigh = clamp((e - 0.5) / 0.35, 0, 1); // highway = flow, not max energy
@@ -3817,7 +3827,14 @@
     engine.flowFade += (flowTarget - engine.flowFade) * (1 - Math.exp(-dt / 2.6));
 
     const launching = engine.launchBoost > 0.2;
-    const awake = engine.energy > 0.055 || launching ? 1 : 0;
+    // the wake target is a Schmitt gate, not a threshold (build 74): in a
+    // queue the smoothed energy hovers right at the old 0.055 edge and the
+    // rhythm section faded in and out every few seconds — heard in the
+    // field as the tempo wildly swinging. On above ~8 km/h, off below
+    // ~4.4 km/h; between the edges the band keeps doing what it was doing
+    engine.awakeOn = launching ||
+      (engine.awakeOn ? engine.energy > 0.04 : engine.energy > 0.075);
+    const awake = engine.awakeOn ? 1 : 0;
     const wakeTau = awake > engine.wake ? (launching ? 0.12 : 2.2) : 0.9;
     engine.wake += (awake - engine.wake) * (1 - Math.exp(-dt / wakeTau));
     engine.launchBoost = Math.max(0, engine.launchBoost - dt / (SPB * 64));
@@ -3825,7 +3842,14 @@
     // launch detection: standstill -> first movement the engine can see.
     // Standstill is a musical STATE that arms the launch, so the first
     // detected movement releases it instantly despite GPS lag
-    if (speed < 2.5) {
+    // two edges here too (build 74): a queue creeps at 2-6 km/h, and the
+    // old single 2.5 edge flipped the standstill — and with it the breath
+    // scene's sus-hold — every few seconds. Enter below 2, leave above 7:
+    // a queue advancing one car length never crosses 7, a real pull-away
+    // crosses it within a second or two. Musically that reads as "the
+    // queue has not released you yet", which is what a driver feels too
+    const standing = engine.standstillSince != null ? speed < 7 : speed < 2;
+    if (standing) {
       if (engine.standstillSince == null) engine.standstillSince = clock;
       if (clock - engine.standstillSince > 1500) engine.armed = true;
     } else {
@@ -4104,6 +4128,7 @@
     }
     engine.energy = 0; engine.launchBoost = 0;
     engine.armed = false; engine.standstillSince = null; engine.prevEst = 0;
+    engine.awakeOn = false; engine.stillOn = true;
     engine.accelEst = 0; engine.thrust = 0;
     engine.brake = 0; engine.urban = 0; engine.wake = 0; engine.flowFade = 0;
     engine.fillAt = -1;
@@ -4321,6 +4346,12 @@
       // pulse — episodes and worst excess ms, -1 = no probe
       snk: sinkStateCode(),
       pg: pulseGaps, px: pulseWorst,
+      // the engine's own musical state (build 74): the catastrophic queue
+      // drive traced clean because the flapping lived in states no field
+      // carried. esc = scene word; cst = crawl gates as bits
+      esc: engine.scene,
+      cst: (engine.stillOn ? 1 : 0) | (engine.awakeOn ? 2 : 0) |
+        (engine.standstillSince != null ? 4 : 0),
       gm: centiGain(master), gd: centiGain(duck),
       gh: centiGain(busHarm), gdr: centiGain(busDrums),
       air: (() => {
@@ -4537,6 +4568,8 @@
     // thrust sub, and the lanes, so a test can prove the force stays near
     // while the music recedes
     __drive: () => ({
+      crawl: { still: engine.stillOn, awake: engine.awakeOn,
+        standing: engine.standstillSince != null },
       lift: { active: engine.liftStart >= 0, start: engine.liftStart,
         arm: engine.liftArm, lastEnd: engine.lastLiftEnd,
         len: engine.liftLen, taper: engine.liftTaper,
