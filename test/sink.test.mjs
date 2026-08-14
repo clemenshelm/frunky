@@ -11,9 +11,19 @@
 // the same category as the streaming apps that audibly do work in the car.
 //
 // So the master chain now ends at the limiter, and the LAST hop is a choice:
-// route the stream into an <audio> element (default), or connect straight to
-// the destination (the old path, kept as the A/B and the fallback). Exactly
+// route the stream into an <audio> element, or connect straight to the
+// destination (the old path, kept as the A/B and the fallback). Exactly
 // one of the two is ever connected — both at once would double the output.
+//
+// Build 68 narrows the DEFAULT to the Tesla alone. The first bench session
+// on build 67 heard the cost of shipping the experiment everywhere: "the
+// worst pitch shifts, as if someone were playing with the pitch knob, plus
+// stutters" — an <audio> element playing a MediaStream keeps its own clock
+// against the stream's and corrects the drift by resampling, which IS a
+// pitch wobble. The direct path is broken only in the Tesla (the build-66
+// traces proved the signal healthy while the car swallowed it), so only a
+// Tesla UA gets the media path by default; everywhere else keeps the direct
+// output, and the settings toggle still offers the A/B on every device.
 import { readFileSync } from "node:fs";
 import { transport, fakeCtx } from "./tone-stub.mjs";
 
@@ -45,7 +55,7 @@ const boot = async (patch) => {
   return globalThis.window.Frunky;
 };
 
-// ---- 1. the default: the limiter feeds a media element, and only it --------
+// ---- 1. the Tesla default: the limiter feeds a media element, and only it --
 {
   const sinkDests = [];
   fakeCtx.createMediaStreamDestination = () => {
@@ -53,7 +63,10 @@ const boot = async (patch) => {
     sinkDests.push(d);
     return d;
   };
-  const F = await boot();
+  const F = await boot((w) => {
+    w.navigator = { userAgent:
+      "Mozilla/5.0 (X11; GNU/Linux) AppleWebKit/537.36 Chrome/148.0.0.0 Safari/537.36 Tesla/2026.20" };
+  });
   await F.start();
   const g = F.__graph();
   ok("a MediaStreamDestination was created", sinkDests.length === 1);
@@ -84,12 +97,38 @@ const boot = async (patch) => {
 // ---- 3. the A/B: mediaSink off -> direct output, deliberately --------------
 {
   fakeCtx.createMediaStreamDestination = () => ({ stream: {}, __sinkDest: true });
-  const F = await boot();
+  const F = await boot((w) => {
+    w.navigator = { userAgent: "Tesla/2026.20 Chrome/148" };
+  });
   F.setOption("mediaSink", false);
   await F.start();
   eq("with the option off the direct path is live", F.health().sink, false);
-  ok("mediaSink is a real, defaulted option",
-    F.options().mediaSink === false && /mediaSink: true/.test(script));
+  ok("mediaSink is a real option, defaulted by the device",
+    F.options().mediaSink === false && /mediaSink: isTesla/.test(script));
+  F.stop();
+  transport.clear();
+  delete fakeCtx.createMediaStreamDestination;
+}
+
+// ---- 3b. everywhere else the DIRECT path is the default --------------------
+// The build-67 bench session on a battery-throttled Mac heard why: the
+// media element corrects stream-clock drift by resampling — pitch wobble,
+// worst exactly when the CPU is under pressure. The direct path degrades
+// gracefully there; only the Tesla, where direct is swallowed entirely,
+// takes the media path by default. The toggle still offers the A/B anywhere.
+{
+  fakeCtx.createMediaStreamDestination = () => ({ stream: {}, __sinkDest: true });
+  const F = await boot((w) => {
+    w.navigator = { userAgent:
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/148.0.0.0" };
+  });
+  await F.start();
+  const g = F.__graph();
+  ok("a non-Tesla browser keeps the direct output despite full media support",
+    !g.sinkEl && F.health().sink === false);
+  eq("and the option says so", F.options().mediaSink, false);
+  F.setOption("mediaSink", true);
+  eq("the A/B can still opt in", F.options().mediaSink, true);
   F.stop();
   transport.clear();
   delete fakeCtx.createMediaStreamDestination;

@@ -220,12 +220,12 @@
 </footer>
 
 <script src="vendor/Tone.js"></script>
-<script src="engine.js?v=67"></script>
-<script src="geo.js?v=67"></script>
-<script src="diagnose.js?v=67"></script>
-<script src="trace-schema.js?v=67"></script>
-<script src="trace.js?v=67"></script>
-<script src="fresh.js?v=67"></script>
+<script src="engine.js?v=68"></script>
+<script src="geo.js?v=68"></script>
+<script src="diagnose.js?v=68"></script>
+<script src="trace-schema.js?v=68"></script>
+<script src="trace.js?v=68"></script>
+<script src="fresh.js?v=68"></script>
 <script>
 (() => {
   "use strict";
@@ -233,7 +233,7 @@
   // to know whether a trip tested the code we shipped is to read it back —
   // three reports in a row turned out to be the same stale build.
   // (Loading the page as ?v=<something-new> is what forces a fresh copy.)
-  const BUILD = "67";
+  const BUILD = "68";
   const el = (id) => document.getElementById(id);
   const startBtn = el("start"), stopBtn = el("stop");
   const speedEl = el("speed"), stateEl = el("state"), forceEl = el("forceBar");
@@ -638,6 +638,30 @@
   // the master output" becomes one watchdog event instead of a wall of samples
   const silenceWatch = window.FrunkyTrace && window.FrunkyTrace.makeSilenceWatch
     ? window.FrunkyTrace.makeSilenceWatch(10000) : () => null;
+  // the drift watch (build 68): the phone's hiccups were invisible — no
+  // RenderCapacity on that Chrome, so `under` structurally cannot count
+  // there. The audio clock measured against the wall clock sees every
+  // audible stall regardless of which layer below us caused it.
+  const driftWatch = window.FrunkyTrace && window.FrunkyTrace.makeDriftWatch
+    ? window.FrunkyTrace.makeDriftWatch() : null;
+  if (driftWatch) {
+    setInterval(() => {
+      try {
+        const c = window.Tone && Tone.getContext && Tone.getContext().rawContext;
+        if (!c || c.state !== "running") return;
+        // getOutputTimestamp maps the OUTPUT position onto the performance
+        // clock — smoother than currentTime, which advances in render bursts
+        const ot = typeof c.getOutputTimestamp === "function"
+          ? c.getOutputTimestamp() : null;
+        if (ot && typeof ot.contextTime === "number" &&
+            typeof ot.performanceTime === "number" && ot.contextTime > 0) {
+          driftWatch(ot.performanceTime, ot.contextTime);
+        } else {
+          driftWatch(performance.now(), c.currentTime);
+        }
+      } catch (err) { void err; }
+    }, 250);
+  }
   // the scene machine's life cycle, onto the trace: whether the coda fires
   // at real parking and not at every slow red light is what these decide
   let revSeen = false, lastScene = "";
@@ -753,6 +777,7 @@
         const d = reader.diagnostics(Date.now());
         const h = Frunky.health();
         const ltNow = probe.supported ? probe.longtaskMs : 0;
+        const dw = driftWatch && driftWatch.read ? driftWatch.read() : null;
         tracer.sample({
           speed: input.speed,
           scene: !gotFix || stale ? "" : (SCENE_OF[st.text] || ""),
@@ -769,6 +794,9 @@
           // the audibility layers (build 66): output RMS and the automated
           // gains — the answer to "notes flowed, nothing was heard"
           out: h.out, gm: h.gm, gd: h.gd, gh: h.gh, gdr: h.gdr, air: h.air,
+          // the drift watch (build 68): the hiccup layer no other counter
+          // can see — glitch episodes, worst stall, the path's own jitter
+          gl: dw ? dw.gl : -1, gx: dw ? dw.gx : -1, aj: dw ? dw.aj : -1,
         });
         const sw = silenceWatch(now, h.out, notesPerSec);
         if (sw) tracer.event("watchdog", sw.code, sw.n);

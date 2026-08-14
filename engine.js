@@ -258,6 +258,41 @@
         [11, "k", 0, 0.7], [12, "s", 0, 0.75], [13, "t", 150, 0.8],
         [14, "k", 0, 0.85], [15, "s", 0, 0.95]],
     ],
+    // the build ladder (build 68, field report: "more complex fills LEADING
+    // INTO the climax, not only this snare roll"). The roll keeps the floor;
+    // each climb bar's tail hands the drummer a figure that escalates with
+    // buildSeg: toms enter (1), a linear run (2), the full cascade riding
+    // the roll into the drop (3). Every figure drives INTO the one — last
+    // hit on pos 15, near full velocity — and stays at the bar tail
+    build: {
+      1: [
+        [[12, "t", 200, 0.6], [13, "g", 0, 0.4], [14, "t", 170, 0.75],
+          [15, "t", 140, 0.9]],
+        [[12, "s", 0, 0.6], [14, "t", 180, 0.75], [15, "s", 0, 0.9]],
+      ],
+      2: [
+        [[8, "k", 0, 0.65], [10, "t", 200, 0.7], [11, "s", 0, 0.6],
+          [12, "t", 170, 0.8], [13, "s", 0, 0.7], [14, "t", 140, 0.9],
+          [15, "s", 0, 1]],
+        [[8, "s", 0, 0.6], [9, "g", 0, 0.45], [10, "s", 0, 0.7],
+          [11, "t", 190, 0.7], [12, "s", 0, 0.8], [13, "t", 160, 0.85],
+          [14, "s", 0, 0.9], [15, "t", 130, 1]],
+      ],
+      3: [
+        // the full paired-tom cascade, opened half a bar early — the
+        // In-the-Air shape stretched over the roll's final stride
+        [[4, "t", 210, 0.6], [6, "t", 210, 0.7], [8, "t", 190, 0.75],
+          [9, "t", 190, 0.8], [10, "t", 170, 0.85], [11, "t", 170, 0.9],
+          [12, "t", 150, 0.92], [13, "t", 150, 0.95], [14, "t", 125, 1],
+          [15, "t", 125, 1]],
+        // the linear escalation — kick, snare and toms in strict rotation,
+        // velocity climbing to the one
+        [[4, "k", 0, 0.7], [6, "s", 0, 0.7], [8, "k", 0, 0.75],
+          [9, "s", 0, 0.7], [10, "t", 180, 0.8], [11, "k", 0, 0.8],
+          [12, "s", 0, 0.85], [13, "t", 150, 0.9], [14, "k", 0, 0.95],
+          [15, "s", 0, 1]],
+      ],
+    },
   };
   // call-and-response answers for the square-wave blip voice (pentatonic, high)
   const BLIPS = [[76, 74, 72], [72, 76, 79], [74, 72, 69]];
@@ -1146,10 +1181,24 @@
   // `lite` is the device PROBE, reported to telemetry and the trace —
   // no behavior reads it any more (Build 64: one mode; onemode.test pins
   // that the engine never branches on it again)
+  // The Tesla's browser carries a "Tesla/" token in its user agent. The
+  // media-sink experiment defaults on THERE ALONE (build 68): the first
+  // bench session on a battery-throttled Mac heard why a blanket default
+  // was wrong — an <audio> element corrects stream-clock drift by
+  // resampling, audible as pitch wobble, worst exactly under CPU pressure.
+  // The direct path degrades gracefully everywhere the car doesn't swallow
+  // it, so everywhere else keeps direct; the settings toggle stays the A/B
+  const isTesla = (() => {
+    try {
+      const nav = (typeof window !== "undefined" && window.navigator) ||
+        (typeof navigator !== "undefined" ? navigator : null);
+      return !!(nav && /Tesla/.test(String(nav.userAgent || "")));
+    } catch (err) { void err; return false; }
+  })();
   const opts = { curveOutward: true, inertiaDepth: true, lite: lowPower, carMix: true,
     // build 67: hand the output to the browser as MEDIA (an <audio> element)
     // rather than raw AudioContext output — the Tesla experiment
-    mediaSink: true };
+    mediaSink: isTesla };
 
   // Control-rate writes. Setting an AudioParam's .value schedules a STEP, and
   // fifteen of them sixty times a second is nine hundred discontinuities per
@@ -1588,11 +1637,16 @@
     // the cymbal (crash v3): inharmonic metallic partials, the thing
     // filtered noise never was — its top rolled off so the shimmer sits
     // behind the wall instead of hissing in front of it
+    // crash v4 (field report: "the crash should ring MUCH longer, it has
+    // no volume at all"): v3 cut its own tail — decay 1.6 s but triggered
+    // for 0.7 s, so release began at 0.7 and the ring died near 1.2 s. A
+    // real crash rings for seconds; the envelope now rings past three, and
+    // the level comes up ~5.5 dB — the top of the wall, not a shy splash
     crashS = reg(new Tone.MetalSynth({
-      envelope: { attack: 0.001, decay: 1.6, release: 0.5 },
+      envelope: { attack: 0.001, decay: 3.2, release: 1.4 },
       harmonicity: 5.1, modulationIndex: 24, resonance: 3600, octaves: 1.2,
     }));
-    crashS.volume.value = db(0.16);
+    crashS.volume.value = db(0.3);
     crashLp = reg(new Tone.Filter({ frequency: 8500, type: "lowpass" }));
     crashS.chain(crashLp, busFx);
 
@@ -1911,17 +1965,20 @@
     o.frequency.exponentialRampToValueAtTime(33, t + 0.4);
     const g = raw.createGain();
     // the body under the drop's kick, no longer the whole hit — a naked
-    // sine sweep at 0.85 read as "cheap" the moment it stood alone
-    g.gain.setValueAtTime(0.55, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+    // sine sweep at 0.85 read as "cheap" the moment it stood alone.
+    // v2 (field report: "the kick at the climax is still quite weak"): the
+    // car-mix shelf takes -10 dB at 100 Hz — right for the CONTINUOUS bass
+    // bed, but this one-shot pays the same toll and buys its weight back
+    g.gain.setValueAtTime(0.8, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.75);
     o.connect(g);
     Tone.connect(g, busDrums);
-    o.start(t); o.stop(t + 0.6);
+    o.start(t); o.stop(t + 0.8);
     const n = noiseSrc(t, 0.25);
     const lp = raw.createBiquadFilter();
     lp.type = "lowpass"; lp.frequency.value = 600;
     const ng = raw.createGain();
-    ng.gain.setValueAtTime(0.45, t);
+    ng.gain.setValueAtTime(0.6, t);
     ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
     n.connect(lp).connect(ng);
     Tone.connect(ng, busDrums);
@@ -1953,7 +2010,8 @@
     // noise IS a tin roof — a cymbal's identity lives in inharmonic
     // metallic partials, which is what MetalSynth is built from. The
     // synth rings behind a lowpass so the shimmer sits behind the wall
-    if (crashS) crashS.triggerAttackRelease(0.7, at("crash", t), 0.75);
+    // v4: the trigger lets the tail ring — 0.7 s cut the 3.2 s decay short
+    if (crashS) crashS.triggerAttackRelease(2.8, at("crash", t), 0.75);
   }
 
   // the drop's release half: the riser's mirror — a falling sweep after
@@ -2312,6 +2370,10 @@
       pad(t, midis, dur, vol * 0.35, cut);
       return;
     }
+    // long holds are performed as a SECTION (build 68): staggered desks,
+    // a suspension over the change, a stirring inner voice. Short chords
+    // stay light, and a straining device keeps the one-block wash
+    if (!engine.lean && dur >= SPB * 16) { orchHold(t, midis, dur, vol, cut); return; }
     pad(t, midis, dur, vol, cut);
   }
   function brassHit(t, midis, vol) {
@@ -2343,6 +2405,88 @@
       padTri.triggerAttackRelease(midis.map((m) => F(m + 12)), dur * 0.85,
         at("padTri", t), vv(vol * 0.55, 0.4));
     }
+  }
+
+  // ---- the score, not the organ (build 68) ---------------------------------
+  // Field report on the highway bed: "the long drawn-out chords are primitive
+  // and boring — take inspiration from opera, operetta and symphony scores."
+  // And the mechanism WAS an organ's: one block trigger, every voice at once,
+  // 2.5 bars of nothing happening. A section never holds a chord that way.
+  // The devices, straight from the pit:
+  //   - staggered entries: desks enter one after another, bottom up,
+  //   - the suspension: at a chord change one inner voice arrives LATE on
+  //     its OLD tone and resolves downward after a breath (4-3 / 9-8); with
+  //     no usable old tone it enters on the upper second and leans in (the
+  //     appoggiatura),
+  //   - the inner stir: at the half, one voice steps to its upper neighbor
+  //     and comes home — the horn player's half-bar Wechselnote.
+  // planHold is PURE and returns the written-out score ({m, at, d, vel},
+  // times in seconds relative to the hold) so a test can read the plan
+  // before a single sample plays; orchHold merely performs it.
+  function planHold(midis, prev, dur, dv) {
+    const plan = [];
+    if (!Array.isArray(midis) || !midis.length || !(dur > 0)) return plan;
+    const n = midis.length;
+    const stag = Math.min(0.09, dur * 0.03);
+    const wantSus = n >= 3 && dv() < 0.6;
+    const susIx = wantSus ? 1 + Math.floor(dv() * (n - 2)) : -1;
+    let susFrom = -1;
+    if (susIx >= 0) {
+      const target = midis[susIx];
+      const held = Array.isArray(prev)
+        ? prev.find((p) => p - target >= 1 && p - target <= 2) : null;
+      // a real suspension where the old chord offers one, the leaning
+      // appoggiatura from the upper second where it does not
+      susFrom = typeof held === "number" ? held : target + 2;
+    }
+    const stirCandidates = [];
+    for (let i = 1; i <= n - 2; i++) if (i !== susIx) stirCandidates.push(i);
+    const wantStir = stirCandidates.length > 0 && dv() < 0.5;
+    const stirIx = wantStir
+      ? stirCandidates[Math.floor(dv() * stirCandidates.length)] : -1;
+    for (let i = 0; i < n; i++) {
+      const m = midis[i];
+      const entry = i * stag;
+      const vel = i === 0 ? 1 : i === n - 1 ? 0.9 : 0.75;
+      if (i === susIx) {
+        // the dissonance carries weight, the resolution relaxes — the
+        // oldest dynamic rule in part-writing
+        const susLen = dur * (0.2 + 0.15 * dv());
+        plan.push({ m: susFrom, at: entry, d: susLen, vel: 0.85 });
+        plan.push({ m, at: entry + susLen, d: dur - entry - susLen, vel: 0.7 });
+      } else if (i === stirIx) {
+        plan.push({ m, at: entry, d: dur * 0.5 - entry, vel });
+        plan.push({ m: m + 2, at: dur * 0.5, d: dur * 0.18, vel: 0.55 });
+        plan.push({ m, at: dur * 0.68, d: dur * 0.32, vel: 0.7 });
+      } else {
+        plan.push({ m, at: entry, d: dur - entry, vel });
+      }
+    }
+    // a score is written in time order — and the performer schedules it as
+    // given, onto nodes that refuse start times running backwards
+    plan.sort((a, b) => a.at - b.at);
+    return plan;
+  }
+  function orchHold(t, midis, dur, vol, cut) {
+    const f = padLp.frequency;
+    f.cancelScheduledValues(t);
+    f.setValueAtTime(cut * 0.45, t);
+    f.linearRampToValueAtTime(cut * 1.25, t + dur * 0.45);
+    f.linearRampToValueAtTime(cut * 0.6, t + dur);
+    const dv = dicer("hold:" + Math.round(t / SPB));
+    const plan = planHold(midis, engine.lastHold, dur, dv);
+    for (const e of plan) {
+      padS.triggerAttackRelease(F(e.m), Math.max(e.d * 0.9, 0.1),
+        at("pad", t + e.at), vv(vol * e.vel, 0.4));
+    }
+    // the octave glue stays one quiet block — the section reads as a section
+    // because the synth bed underpins it (build 63), not because every
+    // layer performs the same score twice
+    if (!engine.airNow) {
+      padTri.triggerAttackRelease(midis.map((m) => F(m + 12)), dur * 0.85,
+        at("padTri", t), vv(vol * 0.55, 0.4));
+    }
+    engine.lastHold = midis;
   }
 
   // ---- sequencer -----------------------------------------------------------
@@ -2857,11 +3001,18 @@
       }
       // the fill hierarchy: a full-bar statement into a new part, the
       // phrase-end answer (when the phrase rolled the drum flavor), and an
-      // occasional small shrug at half-phrase tails. Never during a build
-      // (the roll owns those bars), never in the breather or breakdown
+      // occasional small shrug at half-phrase tails. Never in the breather
+      // or breakdown. Build bars used to be excluded ("the roll owns those
+      // bars") — which is exactly the monotony the field report named: the
+      // climb now hands the drummer the LADDER, a figure per bar tail that
+      // escalates with buildSeg while the roll keeps the floor
       if (pos === 0) {
         engine.drumFill = null;
-        if (!buildOn && !breather && !bridgeDown && !lean &&
+        if (buildOn && !lean && engine.piece) {
+          const fr = dicer("bfill:" + engine.piece.num + ":" + bar);
+          engine.drumFill = pick(DRUMFILLS.build[buildSeg] || DRUMFILLS.build[3],
+            null, fr);
+        } else if (!buildOn && !breather && !bridgeDown && !lean &&
             engine.piece && engine.stage >= 0.35) {
           const fr = dicer("fill:" + engine.piece.num + ":" + bar);
           // no full-bar statement on the highway: it announces a new part,
@@ -2876,8 +3027,10 @@
         }
       }
       if (engine.drumFill) {
+        // a build fill's weight rides the climb itself, not the arc stage —
+        // the ladder must arrive at full force exactly when the drop does
         playFill(t, engine.drumFill, pos,
-          (0.5 + 0.5 * engine.stage) * wake *
+          (buildOn ? 0.7 + 0.1 * buildSeg : 0.5 + 0.5 * engine.stage) * wake *
           (engine.piece && engine.piece.mood === "deep" ? 0.8 : 1));
       }
       // the ghost theme drifts by: the lap's motif, augmented ×2 (two bars
@@ -3027,10 +3180,14 @@
           // ducts get rosin instead of a triangle wave. The triangle pad
           // stays QUIETLY underneath (Build 63): one sampled violin per
           // note is thin — the synth glue is what reads as a section
-          strHi.triggerAttackRelease(progEff[ci].map((m) => F(m + 12)),
-            SPB * 30 * 0.9, at("strHi", t), vv(padVol * 0.5, 0.4));
-          strLo.triggerAttackRelease(progEff[ci].slice(0, 2).map(F),
-            SPB * 30 * 0.9, at("strLo", t), vv(padVol * 0.4, 0.4));
+          // the desks stagger here too (build 68): a section arrives one
+          // desk after another, never as one sample block
+          progEff[ci].forEach((m, i) =>
+            strHi.triggerAttackRelease(F(m + 12), SPB * 30 * 0.9,
+              at("strHi", t + i * 0.05), vv(padVol * 0.5, 0.4)));
+          progEff[ci].slice(0, 2).forEach((m, i) =>
+            strLo.triggerAttackRelease(F(m), SPB * 30 * 0.9,
+              at("strLo", t + i * 0.07), vv(padVol * 0.4, 0.4)));
           padTri.triggerAttackRelease(progEff[ci].map((m) => F(m + 12)),
             SPB * 30 * 0.9, at("padTri", t), vv(padVol * 0.35, 0.4));
         } else {
@@ -3054,9 +3211,12 @@
             // straining device keep the voice and skip the doubling. When
             // the celli are loaded THEY sing it — Puccini's own texture
             if (!lean) {
+              // the at() key must match the NODE (build 68): the staggered
+              // bed schedules strLo past t — a foreign key ran backwards
               (strLo && strLo.loaded ? strLo : padTri).triggerAttackRelease(F(57 + an.s),
                 an.d * 2 * SPB * 0.85,
-                at("padTri", t + an.p * 2 * SPB), vv(0.06 * wake, 0.4));
+                at(strLo && strLo.loaded ? "strLo" : "padTri", t + an.p * 2 * SPB),
+                vv(0.06 * wake, 0.4));
             }
           }
           ariaLog.push({ bar, liftStart: engine.liftStart });
@@ -3881,6 +4041,9 @@
       current: engine.drumFill ? JSON.parse(JSON.stringify(engine.drumFill)) : null,
       nodes: tomS ? { tom: tomS, snare: snareS, kick: kickS } : null,
     }),
+    // test seam: the orchestral hold's written-out score, so a test can
+    // read the plan before a single sample plays
+    __satz: () => ({ plan: planHold }),
     // test seam: the drive's near/far split — the warp state, the moving
     // thrust sub, and the lanes, so a test can prove the force stays near
     // while the music recedes

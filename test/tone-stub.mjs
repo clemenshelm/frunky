@@ -85,6 +85,9 @@ const fakeCtx = new FakeAudioContext();
 // Generic chainable nodes; a working Transport that actually drives the
 // 16th-note callback so the sequencer and phase machine really run.
 let nodeSeq = 0;
+// debug seam: every node ever built, by id — a scheduling-order error names
+// only "node N", and finding N's instrument by hand costs an hour each time
+const allNodes = [];
 // how many notes the arrangement actually fires — a proxy for density that a
 // mix-consistency check can read
 const meter = { notes: 0 };
@@ -162,6 +165,8 @@ function toneNode() {
     settings: {},
     set(o) { if (o && typeof o === "object") mergeSettings(n.settings, o); return n; },
   };
+  n.__id = id;
+  allNodes.push(n);
   return n;
 }
 const SPB = 60 / 132 / 4;
@@ -209,4 +214,4 @@ const Tone = new Proxy({}, {
 });
 globalThis.Tone = Tone;
 
-export { Tone, transport, fakeCtx, toneCtx, meter, stubConfig };
+export { Tone, transport, fakeCtx, toneCtx, meter, stubConfig, allNodes };

@@ -110,8 +110,12 @@ function boot(seed) {
         const d = Frunky.describe();
         if (d) formSeen.add(Frunky.__set().piece.num + ":" + d.partLabel);
       }
+      // build 68: the climb bars of an ARMED lift are the exception by
+      // design — the fill ladder leads into the lift, and the lift arrives.
+      // The guard keeps protecting the pedal, where nothing ever arrives
       if (flowOn && Frunky.__fills().current &&
-          Frunky.__fills().current.length >= 7) largeInFlow++;
+          Frunky.__fills().current.length >= 7 &&
+          dr.lift.arm < 0) largeInFlow++;
       roomLastBar = st.sends.snare;
       if (flowOn) {
         (dr.lift.active ? hatPerBar.lift : hatPerBar.pedal).push(hats - hatMark);

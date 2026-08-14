@@ -206,9 +206,28 @@ function boot(seed, store) {
     /crashS = reg\(new Tone\.MetalSynth\(/.test(script));
   ok("… with its hiss rolled off",
     /crashLp = reg\(new Tone\.Filter\(\{ frequency: 8500, type: "lowpass" \}\)\)/.test(script));
+  // crash v4 (field report: "the crash should ring MUCH longer, it has no
+  // volume at all"): v3 cut its own tail — decay 1.6 s but triggered for
+  // 0.7 s, so release began at 0.7 and the ring died near 1.2 s. A real
+  // crash rings for seconds. So: the envelope rings past three seconds,
+  // the trigger lets most of the decay play out, and the level comes up
+  // ~5.5 dB — the top of the wall, not a shy splash behind it
   ok("… ringing into the room behind the wall",
     /crashS\.chain\(crashLp, busFx\)/.test(script) &&
-    /crashS\.volume\.value = db\(0\.16\)/.test(script));
+    /crashS\.volume\.value = db\(0\.3\)/.test(script));
+  ok("… with a real cymbal tail (decay 3.2, release 1.4)",
+    /envelope: \{ attack: 0\.001, decay: 3\.2, release: 1\.4 \}/.test(script));
+  ok("… and the trigger lets the tail ring (2.8 s, not 0.7)",
+    /crashS\.triggerAttackRelease\(2\.8, at\("crash", t\), 0\.75\)/.test(script));
+  // drop body v2 (same report: "the kick at the climax is still quite
+  // weak"): the car-mix shelf now takes -10 dB at 100 Hz — right for the
+  // CONTINUOUS bass bed, but the one-shot drop impact pays the same toll.
+  // The one-shot buys its weight back: more body, longer sub sweep, more
+  // low thump
+  ok("the sub impact carries real body (0.8, was 0.55)",
+    /g\.gain\.setValueAtTime\(0\.8, t\);\s*\n\s*g\.gain\.exponentialRampToValueAtTime\(0\.0001, t \+ 0\.75\)/.test(script));
+  ok("… and its low thump answers the shelf (0.6, was 0.45)",
+    /ng\.gain\.setValueAtTime\(0\.6, t\)/.test(script));
   ok("the crash really strikes at the drop, " +
     ((seam().nodes && seam().nodes.crash) ? seam().nodes.crash.trigs : "?") +
     " strikes for " + seam().drops + " drops",

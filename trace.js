@@ -183,6 +183,10 @@
           // positions. -1 = "no probe", which must never read as "parked"
           out: probe(state.out), gm: probe(state.gm), gd: probe(state.gd),
           gh: probe(state.gh), gdr: probe(state.gdr), air: probe(state.air),
+          // the drift watch (build 68): output-clock glitch episodes, worst
+          // stall ms, and the path's learned jitter — the hiccup layer no
+          // other counter here can see
+          gl: probe(state.gl), gx: probe(state.gx), aj: probe(state.aj),
         });
       } catch (err) { void err; }
     }
@@ -392,7 +396,69 @@
     };
   }
 
-  const api = { create, CONSENT_KEY, PENDING_KEY, STORAGE_KEYS, makeSilenceWatch };
+  // ---- the drift watch (build 68) ------------------------------------------
+  // The hiccup detector. A 262 s phone drive with audible hiccups recorded a
+  // spotless trace — late 0, stalls 0, under 0 — because the phone's Chrome
+  // has no RenderCapacity API, and the hiccup layer (render/output) was
+  // therefore invisible. What every browser CAN say is how the audio clock
+  // moves against the wall clock: when the output stalls, the audio clock
+  // falls behind by exactly the audible gap.
+  // Fed every ~250 ms with (wallMs, audioSec). It first LEARNS the device's
+  // natural jitter (burst rendering makes drift oscillate; a fixed threshold
+  // would false-fire on exactly the bursty Bluetooth paths this exists for),
+  // then counts drift jumps past the learned threshold as glitch episodes.
+  // read() → { gl: episodes (cumulative), gx: worst excess ms, aj: learned
+  // jitter ms } — aj is -1 until the first calibration, per the trace contract.
+  function makeDriftWatch() {
+    const CAL = 20, WIN = 8;
+    const win = [];
+    let fed = 0, thr = 0, ajMs = -1;
+    let inGlitch = false, gl = 0, gx = 0;
+    let lastWall = -1;
+    function feed(wallMs, audioSec) {
+      try {
+        if (typeof wallMs !== "number" || !Number.isFinite(wallMs)) return;
+        if (typeof audioSec !== "number" || !Number.isFinite(audioSec)) return;
+        // a feed gap means the clock legitimately stood still (suspend,
+        // hidden tab): recalibrate instead of counting a phantom glitch
+        if (lastWall >= 0 && wallMs - lastWall > 1000) {
+          win.length = 0; fed = 0; thr = 0; inGlitch = false;
+        }
+        lastWall = wallMs;
+        const d = wallMs / 1000 - audioSec;
+        if (fed < CAL) {
+          win.push(d); if (win.length > CAL) win.shift();
+          fed++;
+          if (fed === CAL) {
+            const j = Math.max(...win) - Math.min(...win);
+            thr = Math.max(0.05, j * 2);
+            // the learned jitter characterises the output path itself and is
+            // recorded once, from the first (clean-boot) calibration
+            if (ajMs < 0) ajMs = Math.round(j * 1000);
+            while (win.length > WIN) win.shift();
+          }
+          return;
+        }
+        // baseline = the recent windowed minimum: slow clock-rate wander
+        // follows it, a real stall jumps past it within one feed
+        const base = Math.min(...win);
+        const excess = d - base;
+        if (excess > thr) {
+          if (!inGlitch) { inGlitch = true; gl++; }
+          const ms = Math.round(excess * 1000);
+          if (ms > gx) gx = ms;
+        } else if (excess < thr / 2) {
+          inGlitch = false;
+        }
+        win.push(d); if (win.length > WIN) win.shift();
+      } catch (err) { void err; }
+    }
+    feed.read = () => ({ gl, gx, aj: ajMs });
+    return feed;
+  }
+
+  const api = { create, CONSENT_KEY, PENDING_KEY, STORAGE_KEYS, makeSilenceWatch,
+    makeDriftWatch };
   if (typeof window !== "undefined") window.FrunkyTrace = api;
   globalThis.FrunkyTrace = api;
 })();

@@ -136,6 +136,54 @@ function boot(seed) {
   transport.clear();
 }
 
+// ---- build fills (Build 68): the lead-in ladder ------------------------------
+// Field report: "for the build it would be nice to have somewhat more complex
+// drum fills LEADING INTO the climax, not only this snare roll". The old rule
+// said "never during a build (the roll owns those bars)" — which is exactly
+// the monotony the report names. The roll keeps the floor; on top, each climb
+// bar's tail hands the drummer a figure that escalates with the climb: toms
+// enter (tier 1), a linear run (tier 2), the full cascade riding the roll
+// into the drop (tier 3). Escalation is the fill ladder's whole identity, so
+// the tiers are pinned as a LADDER, not as three unrelated pools.
+{
+  const script2 = readFileSync(new URL("../engine.js", import.meta.url), "utf8");
+  const Frunky = boot(0.11);
+  const c = typeof Frunky.__fills === "function" ? Frunky.__fills().crate : null;
+  const b = c && c.build;
+  ok("the crate carries the build ladder (tiers 1..3)",
+    !!b && Array.isArray(b[1]) && Array.isArray(b[2]) && Array.isArray(b[3]));
+  ok("every tier offers variety (>= 2 figures each)",
+    !!b && b[1].length >= 2 && b[2].length >= 2 && b[3].length >= 2);
+  const hits = (f) => f.length;
+  const maxPos = (f) => Math.max(...f.map(([p]) => p));
+  const minHits = (tier) => Math.min(...tier.map(hits));
+  if (b) {
+    ok("the ladder escalates: every tier-3 figure is denser than every tier-1",
+      minHits(b[3]) > Math.max(...b[1].map(hits)) && minHits(b[2]) >= 4 &&
+      minHits(b[3]) >= 8);
+    ok("every build figure drives INTO the one (last hit at pos 15, near-full)",
+      [1, 2, 3].every((k) => b[k].every((f) => {
+        const last = f[f.length - 1];
+        return last[0] === 15 && last[3] >= 0.85;
+      })));
+    ok("figures stay at the bar tail (nothing before pos 4)",
+      [1, 2, 3].every((k) => b[k].every((f) => f.every(([p]) => p >= 4 && p <= 15))));
+    ok("the data is playable (voices t/s/g/k, velocities 0..1)",
+      [1, 2, 3].every((k) => b[k].every((f) => f.every(([p, v, , vl]) =>
+        Number.isInteger(p) && ["t", "s", "g", "k"].includes(v) &&
+        vl > 0 && vl <= 1))));
+    ok("tier 3 keeps a full cascade (an all-toms descending figure)",
+      b[3].some((f) => f.every(([, v]) => v === "t") &&
+        f.every(([, , p], i, a) => i === 0 || p <= a[i - 1][2])));
+  }
+  // the wiring: build bars now SELECT a fill instead of being excluded, the
+  // tier rides buildSeg, and the fill's weight escalates with the climb
+  ok("build bars pick from the ladder by climb segment",
+    /DRUMFILLS\.build\[buildSeg\]/.test(script2));
+  ok("the build fill's weight rides the climb, not the arc stage",
+    /buildOn \? 0\.7 \+ 0\.1 \* buildSeg : 0\.5 \+ 0\.5 \* engine\.stage/.test(script2));
+}
+
 if (failures.length) {
   console.error("FAILURES:");
   for (const f of failures) console.error("  -", f);

@@ -259,6 +259,15 @@
     gh: int(-1, 200, -1),       // harmony bus gain, centi (the warp closes it)
     gdr: int(-1, 200, -1),      // drums bus gain, centi
     air: int(-1, 30000, -1),    // depth lowpass cutoff, Hz (parked low = mute)
+    // The drift watch (build 68). A 262 s phone drive with audible hiccups
+    // recorded a spotless trace: the hiccup layer (render/output underruns,
+    // Bluetooth) is invisible where RenderCapacity is missing — and this
+    // phone's Chrome has none. The audio clock measured against the wall
+    // clock sees every audible stall regardless of layer. ABOUT THE ENGINE's
+    // output clock, never about the person; -1 = no probe / older build.
+    gl: int(-1, 100000, -1),    // output-clock glitch episodes, cumulative
+    gx: int(-1, 600000, -1),    // worst stall excess, ms
+    aj: int(-1, 10000, -1),     // learned natural jitter of the path, ms
   });
 
   const EVENT = obj({

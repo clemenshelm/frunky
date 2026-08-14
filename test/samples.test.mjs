@@ -158,8 +158,10 @@ function boot(seed) {
       /const strRev = reg\(new Tone\.Gain\(1\.5\)\);/.test(script));
     // the synth glue stays quietly underneath the sampled section — one
     // violin per note is thin; the blend is what reads as an ensemble
+    // (build 68: the desks stagger — strLo is triggered per note now, but
+    // the glue invariant is unchanged: quietly underneath, 0.35)
     ok("the triangle glue plays under the strings (0.35)",
-      /strLo\.triggerAttackRelease\(progEff\[ci\]\.slice\(0, 2\)\.map\(F\),[\s\S]{0,320}padTri\.triggerAttackRelease\(progEff\[ci\]\.map\(\(m\) => F\(m \+ 12\)\),\s*\n\s*SPB \* 30 \* 0\.9, at\("padTri", t\), vv\(padVol \* 0\.35, 0\.4\)\)/.test(script));
+      /strLo\.triggerAttackRelease\(F\(m\), SPB \* 30 \* 0\.9,[\s\S]{0,320}padTri\.triggerAttackRelease\(progEff\[ci\]\.map\(\(m\) => F\(m \+ 12\)\),\s*\n\s*SPB \* 30 \* 0\.9, at\("padTri", t\), vv\(padVol \* 0\.35, 0\.4\)\)/.test(script));
     Frunky.stop();
     transport.clear();
   }
