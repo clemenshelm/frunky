@@ -1097,7 +1097,7 @@
   const poly = (p, n) => { try { p.maxPolyphony = n; } catch (err) { void err; } return p; };
 
   let master, comp, limiter, makeup, tensionLp, masterHp, panner, duck, dry;
-  let outMeter;
+  let outMeter, sinkDest, sinkEl;
   let carLow, carMud, carPres, carAir;
   let depthLp, depthGain;
   let busDrums, busBass, busHarm, busLead, busFx;
@@ -1146,7 +1146,10 @@
   // `lite` is the device PROBE, reported to telemetry and the trace —
   // no behavior reads it any more (Build 64: one mode; onemode.test pins
   // that the engine never branches on it again)
-  const opts = { curveOutward: true, inertiaDepth: true, lite: lowPower, carMix: true };
+  const opts = { curveOutward: true, inertiaDepth: true, lite: lowPower, carMix: true,
+    // build 67: hand the output to the browser as MEDIA (an <audio> element)
+    // rather than raw AudioContext output — the Tesla experiment
+    mediaSink: true };
 
   // Control-rate writes. Setting an AudioParam's .value schedules a STEP, and
   // fifteen of them sixty times a second is nine hundred discontinuities per
@@ -1422,7 +1425,41 @@
     depthLp = reg(new Tone.Filter(18000, "lowpass"));
     depthGain = reg(new Tone.Gain(1));
     panner.chain(depthLp, depthGain, tensionLp, masterHp, carLow, carMud, carPres, carAir,
-      makeup, comp, master, limiter, Tone.getDestination());
+      makeup, comp, master, limiter);
+    // The last hop is a CHOICE (build 67). Build 66's audibility tracing
+    // proved on two real Tesla drives that the graph produced signal the
+    // whole time while the driver heard next to nothing — the sound is lost
+    // BELOW Web Audio, in the browser's output path. The one lever a page
+    // has there is how it hands audio over: raw AudioContext output is what
+    // car browsers deprioritise; playback through an HTMLMediaElement is
+    // "media", the category the car's streaming apps audibly live in. So the
+    // limiter feeds an <audio> element by default, with the direct
+    // connection kept as A/B and fallback — exactly one of the two, ever.
+    sinkDest = null; sinkEl = null;
+    if (opts.mediaSink) {
+      try {
+        const raw = Tone.getContext().rawContext;
+        const AudioEl = typeof window !== "undefined" ? window.Audio : null;
+        if (raw && typeof raw.createMediaStreamDestination === "function" &&
+            typeof AudioEl === "function") {
+          sinkDest = raw.createMediaStreamDestination();
+          limiter.connect(sinkDest);
+          sinkEl = new AudioEl();
+          sinkEl.srcObject = sinkDest.stream;
+          const played = sinkEl.play();
+          if (played && typeof played.catch === "function") {
+            played.catch(() => {
+              // an element the browser refuses to play would be silence with
+              // a healthy graph behind it — fall back to the direct path
+              try { limiter.disconnect(sinkDest); } catch (err) { void err; }
+              sinkDest = null; sinkEl = null;
+              try { limiter.connect(Tone.getDestination()); } catch (err) { void err; }
+            });
+          }
+        }
+      } catch (err) { void err; sinkDest = null; sinkEl = null; }
+    }
+    if (!sinkEl) limiter.connect(Tone.getDestination());
     // The output witness (build 66). Four real Tesla drives recorded a
     // perfectly healthy sequencer — errors 0, notes flowing — while the
     // driver heard silence: the trace could not say where between "note
@@ -2953,8 +2990,11 @@
     // During the lift the pad grows brighter and half again as large
     const moodF = engine.piece
       ? (engine.piece.mood === "deep" ? 0.88 : engine.piece.mood === "anthem" ? 1.12 : 1) : 1;
-    const padVol = (0.16 + 0.2 * flowHigh) * (breather ? 1.5 : 1) * (liftPhase ? 1.5 : 1)
-      * moodF * (bridgeDown ? 1.35 : 1);
+    // Build 67 field trim: "the organ sticks out" — the long held chords.
+    // -2 dB on the whole carpet, named so the next verdict is a one-line move
+    const PAD_TRIM = 0.8;
+    const padVol = PAD_TRIM * (0.16 + 0.2 * flowHigh) * (breather ? 1.5 : 1)
+      * (liftPhase ? 1.5 : 1) * moodF * (bridgeDown ? 1.35 : 1);
     const padCut = 950 + 350 * Math.sin(bar * 0.37) + (liftPhase ? 350 : 0);
     if (hrEff === "twobar") {
       // the lift's harmony is anchored to ITS OWN start (see ci above), so
@@ -3334,7 +3374,9 @@
     // at speed — deeper shelf, detail band further forward
     // v3 (Build 65, measured — see the carMud node comment): deeper shelf,
     // mud cut, stronger presence, and an air shelf
-    ctl(carLow.gain, "carLow", opts.carMix ? -8.5 : 0, 0.05, 0.2);
+    // v4 (build 67): phone-over-Bluetooth verdict on v3 — "still a touch too
+    // bass-heavy, not much". 1.5 dB deeper on the shelf, nothing else moves
+    ctl(carLow.gain, "carLow", opts.carMix ? -10 : 0, 0.05, 0.2);
     ctl(carMud.gain, "carMud", opts.carMix ? -3 : 0, 0.05, 0.2);
     ctl(carPres.gain, "carPres", opts.carMix ? 6 : 0, 0.05, 0.2);
     ctl(carAir.gain, "carAir", opts.carMix ? 2.5 : 0, 0.05, 0.2);
@@ -3616,6 +3658,8 @@
     if (repeatId !== null) transport.clear(repeatId);
     transport.cancel(0);
     master.gain.rampTo(0.0001, 0.1);
+    // release the media session, or the browser keeps a playing element alive
+    if (sinkEl) { try { sinkEl.pause(); } catch (err) { void err; } }
     const old = nodes; nodes = [];
     setTimeout(() => { for (const n of old) { try { n.dispose(); } catch (err) { void err; } } }, 700);
   }
@@ -3680,6 +3724,7 @@
           return Math.round(Math.sqrt(sum / v.length) * 1000);
         } catch (err) { void err; return -1; }
       })(),
+      sink: !!sinkEl,
       gm: centiGain(master), gd: centiGain(duck),
       gh: centiGain(busHarm), gdr: centiGain(busDrums),
       air: (() => {
@@ -3734,7 +3779,8 @@
     // topology rather than trust the gesture (see performance.test.mjs)
     __graph: () => (revSend
       ? { chorus: chorus || null, revSend, reverb, padLp, gateLp, busHarm, shed: fxShed,
-          masterHp, carLow, carMud, carPres, carAir, makeup, limiter, outMeter }
+          masterHp, carLow, carMud, carPres, carAir, makeup, limiter, outMeter,
+          sinkEl: sinkEl || null }
       : null),
     // test seam: the album layer — which recipe frames the current piece and
     // which nodes its groove and lead actually strike, so a test can measure

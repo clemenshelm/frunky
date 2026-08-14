@@ -64,8 +64,11 @@ function frames(n) {
   // and an air shelf for what the one-mode carpet's lost saw stack used to
   // supply. Pinned exactly, because "somewhere in the band" is how the
   // last calibration quietly stopped matching the car
-  ok(label + "v3 shelf depth is -8.5, got " + g.carLow.gain.value,
-    g.carLow.gain.value === -8.5);
+  // v4 (build 67): the field verdict after the v3 A/B — phone over Bluetooth,
+  // "still a touch too bass-heavy, not much" — is worth exactly 1.5 dB more
+  // shelf, not a redesign
+  ok(label + "v4 shelf depth is -10, got " + g.carLow.gain.value,
+    g.carLow.gain.value === -10);
   ok(label + "v3 mud cut is -3, got " + g.carMud.gain.value,
     g.carMud.gain.value === -3);
   ok(label + "v3 presence lift is 6, got " + g.carPres.gain.value,
@@ -97,6 +100,14 @@ ok("the low shelf sits at the cabin-gain corner (~100 Hz, lowshelf)",
   /carLow = reg\(new Tone\.Filter\(\{ frequency: 100, type: "lowshelf"/.test(script));
 ok("the presence peak sits in the detail band (~3.2 kHz, peaking)",
   /carPres = reg\(new Tone\.Filter\(\{ frequency: 3200, type: "peaking"/.test(script));
+
+// Build 67, the second field verdict from the same drive: "the organ sticks
+// out" — the long held chords, i.e. the pad carpet's voicings. One named
+// trim on padVol (-2 dB), so the next adjustment is a one-line diff and this
+// pin, not a hunt through a five-factor product
+ok("the pad carpet carries the -2 dB field trim (PAD_TRIM 0.8)",
+  /const PAD_TRIM = 0\.8/.test(script) &&
+  /const padVol = PAD_TRIM \* \(0\.16 \+ 0\.2 \* flowHigh\)/.test(script));
 
 if (failures.length) {
   console.error("FAILURES:");

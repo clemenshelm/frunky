@@ -296,7 +296,10 @@
     hw: int(0, 64),             // navigator.hardwareConcurrency
     mem: int(0, 128),           // navigator.deviceMemory, in GB
     lite: bool(),
-    opts: obj({ curveOutward: bool(), inertiaDepth: bool() }),
+    opts: obj({ curveOutward: bool(), inertiaDepth: bool(),
+      // build 67: WHICH output path the drive used (media element vs raw
+      // AudioContext). A car verdict is uninterpretable without it.
+      mediaSink: bool() }),
     samples: arr(SAMPLE, MAX_SAMPLES),
     events: arr(EVENT, MAX_EVENTS),
     msgs: arr(text(), MAX_MSGS),

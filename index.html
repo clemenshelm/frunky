@@ -210,6 +210,7 @@
   <button id="optCurve">Kurve: aussen</button>
   <button id="optDepth">Trägheits-Tiefe: an</button>
   <button id="optCarMix">Car-Mix: an</button>
+  <button id="optSink">Ausgabe: Medien</button>
   <button id="optTrace">Fehlerdaten: aus</button>
   <span id="motionStat">Motion: …</span>
 </div>
@@ -219,12 +220,12 @@
 </footer>
 
 <script src="vendor/Tone.js"></script>
-<script src="engine.js?v=66"></script>
-<script src="geo.js?v=66"></script>
-<script src="diagnose.js?v=66"></script>
-<script src="trace-schema.js?v=66"></script>
-<script src="trace.js?v=66"></script>
-<script src="fresh.js?v=66"></script>
+<script src="engine.js?v=67"></script>
+<script src="geo.js?v=67"></script>
+<script src="diagnose.js?v=67"></script>
+<script src="trace-schema.js?v=67"></script>
+<script src="trace.js?v=67"></script>
+<script src="fresh.js?v=67"></script>
 <script>
 (() => {
   "use strict";
@@ -232,7 +233,7 @@
   // to know whether a trip tested the code we shipped is to read it back —
   // three reports in a row turned out to be the same stale build.
   // (Loading the page as ?v=<something-new> is what forces a fresh copy.)
-  const BUILD = "66";
+  const BUILD = "67";
   const el = (id) => document.getElementById(id);
   const startBtn = el("start"), stopBtn = el("stop");
   const speedEl = el("speed"), stateEl = el("state"), forceEl = el("forceBar");
@@ -354,6 +355,7 @@
   // question about the body, and a question needs two answers to compare
   const optCurve = el("optCurve"), optDepth = el("optDepth");
   const optCarMix = el("optCarMix");
+  const optSink = el("optSink");
   function paintOpts() {
     const o = Frunky.options();
     optCurve.textContent = "Kurve: " + (o.curveOutward ? "aussen" : "innen");
@@ -362,6 +364,8 @@
     optDepth.classList.toggle("on", o.inertiaDepth);
     optCarMix.textContent = "Car-Mix: " + (o.carMix ? "an" : "aus");
     optCarMix.classList.toggle("on", o.carMix);
+    optSink.textContent = "Ausgabe: " + (o.mediaSink ? "Medien" : "direkt");
+    optSink.classList.toggle("on", o.mediaSink);
     const c = tracer.consent();
     optTrace.textContent = "Fehlerdaten: " + (c === true ? "an" : c === false ? "aus" : "ungefragt");
     optTrace.classList.toggle("on", c === true);
@@ -384,6 +388,12 @@
   // and an A/B needs a B. Not persisted: ON is the right default every day.
   optCarMix.addEventListener("click", () => {
     Frunky.setOption("carMix", !Frunky.options().carMix); paintOpts();
+  });
+  // the output-path A/B (build 67). The choice is made when the graph is
+  // built, so a flip taken while driving applies on the next start — which
+  // is exactly how the experiment is run: stop, flip, start, listen.
+  optSink.addEventListener("click", () => {
+    Frunky.setOption("mediaSink", !Frunky.options().mediaSink); paintOpts();
   });
   // One mode (Build 64): the graph is the same on every device — budgeted
   // for the weakest target (Tesla, phone), which is the only honest way to
